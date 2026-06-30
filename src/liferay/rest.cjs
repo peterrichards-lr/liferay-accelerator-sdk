@@ -289,6 +289,9 @@ class LiferayRestService {
 
         return res.data;
       } catch (err) {
+        if (err.name === 'ContractViolationError') {
+          throw err;
+        }
         // Determine if we should retry
         const isRetryable =
           err.name !== 'ContractViolationError' &&

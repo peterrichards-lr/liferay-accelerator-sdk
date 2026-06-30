@@ -1,7 +1,7 @@
 import { vi, describe, it, expect, beforeAll } from 'vitest';
 
 const sdk = require('../src/index.js');
-const { server } = require('./mocks/server.cjs');
+import { server } from './setup.mjs';
 const { http, HttpResponse } = require('msw');
 
 describe('SDK Inbound Response Contract Validation', () => {
@@ -105,6 +105,78 @@ describe('SDK Inbound Response Contract Validation', () => {
     ).rejects.toThrow();
 
     // Verify logger output the violation
+    expect(logger.error).toHaveBeenCalled();
+  });
+
+  it('should pass inbound validation when Liferay GET response perfectly matches Channel DTO', async () => {
+    const mockChannel = {
+      id: 54321,
+      externalReferenceCode: 'CH-123',
+      name: 'B2B Web Store',
+      type: 'site',
+      currencyCode: 'USD',
+      siteGroupId: 20127,
+    };
+
+    server.use(
+      http.get(
+        /\/o\/headless-commerce-admin-channel\/v1\.0\/channels\/CH-123/,
+        () => {
+          return HttpResponse.json(mockChannel);
+        }
+      )
+    );
+
+    const data = await rest._request(
+      {
+        liferayUrl: 'http://localhost',
+        validateInboundResponse: true,
+        clientId: 'dummy-id',
+        clientSecret: 'dummy-secret',
+      },
+      {
+        url: '/o/headless-commerce-admin-channel/v1.0/channels/CH-123',
+        method: 'GET',
+      }
+    );
+    expect(data.id).toBe(54321);
+    expect(data.name).toBe('B2B Web Store');
+  });
+
+  it('should throw ContractViolationError when Channel name is passed as a localized object instead of a string', async () => {
+    const invalidChannel = {
+      id: 54321,
+      externalReferenceCode: 'CH-BAD',
+      name: {
+        en_US: 'Invalid Localized Name Object',
+      },
+      type: 'site',
+    };
+
+    server.use(
+      http.get(
+        /\/o\/headless-commerce-admin-channel\/v1\.0\/channels\/CH-BAD/,
+        () => {
+          return HttpResponse.json(invalidChannel);
+        }
+      )
+    );
+
+    await expect(
+      rest._request(
+        {
+          liferayUrl: 'http://localhost',
+          validateInboundResponse: true,
+          clientId: 'dummy-id',
+          clientSecret: 'dummy-secret',
+        },
+        {
+          url: '/o/headless-commerce-admin-channel/v1.0/channels/CH-BAD',
+          method: 'GET',
+        }
+      )
+    ).rejects.toThrow(/must be string/);
+
     expect(logger.error).toHaveBeenCalled();
   });
 

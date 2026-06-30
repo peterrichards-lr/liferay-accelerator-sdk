@@ -40,6 +40,18 @@ const CONTRACT_MAPPINGS = [
     schema: 'Warehouse',
   },
   {
+    pattern: /\/o\/headless-commerce-admin-channel\/v1\.0\/channels\/batch/,
+    spec: 'headless-commerce-admin-channel-v1.0-openapi.json',
+    schema: 'Channel',
+    isBatch: true,
+  },
+  {
+    pattern: /\/o\/headless-commerce-admin-channel\/v1\.0\/channels/,
+    method: 'POST',
+    spec: 'headless-commerce-admin-channel-v1.0-openapi.json',
+    schema: 'Channel',
+  },
+  {
     pattern: /\/o\/headless-commerce-admin-pricing\/v2\.0\/price-lists\/batch/,
     spec: 'headless-commerce-admin-pricing-v2.0-openapi.json',
     schema: 'PriceList',
@@ -112,6 +124,22 @@ const CONTRACT_MAPPINGS = [
     method: 'GET',
     spec: 'headless-commerce-admin-pricing-v2.0-openapi.json',
     schema: 'PriceList',
+    isInbound: true,
+    isPage: true,
+  },
+  {
+    pattern:
+      /\/o\/headless-commerce-admin-channel\/v1\.0\/channels\/[a-zA-Z0-9-]+$/,
+    method: 'GET',
+    spec: 'headless-commerce-admin-channel-v1.0-openapi.json',
+    schema: 'Channel',
+    isInbound: true,
+  },
+  {
+    pattern: /\/o\/headless-commerce-admin-channel\/v1\.0\/channels$/,
+    method: 'GET',
+    spec: 'headless-commerce-admin-channel-v1.0-openapi.json',
+    schema: 'Channel',
     isInbound: true,
     isPage: true,
   },
