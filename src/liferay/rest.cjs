@@ -3215,6 +3215,16 @@ class LiferayRestService {
     );
   }
 
+  async createTaxonomyCategory(config, vocabularyId, categoryPayload) {
+    return await this._post(
+      config,
+      PATH.TAXONOMY_CATEGORIES(vocabularyId),
+      categoryPayload,
+      'create-taxonomy-category',
+      'Failed to create taxonomy category'
+    );
+  }
+
   async getOptionCategoryByKey(config, key) {
     try {
       const res = await this._get(

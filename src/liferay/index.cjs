@@ -2009,6 +2009,14 @@ class LiferayService {
     return this.rest.createSpecificationCategoryWithReuse(config, payload);
   }
 
+  createTaxonomyCategory(config, vocabularyId, categoryPayload) {
+    return this.rest.createTaxonomyCategory(
+      config,
+      vocabularyId,
+      categoryPayload
+    );
+  }
+
   createSpecificationWithReuse(config, payload) {
     return this.rest.createSpecificationWithReuse(config, payload);
   }

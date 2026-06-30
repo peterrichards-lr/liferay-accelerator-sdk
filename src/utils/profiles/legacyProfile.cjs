@@ -25,6 +25,7 @@ const API_ROOT = {
   ORDER: '/o/headless-commerce-admin-order/v1.0',
   PRICING: '/o/headless-commerce-admin-pricing/v2.0',
   USER: '/o/headless-admin-user/v1.0',
+  TAXONOMY: '/o/headless-admin-taxonomy/v1.0',
 };
 
 const BASE = {
@@ -339,6 +340,8 @@ const PATH = {
     `${BASE.BATCH_ENGINE_API}/import-task/${enc(batchId)}/content`,
   IMPORT_TASK_ERROR_REPORT: (batchId) =>
     `${BASE.BATCH_ENGINE_API}/import-task/${enc(batchId)}/failed-items/report`,
+  TAXONOMY_CATEGORIES: (vocabularyId) =>
+    `${API_ROOT.TAXONOMY}/taxonomy-vocabularies/${vocabularyId}/taxonomy-categories`,
 };
 
 module.exports = {
