@@ -1222,7 +1222,7 @@ class LiferayRestService {
 
     let currentERC = erc;
     let attempts = 0;
-    const maxAttempts = 2;
+    const maxAttempts = 3;
     let lastError;
 
     while (attempts < maxAttempts) {
@@ -1257,6 +1257,7 @@ class LiferayRestService {
           data: currentBatchPayload,
           op,
           friendly,
+          maxRetries: 1,
         });
 
         this._cacheItemERCs(currentERC, data?.id, itemERCs, sessionId);
@@ -1310,38 +1311,116 @@ class LiferayRestService {
           (errorTitle.toLowerCase().includes('already in use') ||
             errorMessage.toLowerCase().includes('already in use'));
 
-        if (isDuplicateERC) {
-          const isBatchERCCollision =
-            errorTitle.includes(currentERC) ||
-            errorMessage.includes(currentERC);
+        const isRetryable = ErrorHandler.isRetryableError(error);
 
-          if (isBatchERCCollision && attempts < maxAttempts - 1) {
-            const oldERC = currentERC;
-            currentERC = createERC(ERC_PREFIX[prefixKey] || ERC_PREFIX.BATCH);
-            logger.warn(
-              `Batch ERC collision detected for ${entityName}. Regenerating batch ERC and retrying.`,
+        if (isDuplicateERC || isRetryable) {
+          // Check if DXP already has this batch task active by querying by ERC
+          try {
+            const getUrl = `/o/headless-batch-engine/v1.0/import-task/by-external-reference-code/${encodeURIComponent(currentERC)}`;
+            const existingTask = await this._get(
+              config,
+              getUrl,
+              'get-import-task-by-erc',
+              'Failed to fetch import task by ERC'
+            );
+
+            if (existingTask && existingTask.id) {
+              logger.warn(
+                `Batch ${entityName} with ERC ${currentERC} was already received by Liferay (recovery from transient error/duplicate). Resuming tracking...`,
+                {
+                  batchId: existingTask.id,
+                  status: existingTask.status,
+                  correlationId:
+                    config?.correlationId || session?.correlationId,
+                }
+              );
+
+              this._cacheItemERCs(
+                currentERC,
+                existingTask.id,
+                itemERCs,
+                sessionId
+              );
+
+              if (cache) {
+                cache.set(
+                  `batch:${existingTask.id}:submission`,
+                  {
+                    op,
+                    erc: currentERC,
+                    itemERCs,
+                    count: processedItems.length,
+                    createdAt: new Date().toISOString(),
+                  },
+                  getBatchCacheTTLms(configService)
+                );
+              }
+
+              return {
+                batchId: existingTask.id,
+                status: existingTask.status || 'submitted',
+                count: processedItems.length,
+                batchExternalReferenceCode: currentERC,
+                batchRefs: [
+                  {
+                    taskId: existingTask.id,
+                    count: processedItems.length,
+                    erc: currentERC,
+                  },
+                ],
+              };
+            }
+          } catch (getErr) {
+            logger.debug(
+              `Batch task for ERC ${currentERC} not found or query failed (expected if it hasn't reached Liferay yet): ${getErr.message}`
+            );
+          }
+
+          if (isDuplicateERC) {
+            const isBatchERCCollision =
+              errorTitle.includes(currentERC) ||
+              errorMessage.includes(currentERC);
+
+            if (isBatchERCCollision && attempts < maxAttempts - 1) {
+              const oldERC = currentERC;
+              currentERC = createERC(ERC_PREFIX[prefixKey] || ERC_PREFIX.BATCH);
+              logger.warn(
+                `Batch ERC collision detected for ${entityName}. Regenerating batch ERC and retrying.`,
+                {
+                  oldERC,
+                  newERC: currentERC,
+                  sessionId,
+                  correlationId: config?.correlationId,
+                }
+              );
+              attempts++;
+              await delay(500 * attempts);
+              continue;
+            }
+
+            logger.error(
+              `Fatal ERC collision in batch ${op}. One or more items already exist in Liferay.`,
               {
-                oldERC,
-                newERC: currentERC,
-                sessionId,
+                batchERC: currentERC,
+                isBatchCollision: isBatchERCCollision,
+                title: errorTitle,
+                message: errorMessage,
                 correlationId: config?.correlationId,
               }
             );
+          } else if (isRetryable && attempts < maxAttempts - 1) {
             attempts++;
-            await delay(500 * attempts);
+            const backoffDelay = 1000 * Math.pow(2, attempts);
+            logger.warn(
+              `Transient error in batch POST for ${entityName}. Retrying (${attempts}/${maxAttempts}) in ${backoffDelay}ms: ${errorMessage}`,
+              {
+                batchERC: currentERC,
+                correlationId: config?.correlationId,
+              }
+            );
+            await delay(backoffDelay);
             continue;
           }
-
-          logger.error(
-            `Fatal ERC collision in batch ${op}. One or more items already exist in Liferay.`,
-            {
-              batchERC: currentERC,
-              isBatchCollision: isBatchERCCollision,
-              title: errorTitle,
-              message: errorMessage,
-              correlationId: config?.correlationId,
-            }
-          );
         }
 
         throw error;

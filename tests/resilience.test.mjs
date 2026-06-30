@@ -156,4 +156,106 @@ describe('SDK Resilience & Retry', () => {
       ENV.LIFERAY_API_MAX_RETRIES = oldRetries;
     }
   });
+
+  describe('Batch POST Resilience & Auto-healing', () => {
+    it('should recover and resume when POST fails but GET by ERC finds the task', async () => {
+      let postAttempts = 0;
+      let getAttempts = 0;
+
+      server.use(
+        http.post(
+          'http://localhost:8080/o/headless-commerce-admin-pricing/v2.0/price-lists/batch',
+          () => {
+            postAttempts++;
+            return new HttpResponse(null, { status: 504 }); // Gateway Timeout
+          }
+        ),
+        http.get(
+          'http://localhost:8080/o/headless-batch-engine/v1.0/import-task/by-external-reference-code/:erc',
+          () => {
+            getAttempts++;
+            return HttpResponse.json({
+              id: 9901,
+              status: 'COMPLETED',
+              executeStatus: 'COMPLETED',
+            });
+          }
+        )
+      );
+
+      const result = await restService._postBatch(config, {
+        entityName: 'priceLists',
+        items: [
+          {
+            name: 'Test Price List',
+            currencyCode: 'USD',
+            type: 'price-list',
+            catalogId: 100,
+          },
+        ],
+        itemERCKey: 'externalReferenceCode',
+        op: 'test-batch',
+        friendly: 'Test Batch',
+        path: (callbackUrl) =>
+          `/o/headless-commerce-admin-pricing/v2.0/price-lists/batch`,
+        sessionId: 'test-session',
+      });
+
+      expect(postAttempts).toBe(1);
+      expect(getAttempts).toBe(1);
+      expect(result.batchId).toBe(9901);
+      expect(result.status).toBe('COMPLETED');
+    });
+
+    it('should retry POST when GET by ERC returns 404 (not received yet)', async () => {
+      let postAttempts = 0;
+      let getAttempts = 0;
+
+      server.use(
+        http.post(
+          'http://localhost:8080/o/headless-commerce-admin-pricing/v2.0/price-lists/batch',
+          () => {
+            postAttempts++;
+            if (postAttempts === 1) {
+              return new HttpResponse(null, { status: 504 }); // Timeout
+            }
+            return HttpResponse.json({
+              id: 9902,
+              status: 'INITIAL',
+            });
+          }
+        ),
+        http.get(
+          'http://localhost:8080/o/headless-batch-engine/v1.0/import-task/by-external-reference-code/:erc',
+          () => {
+            getAttempts++;
+            return new HttpResponse(null, { status: 404 }); // Not found
+          }
+        )
+      );
+
+      const result = await restService._postBatch(config, {
+        entityName: 'priceLists',
+        items: [
+          {
+            name: 'Test Price List 2',
+            currencyCode: 'USD',
+            type: 'price-list',
+            catalogId: 100,
+          },
+        ],
+        itemERCKey: 'externalReferenceCode',
+        op: 'test-batch-2',
+        friendly: 'Test Batch 2',
+        path: (callbackUrl) =>
+          `/o/headless-commerce-admin-pricing/v2.0/price-lists/batch`,
+        sessionId: 'test-session',
+      });
+
+      expect(postAttempts).toBe(2);
+      expect(getAttempts).toBe(1);
+      expect(result.batchId).toBe(9902);
+      expect(result.status).toBe('INITIAL');
+    });
+  });
 });
