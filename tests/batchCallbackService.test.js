@@ -195,7 +195,9 @@ describe('BatchCallbackService', () => {
       mockPersistence.getIncompleteSessions.mockResolvedValue([]);
       await service.recoverOrphanedSessions();
       // Verify no recovery probe starts if there are no incomplete sessions
-      expect(mockCtx.logger.info).not.toHaveBeenCalledWith(expect.stringContaining('Starting recovery probe'));
+      expect(mockCtx.logger.info).not.toHaveBeenCalledWith(
+        expect.stringContaining('Starting recovery probe')
+      );
     });
 
     it('should probe active batches and reconcile them if Liferay says they completed', async () => {
