@@ -224,14 +224,51 @@ class LiferayGraphQLService {
   }
 
   async getTaxonomyVocabularies(config, siteKey) {
-    return this._fetchCollection(
-      config,
-      'headlessAdminTaxonomy_v1_0',
-      'taxonomyVocabularies',
-      ['id', 'externalReferenceCode', 'name', 'description'],
-      { page: 1, pageSize: 200 },
-      `siteKey eq '${siteKey}'`
-    );
+    const client = await this._getClient(config);
+    const query = `
+      query {
+        headlessAdminTaxonomy_v1_0 {
+          taxonomyVocabularies(siteKey: "${siteKey}", page: 1, pageSize: 200) {
+            items {
+              id
+              externalReferenceCode
+              name
+              description
+            }
+            totalCount
+          }
+        }
+      }
+    `;
+    try {
+      const response = await client.post('', { query });
+      if (response.data.errors) {
+        response.data.errors.forEach((err) => {
+          this.ctx.logger.warn(
+            `GraphQL Error in taxonomyVocabularies: ${err.message}`,
+            {
+              path: err.path,
+              namespace: 'headlessAdminTaxonomy_v1_0',
+              queryMethod: 'taxonomyVocabularies',
+            }
+          );
+        });
+        throw new Error(
+          `GraphQL Errors in taxonomyVocabularies: ${response.data.errors[0].message}`
+        );
+      }
+      const data =
+        response.data.data.headlessAdminTaxonomy_v1_0.taxonomyVocabularies;
+      return {
+        items: data.items || [],
+        totalCount: data.totalCount || 0,
+      };
+    } catch (err) {
+      this.ctx.logger.warn(
+        `GraphQL getTaxonomyVocabularies failed: ${err.message}`
+      );
+      throw err;
+    }
   }
 
   async getTaxonomyCategories(config, vocabularyId) {
