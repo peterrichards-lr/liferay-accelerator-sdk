@@ -2492,7 +2492,7 @@ class LiferayRestService {
         chunk.map(async (entry) => {
           try {
             const keyToUse = priceListKey || entry.priceListId;
-            await this.createPriceEntry(config, keyToUse, entry);
+            await this.createPriceEntry(config, keyToUse, entry, opts);
             results.count++;
           } catch (err) {
             results.errors.push({
@@ -2516,14 +2516,18 @@ class LiferayRestService {
     return results;
   }
 
-  async createPriceEntry(config, priceListIdOrERC, priceEntryData) {
+  async createPriceEntry(config, priceListIdOrERC, priceEntryData, opts = {}) {
     const { tierPrices, ...entryData } = priceEntryData;
 
     const isERC =
       typeof priceListIdOrERC === 'string' && isNaN(Number(priceListIdOrERC));
-    const urlPath = isERC
+    let urlPath = isERC
       ? PATH.PRICE_ENTRIES_BY_ERC(priceListIdOrERC)
       : PATH.PRICE_ENTRIES(priceListIdOrERC);
+
+    if (opts.isPromotion) {
+      urlPath = urlPath.replace('/price-lists/', '/promotions/');
+    }
 
     // Clean up priceListId from entryData since we specify it in the URL path,
     // to avoid Liferay matching/validation conflicts on ID-scoped endpoints.
