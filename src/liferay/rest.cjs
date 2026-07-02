@@ -2534,6 +2534,10 @@ class LiferayRestService {
     // ERC-scoped endpoints require priceListId in the body due to a platform validation bug.
     if (!isERC) {
       delete entryData.priceListId;
+    } else {
+      // Vulcan Batch Engine (which backs the ERC-scoped POST) strictly requires the parent
+      // ERC in the payload to resolve the relationship.
+      entryData.priceListExternalReferenceCode = priceListIdOrERC;
     }
 
     const result = await this._post(
