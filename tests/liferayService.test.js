@@ -10,6 +10,7 @@ describe('LiferayService', () => {
     liferayUrl: 'http://liferay:8080',
     clientId: 'test-client-id',
     clientSecret: 'test-client-secret',
+    siteGroupId: 20127,
   };
 
   beforeEach(() => {
@@ -162,6 +163,69 @@ describe('LiferayService', () => {
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe(999);
     expect(result[0].name).toBe('Web Store');
+  });
+
+  it('should programmatically resolve and mutate config.siteGroupId when it is missing but channels already exist', async () => {
+    const { http, HttpResponse } = require('msw');
+
+    server.use(
+      http.get('*/o/headless-admin-site/v1.0/sites', () => {
+        return HttpResponse.json({
+          items: [{ id: 20111, friendlyUrlPath: '/guest', name: 'Guest' }],
+          totalCount: 1,
+        });
+      })
+    );
+
+    const testConfig = { ...config, siteGroupId: undefined };
+    const result = await liferayService.getChannels(testConfig);
+
+    expect(result).toHaveLength(1);
+    expect(testConfig.siteGroupId).toBe(20111);
+  });
+
+  it('should programmatically resolve config.siteGroupId and auto-scaffold a Guest Web Store when no channels exist', async () => {
+    const { http, HttpResponse } = require('msw');
+
+    let postPayload = null;
+    server.use(
+      http.get('*/o/headless-commerce-admin-channel/v1.0/channels', () => {
+        return HttpResponse.json({ items: [], totalCount: 0 });
+      }),
+      http.get('*/o/headless-admin-site/v1.0/sites', () => {
+        return HttpResponse.json({
+          items: [{ id: 20111, friendlyUrlPath: '/guest', name: 'Guest' }],
+          totalCount: 1,
+        });
+      }),
+      http.post(
+        '*/o/headless-commerce-admin-channel/v1.0/channels',
+        async ({ request }) => {
+          postPayload = await request.json();
+          return HttpResponse.json({
+            id: 999,
+            name: { en_US: 'Web Store' },
+            type: 'site',
+            siteGroupId: 20111,
+            externalReferenceCode: 'AICA-CH-GUEST-STORE-20111',
+          });
+        }
+      )
+    );
+
+    const testConfig = { ...config, siteGroupId: undefined };
+    const result = await liferayService.getChannels(testConfig);
+
+    expect(testConfig.siteGroupId).toBe(20111);
+    expect(postPayload).toEqual({
+      name: 'Web Store',
+      type: 'site',
+      siteGroupId: 20111,
+      currencyCode: 'USD',
+      externalReferenceCode: 'AICA-CH-GUEST-STORE-20111',
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(999);
   });
 
   it('should flatten localized names for currencies', async () => {

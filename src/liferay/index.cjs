@@ -1490,7 +1490,7 @@ class LiferayService {
     let items = asItems(res);
     // Self-Healing: If there are no active Commerce Channels, auto-scaffold a Guest Web Store Channel
     let siteGroupId = parseInt(config.siteGroupId, 10);
-    if (items.length === 0 && (!siteGroupId || isNaN(siteGroupId))) {
+    if (!siteGroupId || isNaN(siteGroupId)) {
       try {
         const sitesRes = await this.rest._get(
           config,
@@ -1506,6 +1506,7 @@ class LiferayService {
           );
           const targetSite = guestSite || sites[0];
           siteGroupId = parseInt(targetSite.id, 10);
+          config.siteGroupId = siteGroupId;
           this.ctx.logger.info(
             `Resolved fallback siteGroupId from Liferay: ${siteGroupId} (${targetSite.name})`
           );
