@@ -2465,6 +2465,26 @@ class LiferayRestService {
 
   async createPriceEntriesBatch(config, priceEntriesData, opts = {}) {
     const { logger } = this.ctx;
+    const simulateBatch = opts.simulateBatch !== false;
+
+    if (!simulateBatch) {
+      logger.info(
+        `Creating batch of ${priceEntriesData.length} price entries natively...`,
+        { sessionId: opts.sessionId }
+      );
+      return await this._postBatch(config, {
+        entityName: 'price-entries',
+        items: priceEntriesData,
+        externalReferenceCode: opts.externalReferenceCode,
+        itemERCKey: 'externalReferenceCode',
+        op: 'create-price-entries-batch',
+        friendly: 'Failed to create price entries batch',
+        path: PATH.PRICE_ENTRIES_BATCH(),
+        sessionId: opts.sessionId,
+        session: opts.session,
+      });
+    }
+
     logger.info(
       `Simulating batch creation of ${priceEntriesData.length} price entries to bypass Liferay DXP platform bug...`,
       {
