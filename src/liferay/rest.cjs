@@ -2551,14 +2551,9 @@ class LiferayRestService {
 
     // Clean up priceListId from entryData since we specify it in the URL path,
     // to avoid Liferay matching/validation conflicts on ID-scoped endpoints.
-    // ERC-scoped endpoints require priceListId in the body due to a platform validation bug.
-    if (!isERC) {
-      delete entryData.priceListId;
-    } else {
-      // Vulcan Batch Engine (which backs the ERC-scoped POST) strictly requires the parent
-      // ERC in the payload to resolve the relationship.
-      entryData.priceListExternalReferenceCode = priceListIdOrERC;
-    }
+    // Clean up IDs to avoid Vulcan Batch Engine NotSupportedException mapping bugs
+    delete entryData.priceListId;
+    delete entryData.priceListExternalReferenceCode;
 
     const result = await this._post(
       config,
