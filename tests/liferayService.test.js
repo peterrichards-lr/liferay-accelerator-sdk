@@ -633,6 +633,71 @@ describe('LiferayService', () => {
     });
   });
 
+  describe('iteratePages', () => {
+    it('should iterate pages using a custom fetcher function', async () => {
+      const fetcher = vi
+        .fn()
+        .mockImplementation(async (cfg, page, _pageSize) => {
+          if (page === 1) {
+            return {
+              items: [
+                { id: 1, name: 'Item 1' },
+                { id: 2, name: 'Item 2' },
+              ],
+            };
+          } else if (page === 2) {
+            return { items: [{ id: 3, name: 'Item 3' }] };
+          }
+          return { items: [] };
+        });
+
+      const pages = [];
+      for await (const pageRes of liferayService.rest.iteratePages(
+        config,
+        fetcher,
+        null,
+        null,
+        { pageSize: 2 }
+      )) {
+        pages.push(pageRes);
+      }
+
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(pages).toHaveLength(2);
+      expect(pages[0].items).toHaveLength(2);
+      expect(pages[1].items).toHaveLength(1);
+    });
+
+    it('should iterate pages using a string URL', async () => {
+      server.use(
+        http.get('http://liferay:8080/o/test-list', (info) => {
+          const url = new URL(info.request.url);
+          const page = parseInt(url.searchParams.get('page') || '1', 10);
+          if (page === 1) {
+            return HttpResponse.json({ items: [{ id: 1 }, { id: 2 }] });
+          } else {
+            return HttpResponse.json({ items: [] });
+          }
+        })
+      );
+
+      const pages = [];
+      for await (const pageRes of liferayService.rest.iteratePages(
+        config,
+        '/o/test-list',
+        'test-list',
+        'Test List',
+        { pageSize: 2 }
+      )) {
+        pages.push(pageRes);
+      }
+
+      expect(pages).toHaveLength(2);
+      expect(pages[0].items).toHaveLength(2);
+      expect(pages[1].items).toHaveLength(0);
+    });
+  });
+
   describe('triggerReindex', () => {
     it('should successfully trigger a full search reindex (all)', async () => {
       const res = await liferayService.rest.triggerReindex(config);

@@ -1,6 +1,6 @@
 {
   "name": "@liferay/accelerator-sdk",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "description": "Hardened Liferay Accelerator SDK for Batch, Workflow, and API orchestration.",
   "main": "src/index.js",
   "bin": {

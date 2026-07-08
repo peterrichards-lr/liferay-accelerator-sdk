@@ -505,6 +505,38 @@ class LiferayRestService {
     });
   }
 
+  async *iteratePages(config, urlOrFetcher, op, friendly, opts = {}) {
+    let page = 1;
+    const pageSize = opts.pageSize || 200;
+    let hasMore = true;
+
+    while (hasMore) {
+      let res;
+      if (typeof urlOrFetcher === 'function') {
+        res = await urlOrFetcher(config, page, pageSize);
+      } else {
+        const pageOpts = {
+          ...opts,
+          params: {
+            ...opts.params,
+            page,
+            pageSize,
+          },
+        };
+        res = await this._get(config, urlOrFetcher, op, friendly, pageOpts);
+      }
+
+      yield res;
+
+      const items = asItems(res);
+      if (items.length < pageSize || items.length === 0) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    }
+  }
+
   async _post(
     config,
     url,

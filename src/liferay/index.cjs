@@ -26,25 +26,23 @@ class LiferayService {
 
   async _collectAllItems(config, fetcherFn, maxItems = 5000) {
     let allItems = [];
-    let page = 1;
-    const pageSize = 200;
-    let hasMore = true;
 
-    while (hasMore) {
-      const res = await fetcherFn(config, page, pageSize);
-      const items = asItems(res);
-
-      if (items.length === 0) {
+    for await (const pageRes of this.rest.iteratePages(
+      config,
+      fetcherFn,
+      null,
+      null,
+      { pageSize: 200 }
+    )) {
+      const items = asItems(pageRes);
+      allItems.push(...items);
+      if (allItems.length >= maxItems) {
         break;
       }
+    }
 
-      allItems.push(...items);
-
-      if (items.length < pageSize || allItems.length >= maxItems) {
-        hasMore = false;
-      } else {
-        page++;
-      }
+    if (allItems.length > maxItems) {
+      allItems = allItems.slice(0, maxItems);
     }
 
     return { items: allItems, totalCount: allItems.length };
