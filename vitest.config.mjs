@@ -21,6 +21,7 @@ export default defineConfig({
         '**/mocks/**',
         '**/scripts/**',
         '**/GeneratedLiferayClient.cjs',
+        '**/src/liferay/generated/**',
       ],
       thresholds: {
         statements: 40,
