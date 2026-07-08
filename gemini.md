@@ -15,16 +15,14 @@
 
 ## Current Goals
 
-1. Manage and implement tasks under the Technical Debt Epic (Issue #14).
-   - Sub-Issue #1: Fix getAccountGroups parameter forwarding mismatch (Issue #15) - _Completed_
-   - Sub-Issue #2: Clean up unused catch bindings and test warnings (Issue #16) - _Completed_
-   - Sub-Issue #3: Integrate PimSkuFirstAdapter into CatalogAdapterFactory (Issue #17) - _Completed_
-   - Sub-Issue #4: Modularize GeneratedLiferayClient split by API namespaces (Issue #18) - _Completed_
-   - Sub-Issue #5: Implement generic async page iterator in LiferayRestService (Issue #19) - _Completed_
+1. Increase code/statement test coverage across the SDK (specifically targeting `src/liferay/index.cjs` and `src/liferay/rest.cjs`).
+2. Implement Issue #20: Add Taxonomy methods to ExtractionFacade.
 
 ## Next Steps
 
-- All technical debt tasks are complete! Propose finishing the feature epic and check in with user.
+- Implement getTaxonomyVocabularies and getTaxonomyCategories in `src/services/extractionFacade.cjs`.
+- Add tests in `tests/extractionFacade.test.js`.
+- Verify coverage and tests, bump version to `0.3.9`, tag `v0.3.9`, and close Issue #20.
 
 <!-- markdownlint-disable MD049 -->
 

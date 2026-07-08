@@ -346,6 +346,32 @@ class ExtractionFacade {
       { params: queryParams }
     );
   }
+
+  /**
+   * Fetch taxonomy vocabularies for the specified site.
+   */
+  async getTaxonomyVocabularies(config, siteId, queryParams = {}) {
+    return await this.rest._get(
+      config,
+      `/o/headless-admin-taxonomy/v1.0/sites/${siteId}/taxonomy-vocabularies`,
+      'get-taxonomy-vocabularies',
+      'Get Taxonomy Vocabularies',
+      { params: queryParams }
+    );
+  }
+
+  /**
+   * Fetch taxonomy categories for the specified taxonomy vocabulary.
+   */
+  async getTaxonomyCategories(config, vocabularyId, queryParams = {}) {
+    return await this.rest._get(
+      config,
+      `/o/headless-admin-taxonomy/v1.0/taxonomy-vocabularies/${vocabularyId}/taxonomy-categories`,
+      'get-taxonomy-categories',
+      'Get Taxonomy Categories',
+      { params: queryParams }
+    );
+  }
 }
 
 module.exports = ExtractionFacade;

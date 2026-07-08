@@ -430,4 +430,40 @@ describe('ExtractionFacade', () => {
       expect(result.map((f) => f.id)).toEqual(['frag-1', 'frag-2']);
     });
   });
+
+  describe('Taxonomy Methods', () => {
+    it('should fetch taxonomy vocabularies with correct endpoint and params', async () => {
+      const mockResult = { items: [{ id: 'voc-1', name: 'Topic' }] };
+      mockRest._get.mockResolvedValueOnce(mockResult);
+
+      const result = await facade.getTaxonomyVocabularies(config, 'site-123', {
+        pageSize: 5,
+      });
+      expect(result).toEqual(mockResult);
+      expect(mockRest._get).toHaveBeenCalledWith(
+        config,
+        '/o/headless-admin-taxonomy/v1.0/sites/site-123/taxonomy-vocabularies',
+        'get-taxonomy-vocabularies',
+        'Get Taxonomy Vocabularies',
+        { params: { pageSize: 5 } }
+      );
+    });
+
+    it('should fetch taxonomy categories with correct endpoint and params', async () => {
+      const mockResult = { items: [{ id: 'cat-1', name: 'News' }] };
+      mockRest._get.mockResolvedValueOnce(mockResult);
+
+      const result = await facade.getTaxonomyCategories(config, 'voc-123', {
+        pageSize: 5,
+      });
+      expect(result).toEqual(mockResult);
+      expect(mockRest._get).toHaveBeenCalledWith(
+        config,
+        '/o/headless-admin-taxonomy/v1.0/taxonomy-vocabularies/voc-123/taxonomy-categories',
+        'get-taxonomy-categories',
+        'Get Taxonomy Categories',
+        { params: { pageSize: 5 } }
+      );
+    });
+  });
 });
