@@ -148,6 +148,204 @@ class ExtractionFacade {
       { params: queryParams }
     );
   }
+
+  // --- Phase 2: Content Organization ---
+
+  /**
+   * Fetch asset lists for the specified site.
+   */
+  async getAssetLists(config, siteId, queryParams = {}) {
+    return await this.rest._get(
+      config,
+      `/o/headless-delivery/v1.0/sites/${siteId}/asset-lists`,
+      'get-asset-lists',
+      'Get Asset Lists',
+      { params: queryParams }
+    );
+  }
+
+  /**
+   * Fetch display page templates for the specified site.
+   */
+  async getDisplayPageTemplates(config, siteId, queryParams = {}) {
+    return await this.client.headlessAdminSite.v1_0.getSiteDisplayPageTemplatesPage(
+      config,
+      siteId,
+      null,
+      { params: queryParams }
+    );
+  }
+
+  // --- Phase 3: IAM ---
+
+  /**
+   * Fetch user accounts.
+   */
+  async getUserAccounts(config, queryParams = {}) {
+    return await this.client.headlessAdminUser.v1_0.getUserAccountsPage(
+      config,
+      null,
+      { params: queryParams }
+    );
+  }
+
+  /**
+   * Fetch organizations.
+   */
+  async getOrganizations(config, queryParams = {}) {
+    return await this.client.headlessAdminUser.v1_0.getOrganizationsPage(
+      config,
+      null,
+      { params: queryParams }
+    );
+  }
+
+  /**
+   * Fetch user groups.
+   */
+  async getUserGroups(config, queryParams = {}) {
+    return await this.client.headlessAdminUser.v1_0.getUserGroupsPage(
+      config,
+      null,
+      { params: queryParams }
+    );
+  }
+
+  /**
+   * Fetch roles.
+   */
+  async getRoles(config, queryParams = {}) {
+    return await this.client.headlessAdminUser.v1_0.getRolesPage(config, null, {
+      params: queryParams,
+    });
+  }
+
+  // --- Phase 4: Business Logic ---
+
+  /**
+   * Fetch forms for the specified site.
+   */
+  async getForms(config, siteId, queryParams = {}) {
+    return await this.rest._get(
+      config,
+      `/o/headless-form/v1.0/sites/${siteId}/forms`,
+      'get-forms',
+      'Get Forms',
+      { params: queryParams }
+    );
+  }
+
+  /**
+   * Fetch workflow definitions.
+   */
+  async getWorkflowDefinitions(config, queryParams = {}) {
+    return await this.rest._get(
+      config,
+      '/o/workflow-admin/v1.0/workflow-definitions',
+      'get-workflow-definitions',
+      'Get Workflow Definitions',
+      { params: queryParams }
+    );
+  }
+
+  // --- Phase 5: Site Config ---
+
+  /**
+   * Fetch site settings/logo/theme config.
+   */
+  async getSiteSettings(config, siteId, queryParams = {}) {
+    return await this.client.headlessAdminSite.v1_0.getSite(
+      config,
+      siteId,
+      null,
+      { params: queryParams }
+    );
+  }
+
+  // --- Phase 6: Advanced Layouts ---
+
+  /**
+   * Fetch widget page preferences.
+   */
+  async getWidgetPagePreferences(config, pageId, queryParams = {}) {
+    return await this.rest._get(
+      config,
+      `/o/headless-admin-site/v1.0/site-pages/${pageId}/widget-page-preferences`,
+      'get-widget-page-preferences',
+      'Get Widget Page Preferences',
+      { params: queryParams }
+    );
+  }
+
+  /**
+   * Fetch segments for the specified site.
+   */
+  async getSegments(config, siteId, queryParams = {}) {
+    return await this.client.headlessAdminUser.v1_0.getSiteSegmentsPage(
+      config,
+      siteId,
+      null,
+      { params: queryParams }
+    );
+  }
+
+  /**
+   * Fetch personalization experiences for a page.
+   */
+  async getPersonalizationExperiences(
+    config,
+    siteId,
+    friendlyUrlPath,
+    queryParams = {}
+  ) {
+    return await this.client.headlessDelivery.v1_0.getSiteSitePageFriendlyUrlExperiencesPage(
+      config,
+      siteId,
+      friendlyUrlPath,
+      null,
+      { params: queryParams }
+    );
+  }
+
+  // --- Phase 7: App Data & B2B ---
+
+  /**
+   * Fetch B2B accounts.
+   */
+  async getAccounts(config, queryParams = {}) {
+    return await this.ctx.getAccounts(config, queryParams);
+  }
+
+  /**
+   * Fetch B2B account groups.
+   */
+  async getAccountGroups(config, queryParams = {}) {
+    return await this.ctx.getAccountGroups(config, queryParams);
+  }
+
+  /**
+   * Fetch blog posts for the specified site.
+   */
+  async getBlogPosts(config, siteId, queryParams = {}) {
+    return await this.client.headlessDelivery.v1_0.getSiteBlogPostingsPage(
+      config,
+      siteId,
+      null,
+      { params: queryParams }
+    );
+  }
+
+  /**
+   * Fetch knowledge base articles for the specified site.
+   */
+  async getKnowledgeBaseArticles(config, siteId, queryParams = {}) {
+    return await this.client.headlessDelivery.v1_0.getSiteKnowledgeBaseArticlesPage(
+      config,
+      siteId,
+      null,
+      { params: queryParams }
+    );
+  }
 }
 
 module.exports = ExtractionFacade;
