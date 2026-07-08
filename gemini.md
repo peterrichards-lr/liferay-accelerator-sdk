@@ -12,17 +12,17 @@
 - Closed issue #12.
 - Created Technical Debt Epic and sub-issues on GitHub using the sync utility.
 - Implemented `getPageElements` on `ExtractionFacade`, bumped SDK to `0.3.1`, tagged release `v0.3.1`, and closed issue #13.
+- Implemented and closed Technical Debt Epic (Issue #14) and all its sub-issues.
+- Expanded test coverage across LiferayService metadata/catalog paths, bumping SDK to `0.3.8` and release tag `v0.3.8`.
+- Implemented `getTaxonomyVocabularies` and `getTaxonomyCategories` on `ExtractionFacade`, bumped SDK to `0.3.9`, tagged release `v0.3.9`, and closed Issue #20.
 
 ## Current Goals
 
-1. Increase code/statement test coverage across the SDK (specifically targeting `src/liferay/index.cjs` and `src/liferay/rest.cjs`).
-2. Implement Issue #20: Add Taxonomy methods to ExtractionFacade.
+1. All non-PIM features and technical debt tasks are fully completed and tested!
 
 ## Next Steps
 
-- Implement getTaxonomyVocabularies and getTaxonomyCategories in `src/services/extractionFacade.cjs`.
-- Add tests in `tests/extractionFacade.test.js`.
-- Verify coverage and tests, bump version to `0.3.9`, tag `v0.3.9`, and close Issue #20.
+- Deliver final completion summary to the user.
 
 <!-- markdownlint-disable MD049 -->
 
