@@ -17,7 +17,7 @@ function log(msg, type = 'info') {
 // Check dependencies
 try {
   execSync('gh --version', { stdio: 'ignore' });
-} catch (e) {
+} catch {
   log(
     'Error: GitHub CLI (gh) is not installed. Please install it and log in.',
     'error'
@@ -27,7 +27,7 @@ try {
 
 try {
   execSync('gh auth status', { stdio: 'ignore' });
-} catch (e) {
+} catch {
   log(
     'Error: GitHub CLI is not authenticated. Please run "gh auth login".',
     'error'
@@ -58,7 +58,7 @@ try {
   commitHash = execSync('git rev-parse --short HEAD', {
     encoding: 'utf8',
   }).trim();
-} catch (e) {
+} catch {
   // Silent fallback
 }
 

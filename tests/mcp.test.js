@@ -31,7 +31,7 @@ describe('Liferay LDK MCP Server stdio integration', () => {
             cp.kill();
             resolve();
           }
-        } catch (e) {
+        } catch {
           // Keep buffering until valid JSON is received
         }
       });
@@ -44,7 +44,7 @@ describe('Liferay LDK MCP Server stdio integration', () => {
         reject(err);
       });
 
-      cp.on('close', (code) => {
+      cp.on('close', () => {
         if (stdoutData === '') {
           reject(
             new Error(`MCP server closed prematurely. Stderr: ${stderrData}`)

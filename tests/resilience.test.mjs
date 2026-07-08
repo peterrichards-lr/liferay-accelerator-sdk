@@ -196,7 +196,7 @@ describe('SDK Resilience & Retry', () => {
         itemERCKey: 'externalReferenceCode',
         op: 'test-batch',
         friendly: 'Test Batch',
-        path: (callbackUrl) =>
+        path: (_callbackUrl) =>
           `/o/headless-commerce-admin-pricing/v2.0/price-lists/batch`,
         sessionId: 'test-session',
       });
@@ -247,7 +247,7 @@ describe('SDK Resilience & Retry', () => {
         itemERCKey: 'externalReferenceCode',
         op: 'test-batch-2',
         friendly: 'Test Batch 2',
-        path: (callbackUrl) =>
+        path: (_callbackUrl) =>
           `/o/headless-commerce-admin-pricing/v2.0/price-lists/batch`,
         sessionId: 'test-session',
       });
