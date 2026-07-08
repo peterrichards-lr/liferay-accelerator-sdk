@@ -1,4 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { http, HttpResponse } from 'msw';
 import { server } from './setup.mjs';
 
 const { LiferayService } = require('../src/liferay/index.cjs');
@@ -591,6 +592,44 @@ describe('LiferayService', () => {
       expect(results.status).toBe('completed');
       expect(results.accountCount).toBe(2);
       expect(results.batchId).toContain('batch-mock-');
+    });
+  });
+
+  describe('CatalogAdapterFactory capabilities discovery', () => {
+    it('should resolve to PimSkuFirstAdapter when PIM capability is detected', async () => {
+      // Use a unique URL to avoid factory caching
+      const testConfig = { ...config, liferayUrl: 'http://liferay-pim:8080' };
+      server.use(
+        http.get(
+          'http://liferay-pim:8080/o/headless-pim/v1.0/openapi.json',
+          () => {
+            return HttpResponse.json({ openapi: '3.0.0' });
+          }
+        )
+      );
+
+      const adapter = await liferayService.getCatalogAdapter(testConfig);
+      const PimSkuFirstAdapter = require('../src/liferay/adapters/PimSkuFirstAdapter.cjs');
+      expect(adapter).toBeInstanceOf(PimSkuFirstAdapter);
+    });
+
+    it('should resolve to LegacyProductFirstAdapter when PIM capability is missing', async () => {
+      const testConfig = {
+        ...config,
+        liferayUrl: 'http://liferay-no-pim:8080',
+      };
+      server.use(
+        http.get(
+          'http://liferay-no-pim:8080/o/headless-pim/v1.0/openapi.json',
+          () => {
+            return new HttpResponse(null, { status: 404 });
+          }
+        )
+      );
+
+      const adapter = await liferayService.getCatalogAdapter(testConfig);
+      const LegacyProductFirstAdapter = require('../src/liferay/adapters/LegacyProductFirstAdapter.cjs');
+      expect(adapter).toBeInstanceOf(LegacyProductFirstAdapter);
     });
   });
 

@@ -1,4 +1,5 @@
 const LegacyProductFirstAdapter = require('./LegacyProductFirstAdapter.cjs');
+const PimSkuFirstAdapter = require('./PimSkuFirstAdapter.cjs');
 const legacyProfile = require('../../utils/profiles/legacyProfile.cjs');
 
 class CatalogAdapterFactory {
@@ -23,10 +24,7 @@ class CatalogAdapterFactory {
         { maxRetries: 1 }
       );
 
-      // When PimSkuFirstAdapter is written in Phase 2, we will load it here.
-      // For now, if the PIM API is detected, we fallback to legacy adapter
-      // to guarantee zero regressions.
-      adapter = new LegacyProductFirstAdapter(restService, legacyProfile);
+      adapter = new PimSkuFirstAdapter(restService, legacyProfile);
     } catch (_e) {
       // Fallback silently to Legacy Product-First
       adapter = new LegacyProductFirstAdapter(restService, legacyProfile);
