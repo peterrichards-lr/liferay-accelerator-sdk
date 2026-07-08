@@ -17,14 +17,13 @@
 
 1. Manage and implement tasks under the Technical Debt Epic (Issue #14).
    - Sub-Issue #1: Fix getAccountGroups parameter forwarding mismatch (Issue #15) - _Completed_
-   - Sub-Issue #2: Clean up unused catch bindings and test warnings (Issue #16) - _In Progress_
+   - Sub-Issue #2: Clean up unused catch bindings and test warnings (Issue #16) - _Completed_
    - Sub-Issue #3: Integrate PimSkuFirstAdapter into CatalogAdapterFactory (Issue #17) - _Pending_
    - Sub-Issue #4: Modularize GeneratedLiferayClient split by API namespaces (Issue #18) - _Pending_
    - Sub-Issue #5: Implement generic async page iterator in LiferayRestService (Issue #19) - _Pending_
 
 ## Next Steps
 
-- Implement the resolution for Sub-Issue #2 (Issue #16).
 - Develop and integrate `PimSkuFirstAdapter` (Issue #17).
 - Refactor the client generator script (Issue #18).
 - Implement the generic async page iterator (Issue #19).
