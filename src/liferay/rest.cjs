@@ -471,7 +471,7 @@ class LiferayRestService {
   async _client(config) {
     const { persistence } = this.ctx;
     const effective = resolveEffectiveLiferayConnection(
-      config,
+      { ...this.ctx, ...config },
       this.ctx.oauth,
       persistence
     );

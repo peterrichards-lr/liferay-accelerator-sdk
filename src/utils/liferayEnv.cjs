@@ -4,6 +4,7 @@ const { ERC_PREFIX, ENV } = require('./constants.cjs');
 
 function isValidAbsoluteUrl(maybeUrl) {
   if (!maybeUrl || typeof maybeUrl !== 'string') return false;
+  if (maybeUrl.includes('undefined')) return false;
   try {
     const u = new URL(maybeUrl);
     return !!(u.protocol && u.host);
@@ -18,6 +19,7 @@ function tryBuildColocatedLiferayUrl() {
       'com.liferay.lxc.dxp.server.protocol'
     );
     const liferayServerDomain = lxcConfig.dxpMainDomain();
+    if (!liferayServerProtocol || !liferayServerDomain) return null;
     const built = `${liferayServerProtocol}://${liferayServerDomain}`;
     if (isValidAbsoluteUrl(built)) return built;
   } catch {
@@ -37,7 +39,7 @@ function resolveEffectiveLiferayConnection(
     typeof oauthService?.isLiferayRouteAvailable === 'function' &&
     oauthService.isLiferayRouteAvailable();
 
-  let liferayUrl = config.liferayUrl;
+  let liferayUrl = config.liferayUrl || config.url;
   let clientId = config.clientId;
   let clientSecret = config.clientSecret;
 
