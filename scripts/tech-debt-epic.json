@@ -6,7 +6,7 @@
     {
       "title": "[Tech Debt] Fix getAccountGroups parameter forwarding mismatch",
       "body": "In `src/liferay/index.cjs`, the `getAccountGroups` method destructures `pageSize` and `fields` but fails to pass them to `this.rest._get`.\n\nSteps to resolve:\n1. Locate `getAccountGroups` in `src/liferay/index.cjs`.\n2. Forward `pageSize` and `fields` to `this.rest._get` options object under `params`.\n3. Verify with unit tests.",
-      "completed": false,
+      "completed": true,
       "labels": ["enhancement"]
     },
     {

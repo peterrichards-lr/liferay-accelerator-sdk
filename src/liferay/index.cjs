@@ -174,7 +174,7 @@ class LiferayService {
   async getAccountGroups(
     config,
     {
-      pageSize = 200,
+      _pageSize = 200,
       fields = 'id,externalReferenceCode,name',
       filter: providedFilter,
       search,
@@ -192,6 +192,7 @@ class LiferayService {
           params: {
             page: p,
             pageSize: size,
+            fields,
           },
         }
       )
@@ -236,7 +237,7 @@ class LiferayService {
     {
       channelId: _channelId,
       _pageSize = 200,
-      fields: _fields = 'id,externalReferenceCode,name',
+      fields = 'id,externalReferenceCode,name',
       filter: providedFilter,
       search,
     } = {}
@@ -255,6 +256,7 @@ class LiferayService {
           params: {
             page: p,
             pageSize: size,
+            fields,
           },
         }
       )

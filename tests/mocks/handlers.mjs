@@ -71,15 +71,67 @@ const handlers = [
   ),
 
   // Mock Accounts List
-  http.get('*/o/headless-admin-user/v1.0/accounts', () => {
+  http.get('*/o/headless-admin-user/v1.0/accounts', ({ request }) => {
+    const url = new URL(request.url);
+    const fields = url.searchParams.get('fields');
+    const items = [
+      {
+        id: 10,
+        externalReferenceCode: 'ACC-1',
+        name: 'Test Account 1',
+      },
+    ];
+
+    if (fields) {
+      const allowedFields = fields.split(',');
+      const filteredItems = items.map((item) => {
+        const newItem = {};
+        allowedFields.forEach((f) => {
+          if (f in item) newItem[f] = item[f];
+        });
+        return newItem;
+      });
+      return HttpResponse.json({
+        items: filteredItems,
+        totalCount: filteredItems.length,
+      });
+    }
+
     return HttpResponse.json({
-      items: [
-        {
-          id: 10,
-          externalReferenceCode: 'ACC-1',
-          name: 'Test Account 1',
-        },
-      ],
+      items,
+      totalCount: 1,
+    });
+  }),
+
+  // Mock Account Groups List
+  http.get('*/o/headless-admin-user/v1.0/account-groups', ({ request }) => {
+    const url = new URL(request.url);
+    const fields = url.searchParams.get('fields');
+    const items = [
+      {
+        id: 15,
+        externalReferenceCode: 'ACG-1',
+        name: 'Test Account Group 1',
+      },
+    ];
+
+    if (fields) {
+      const allowedFields = fields.split(',');
+      const filteredItems = items.map((item) => {
+        const newItem = {};
+        allowedFields.forEach((f) => {
+          if (f in item) newItem[f] = item[f];
+        });
+        return newItem;
+      });
+      return HttpResponse.json({
+        items: filteredItems,
+        totalCount: filteredItems.length,
+      });
+    }
+
+    return HttpResponse.json({
+      items,
       totalCount: 1,
     });
   }),

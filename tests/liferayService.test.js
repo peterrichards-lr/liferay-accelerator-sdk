@@ -61,6 +61,35 @@ describe('LiferayService', () => {
     expect(result.totalCount).toBe(1);
   });
 
+  it('should fetch accounts with fields limiting using the mocked Liferay API', async () => {
+    const result = await liferayService.getAccounts(config, { fields: 'id' });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe(10);
+    expect(result.items[0].name).toBeUndefined();
+    expect(result.items[0].externalReferenceCode).toBeUndefined();
+  });
+
+  it('should fetch account groups using the mocked Liferay API', async () => {
+    const result = await liferayService.getAccountGroups(config);
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].name).toBe('Test Account Group 1');
+    expect(result.items[0].externalReferenceCode).toBe('ACG-1');
+    expect(result.totalCount).toBe(1);
+  });
+
+  it('should fetch account groups with fields limiting using the mocked Liferay API', async () => {
+    const result = await liferayService.getAccountGroups(config, {
+      fields: 'id',
+    });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe(15);
+    expect(result.items[0].name).toBeUndefined();
+    expect(result.items[0].externalReferenceCode).toBeUndefined();
+  });
+
   it('should fetch orders using the mocked Liferay API', async () => {
     const result = await liferayService.getOrders(config);
 
