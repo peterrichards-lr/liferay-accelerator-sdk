@@ -20,11 +20,11 @@
    - Sub-Issue #2: Clean up unused catch bindings and test warnings (Issue #16) - _Completed_
    - Sub-Issue #3: Integrate PimSkuFirstAdapter into CatalogAdapterFactory (Issue #17) - _Completed_
    - Sub-Issue #4: Modularize GeneratedLiferayClient split by API namespaces (Issue #18) - _Completed_
-   - Sub-Issue #5: Implement generic async page iterator in LiferayRestService (Issue #19) - _Pending_
+   - Sub-Issue #5: Implement generic async page iterator in LiferayRestService (Issue #19) - _Completed_
 
 ## Next Steps
 
-- Implement the generic async page iterator (Issue #19).
+- All technical debt tasks are complete! Propose finishing the feature epic and check in with user.
 
 <!-- markdownlint-disable MD049 -->
 
