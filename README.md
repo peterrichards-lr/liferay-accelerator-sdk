@@ -26,3 +26,9 @@ yarn test
 ```bash
 yarn lint
 ```
+
+<!-- markdownlint-disable MD049 -->
+
+---
+
+_Last Updated: 2026-07-08_ | _Last Reviewed: 2026-07-08_

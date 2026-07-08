@@ -9,6 +9,7 @@ const LiferayGraphQLService = require('./liferay/graphql.cjs');
 const OAuthService = require('./liferay/oauth.cjs');
 const ContractValidator = require('./services/contractValidator.cjs');
 const GeneratedLiferayClient = require('./liferay/GeneratedLiferayClient.cjs');
+const ExtractionFacade = require('./services/extractionFacade.cjs');
 
 // Workflow Engine
 const BaseWorkflowService = require('./workflow/baseWorkflowService.cjs');
@@ -31,6 +32,7 @@ module.exports = {
   OAuthService,
   ContractValidator,
   GeneratedLiferayClient,
+  ExtractionFacade,
 
   // Workflow Engine
   BaseWorkflowService,
@@ -48,5 +50,5 @@ module.exports = {
     constants,
   },
 
-  version: '0.1.0',
+  version: '0.3.0',
 };

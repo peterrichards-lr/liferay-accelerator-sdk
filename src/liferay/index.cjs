@@ -2,6 +2,7 @@ const LiferayRestService = require('./rest.cjs');
 const LiferayGraphQLService = require('./graphql.cjs');
 const GeneratedLiferayClient = require('./GeneratedLiferayClient.cjs');
 const CatalogAdapterFactory = require('./adapters/CatalogAdapterFactory.cjs');
+const ExtractionFacade = require('../services/extractionFacade.cjs');
 const { asItems } = require('../utils/liferayUtils.cjs');
 const { PATH } = require('../utils/liferayPaths.cjs');
 const { delay, fromI18n } = require('../utils/misc.cjs');
@@ -13,8 +14,9 @@ class LiferayService {
     this.graphql = new LiferayGraphQLService(ctx);
     this.client = new GeneratedLiferayClient(this.rest);
     this.catalogAdapterFactory = new CatalogAdapterFactory();
+    this.extraction = new ExtractionFacade(this);
     this.ctx.logger.debug(
-      'LiferayService: GraphQL, Fluent client, and catalogAdapterFactory initialized'
+      'LiferayService: GraphQL, Fluent client, catalogAdapterFactory, and extractionFacade initialized'
     );
   }
 

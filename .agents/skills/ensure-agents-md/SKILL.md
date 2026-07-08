@@ -16,3 +16,9 @@ Before any other work, the agent MUST:
 1. **Verify Environment**: Confirm this is the Liferay Accelerator SDK repo.
 2. **Generate AGENTS.md**: Create `AGENTS.md` with base project instructions for AI coding agents.
 3. **Inform User**: Tell the user that the bootstrap is complete, and proceed with their request.
+
+<!-- markdownlint-disable MD049 -->
+
+---
+
+_Last Updated: 2026-07-08_ | _Last Reviewed: 2026-07-08_
