@@ -9,7 +9,8 @@ const fs = require('fs');
 const path = require('path');
 
 const SCHEMA_DIR = path.join(__dirname, '../api-schemas');
-const OUTPUT_FILE = path.join(
+const GENERATED_DIR = path.join(__dirname, '../src/liferay/generated');
+const MAIN_OUTPUT_FILE = path.join(
   __dirname,
   '../src/liferay/GeneratedLiferayClient.cjs'
 );
@@ -34,11 +35,25 @@ function generate() {
     process.exit(1);
   }
 
+  // Create generated directory if it doesn't exist
+  if (!fs.existsSync(GENERATED_DIR)) {
+    fs.mkdirSync(GENERATED_DIR, { recursive: true });
+  }
+
+  // Clean any old files from the generated directory
+  const oldFiles = fs.readdirSync(GENERATED_DIR);
+  for (const oldFile of oldFiles) {
+    if (oldFile.endsWith('.cjs')) {
+      fs.unlinkSync(path.join(GENERATED_DIR, oldFile));
+    }
+  }
+
   const files = fs
     .readdirSync(SCHEMA_DIR)
     .filter((f) => f.endsWith('-openapi.json'));
-  let methodImplementations = [];
-  let namespaceInitStrings = [];
+
+  const imports = [];
+  const assignments = [];
   let totalMethods = 0;
 
   for (const file of files) {
@@ -51,7 +66,7 @@ function generate() {
     const namespace = toCamelCase(apiName);
     const versionKey = toNamespaceVersion(apiVersion);
 
-    let apiRoot = spec.servers?.[0]?.url || '';
+    const apiRoot = spec.servers?.[0]?.url || '';
 
     console.log(`Processing ${apiName} (${apiVersion})...`);
 
@@ -64,15 +79,17 @@ function generate() {
     const rootMatch = apiRoot.match(/(\/o\/.*)/);
     const cleanRoot = rootMatch ? rootMatch[1] : apiRoot;
 
-    let apiMethods = [];
+    const className = `${namespace.charAt(0).toUpperCase()}${namespace.slice(1)}Client_${versionKey}`;
+    const clientFileName = `${namespace}Client_${versionKey}.cjs`;
+    const clientFilePath = path.join(GENERATED_DIR, clientFileName);
+
+    const apiMethods = [];
 
     for (const [pathUrl, methods] of Object.entries(spec.paths)) {
       for (const [httpMethod, op] of Object.entries(methods)) {
         if (!op.operationId) continue;
 
         const methodName = op.operationId;
-        // Use a unique internal name to avoid any global namespace issues
-        const internalName = `_${methodName}_${namespace}_${versionKey}`;
 
         // Construct clean full path
         const fullPath = `${cleanRoot}${pathUrl}`.replace(/\/+/g, '/');
@@ -94,7 +111,7 @@ function generate() {
    * ${op.summary || methodName}
    * API: ${apiName} | Version: ${apiVersion}
    */
-  async ${internalName}(config, ${methodArgs}) {
+  async ${methodName}(config, ${methodArgs}) {
     return await this.rest._request(config, {
       method: '${httpMethod.toUpperCase()}',
       url: \`${templatePath}\`,
@@ -105,45 +122,58 @@ function generate() {
     });
   }`;
 
-        methodImplementations.push(methodImpl);
-        apiMethods.push(
-          `        ${methodName}: this.${internalName}.bind(this)`
-        );
+        apiMethods.push(methodImpl);
         totalMethods++;
       }
     }
 
-    const namespaceInit = `
-    // ${apiName} (${apiVersion})
-    if (!this.${namespace}) this.${namespace} = {};
-    this.${namespace}.${versionKey} = {
-${apiMethods.join(',\n')}
-    };`;
+    const fileContent = `/**
+ * ${className}
+ * DO NOT EDIT MANUALLY. USE "yarn generate".
+ */
 
-    namespaceInitStrings.push(namespaceInit);
+class ${className} {
+  constructor(restService) {
+    this.rest = restService;
+  }
+${apiMethods.join('\n')}
+}
+
+module.exports = ${className};
+`;
+
+    fs.writeFileSync(clientFilePath, fileContent);
+
+    imports.push(
+      `const ${className} = require('./generated/${clientFileName}');`
+    );
+    assignments.push(`    if (!this.${namespace}) this.${namespace} = {};
+    this.${namespace}.${versionKey} = new ${className}(restService);`);
   }
 
-  const classTemplate = `
-/**
+  const classTemplate = `/**
  * GeneratedLiferayClient
  * DO NOT EDIT MANUALLY. USE "yarn generate".
  */
 
+${imports.join('\n')}
+
 class GeneratedLiferayClient {
   constructor(restService) {
     this.rest = restService;
-${namespaceInitStrings.join('\n')}
+${assignments.join('\n\n')}
   }
-${methodImplementations.join('\n')}
 }
 
 module.exports = GeneratedLiferayClient;
 `;
 
-  fs.writeFileSync(OUTPUT_FILE, classTemplate);
+  fs.writeFileSync(MAIN_OUTPUT_FILE, classTemplate);
   console.log(
-    `✓ Generated client with ${totalMethods} methods across ${files.length} APIs to ${OUTPUT_FILE}`
+    `✓ Generated client with ${totalMethods} methods across ${files.length} APIs.`
   );
+  console.log(`✓ Main client: ${MAIN_OUTPUT_FILE}`);
+  console.log(`✓ Namespace clients placed in: ${GENERATED_DIR}`);
 }
 
 generate();
