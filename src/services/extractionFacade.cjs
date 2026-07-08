@@ -26,6 +26,19 @@ class ExtractionFacade {
   }
 
   /**
+   * Fetch page elements for the specified site page.
+   */
+  async getPageElements(config, pageId, queryParams = {}) {
+    return await this.rest._get(
+      config,
+      `/o/headless-delivery/v1.0/site-pages/${pageId}/page-elements`,
+      'get-page-elements',
+      'Get Page Elements',
+      { params: queryParams }
+    );
+  }
+
+  /**
    * Recursively extract page fragments (elements of type 'Fragment') from layout trees/page lists.
    */
   getPageFragments(layouts) {

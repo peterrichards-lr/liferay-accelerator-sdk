@@ -1,0 +1,37 @@
+{
+  "title": "[Epic] Address Technical Debt and Code Smells in SDK",
+  "body": "This epic tracks the implementation of fixes for identified code smells, linter warnings, and architectural tech debt in the @liferay/accelerator-sdk.",
+  "labels": ["enhancement"],
+  "issues": [
+    {
+      "title": "[Tech Debt] Fix getAccountGroups parameter forwarding mismatch",
+      "body": "In `src/liferay/index.cjs`, the `getAccountGroups` method destructures `pageSize` and `fields` but fails to pass them to `this.rest._get`.\n\nSteps to resolve:\n1. Locate `getAccountGroups` in `src/liferay/index.cjs`.\n2. Forward `pageSize` and `fields` to `this.rest._get` options object under `params`.\n3. Verify with unit tests.",
+      "completed": false,
+      "labels": ["enhancement"]
+    },
+    {
+      "title": "[Tech Debt] Clean up unused catch bindings and test warnings",
+      "body": "There are several style violations and linter warnings in scripts and test files.\n\nSteps to resolve:\n1. In `scripts/gh-issue-sync.cjs` and `tests/mcp.test.js`, replace unused `catch (e)` with modern optional catch bindings `catch {}`.\n2. In `tests/mcp.test.js`, fix the unused `code` argument in the process `'close'` handler.\n3. In `tests/resilience.test.mjs`, fix the unused `callbackUrl` argument.\n4. Run `yarn lint` to confirm zero violations.",
+      "completed": false,
+      "labels": ["enhancement"]
+    },
+    {
+      "title": "[Tech Debt] Integrate PimSkuFirstAdapter into CatalogAdapterFactory",
+      "body": "Currently, `CatalogAdapterFactory` has a fallback placeholder that returns `LegacyProductFirstAdapter` even if PIM capability is detected.\n\nSteps to resolve:\n1. Develop `PimSkuFirstAdapter` (implementing PIM-specific operations).\n2. Register and instantiate `PimSkuFirstAdapter` in `CatalogAdapterFactory` when `/o/headless-pim/v1.0/openapi.json` is successfully probed.",
+      "completed": false,
+      "labels": ["enhancement"]
+    },
+    {
+      "title": "[Tech Debt] Modularize GeneratedLiferayClient split by API namespaces",
+      "body": "`GeneratedLiferayClient.cjs` is a monolithic 1.2MB file containing all bound endpoints. We should split it to improve modularity and load performance.\n\nSteps to resolve:\n1. Refactor `scripts/generate-client.js` to output individual API-scoped client files (e.g., `headlessDeliveryClient.cjs`, `headlessCommerceCatalogClient.cjs`).\n2. Modify `GeneratedLiferayClient.cjs` to act as a lightweight loader/facade of these split clients.",
+      "completed": false,
+      "labels": ["enhancement"]
+    },
+    {
+      "title": "[Tech Debt] Implement generic async page iterator in LiferayRestService",
+      "body": "Consuming methods in `LiferayService` repeatedly duplicate pagination loops using `_collectAllItems`.\n\nSteps to resolve:\n1. Implement a generic async generator/iterator `async *iteratePages(...)` on `LiferayRestService` to handle page-by-page REST requests.\n2. Refactor existing service list methods to consume the generic iterator, simplifying the code.",
+      "completed": false,
+      "labels": ["enhancement"]
+    }
+  ]
+}

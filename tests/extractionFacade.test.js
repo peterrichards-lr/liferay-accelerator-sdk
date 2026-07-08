@@ -126,6 +126,20 @@ describe('ExtractionFacade', () => {
     expect(result.items[0].name).toBe('ObjectDef');
   });
 
+  it('should extract page elements via rest._get', async () => {
+    const result = await facade.getPageElements(config, 'page-123', {
+      fields: 'id',
+    });
+    expect(mockRest._get).toHaveBeenCalledWith(
+      config,
+      '/o/headless-delivery/v1.0/site-pages/page-123/page-elements',
+      'get-page-elements',
+      'Get Page Elements',
+      { params: { fields: 'id' } }
+    );
+    expect(result.items[0].name).toBe('ObjectDef');
+  });
+
   describe('getPageFragments', () => {
     it('should return an empty array if layout tree is null or empty', () => {
       expect(facade.getPageFragments(null)).toEqual([]);

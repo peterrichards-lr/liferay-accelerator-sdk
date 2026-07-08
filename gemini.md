@@ -8,14 +8,21 @@
 - Posted the analysis and implementation plan as a comment on GitHub issue #12: [Comment link](https://github.com/peterrichards-lr/liferay-accelerator-sdk/issues/12#issuecomment-4915836440).
 - Successfully implemented document check/append scripts (`scripts/append_timestamps.py` and `scripts/check_docs_review.py`) and verified document review policies conform.
 - Implemented and integrated the `ExtractionFacade` service into the SDK.
+- Bumped SDK version to `0.3.0` and tagged release `v0.3.0`.
+- Closed issue #12.
+- Created Technical Debt Epic and sub-issues on GitHub using the sync utility.
 
 ## Current Goals
 
-1. All feature tasks and test validation successfully completed.
+1. Implement Issue #13 (Add `getPageElements` to `ExtractionFacade` to remove REST fallback duplication).
+2. Manage and implement tasks under the Technical Debt Epic (Issue #14).
 
 ## Next Steps
 
-- Deliver final output summary to the user.
+- Add unit test for `getPageElements` in `tests/extractionFacade.test.js`.
+- Implement `getPageElements` in `src/services/extractionFacade.cjs`.
+- Run Prettier to format modifications.
+- Verify test suite passes successfully.
 
 <!-- markdownlint-disable MD049 -->
 
