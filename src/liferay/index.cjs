@@ -2498,6 +2498,28 @@ class LiferayService {
   getPriceEntries(config, priceListId, opts) {
     return this.rest.getPriceEntries(config, priceListId, opts);
   }
+
+  async createWebContentStructure(config, siteId, structureData) {
+    return await this.rest.createWebContentStructure(config, siteId, structureData);
+  }
+
+  async getContentStructure(config, contentStructureId, queryParams = {}) {
+    return await this.client.headlessDelivery.v1_0.getContentStructure(
+      config,
+      contentStructureId,
+      null,
+      { params: queryParams }
+    );
+  }
+
+  async getSiteContentStructures(config, siteId, queryParams = {}) {
+    return await this.client.headlessDelivery.v1_0.getSiteContentStructuresPage(
+      config,
+      siteId,
+      null,
+      { params: queryParams }
+    );
+  }
 }
 
 module.exports = { LiferayService };

@@ -372,6 +372,27 @@ class ExtractionFacade {
       { params: queryParams }
     );
   }
+
+  /**
+   * Create a Web Content structure using the legacy JSONWS service.
+   */
+  async createWebContentStructure(config, siteId, structureData) {
+    return await this.ctx.createWebContentStructure(config, siteId, structureData);
+  }
+
+  /**
+   * Fetch a specific Web Content structure by ID.
+   */
+  async getContentStructure(config, contentStructureId, queryParams = {}) {
+    return await this.ctx.getContentStructure(config, contentStructureId, queryParams);
+  }
+
+  /**
+   * Fetch Web Content structures for the specified site.
+   */
+  async getSiteContentStructures(config, siteId, queryParams = {}) {
+    return await this.ctx.getSiteContentStructures(config, siteId, queryParams);
+  }
 }
 
 module.exports = ExtractionFacade;

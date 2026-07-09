@@ -15,10 +15,11 @@
 - Implemented and closed Technical Debt Epic (Issue #14) and all its sub-issues.
 - Expanded test coverage across LiferayService metadata/catalog paths, bumping SDK to `0.3.8` and release tag `v0.3.8`.
 - Implemented `getTaxonomyVocabularies` and `getTaxonomyCategories` on `ExtractionFacade`, bumped SDK to `0.3.9`, tagged release `v0.3.9`, and closed Issue #20.
+- Implemented `createWebContentStructure`, `getContentStructure`, and `getSiteContentStructures` on `LiferayService` and `ExtractionFacade`, bumped SDK to `0.3.10`, tagged release `v0.3.10`, and closed Issue #22.
 
 ## Current Goals
 
-1. All non-PIM features and technical debt tasks are fully completed and tested!
+1. All tasks for Issue #22 are fully completed and tested!
 
 ## Next Steps
 
@@ -28,4 +29,4 @@
 
 ---
 
-_Last Updated: 2026-07-08_ | _Last Reviewed: 2026-07-08_
+*Last Updated: 2026-07-09* | *Last Reviewed: 2026-07-09*

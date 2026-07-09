@@ -698,6 +698,135 @@ describe('LiferayService', () => {
     });
   });
 
+  describe('Web Content Structure Support', () => {
+    it('should dynamically resolve classname ID and cache it', async () => {
+      let classnameCalls = 0;
+      server.use(
+        http.post('*/api/jsonws/classname/get-class-name-id', async ({ request }) => {
+          classnameCalls++;
+          const body = await request.json();
+          expect(body.value).toBe('com.liferay.journal.model.JournalArticle');
+          return HttpResponse.json(45001);
+        })
+      );
+
+      const id1 = await liferayService.rest.getClassNameId(config, 'com.liferay.journal.model.JournalArticle');
+      const id2 = await liferayService.rest.getClassNameId(config, 'com.liferay.journal.model.JournalArticle');
+
+      expect(id1).toBe(45001);
+      expect(id2).toBe(45001);
+      expect(classnameCalls).toBe(1); // Caching works
+    });
+
+    it('should create web content structure with simplified fields array', async () => {
+      let addStructurePayload = null;
+
+      server.use(
+        http.post('*/api/jsonws/classname/get-class-name-id', () => {
+          return HttpResponse.json(45001);
+        }),
+        http.post('*/api/jsonws/ddm.ddmstructure/add-structure', async ({ request }) => {
+          addStructurePayload = await request.json();
+          return HttpResponse.json({
+            structureId: 12345,
+            groupId: 20127,
+            classNameId: 45001,
+            structureKey: addStructurePayload.structureKey,
+            name: 'Test Web Content Structure',
+            nameMap: addStructurePayload.nameMap,
+            description: 'Test Description',
+            descriptionMap: addStructurePayload.descriptionMap,
+            definition: addStructurePayload.definition,
+            storageType: 'json',
+            type: 0,
+          });
+        })
+      );
+
+      const structureData = {
+        structureKey: 'my-custom-structure',
+        name: 'Test Web Content Structure',
+        description: 'Test Description',
+        fields: [
+          {
+            name: 'title',
+            type: 'text',
+            label: 'Title',
+          },
+          {
+            name: 'age',
+            type: 'integer',
+            label: 'Age',
+            required: true,
+          }
+        ]
+      };
+
+      const result = await liferayService.createWebContentStructure(config, 20127, structureData);
+
+      expect(addStructurePayload).toBeDefined();
+      expect(addStructurePayload.groupId).toBe('20127');
+      expect(addStructurePayload.classNameId).toBe('45001');
+      expect(addStructurePayload.structureKey).toBe('my-custom-structure');
+
+      const parsedDef = JSON.parse(addStructurePayload.definition);
+      expect(parsedDef.fields).toHaveLength(2);
+      expect(parsedDef.fields[0].name).toBe('title');
+      expect(parsedDef.fields[0].dataType).toBe('string');
+      expect(parsedDef.fields[0].type).toBe('text');
+      expect(parsedDef.fields[1].name).toBe('age');
+      expect(parsedDef.fields[1].dataType).toBe('integer');
+      expect(parsedDef.fields[1].required).toBe(true);
+
+      expect(result.id).toBe(12345);
+      expect(result.siteId).toBe(20127);
+      expect(result.name).toBe('Test Web Content Structure');
+      expect(result.contentStructureFields).toHaveLength(2);
+      expect(result.contentStructureFields[0].name).toBe('title');
+      expect(result.contentStructureFields[0].dataType).toBe('string');
+      expect(result.contentStructureFields[0].inputControl).toBe('text');
+    });
+
+    it('should retrieve a single content structure by ID', async () => {
+      server.use(
+        http.get('*/o/headless-delivery/v1.0/content-structures/12345', () => {
+          return HttpResponse.json({
+            id: 12345,
+            name: 'Test Structure',
+            structureKey: 'test-key',
+          });
+        })
+      );
+
+      const result = await liferayService.getContentStructure(config, 12345);
+      expect(result.id).toBe(12345);
+      expect(result.name).toBe('Test Structure');
+      expect(result.structureKey).toBe('test-key');
+    });
+
+    it('should retrieve site content structures', async () => {
+      server.use(
+        http.get('*/o/headless-delivery/v1.0/sites/20127/content-structures', () => {
+          return HttpResponse.json({
+            items: [
+              {
+                id: 12345,
+                name: 'Test Structure',
+                structureKey: 'test-key',
+              }
+            ],
+            totalCount: 1,
+          });
+        })
+      );
+
+      const result = await liferayService.getSiteContentStructures(config, 20127);
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].id).toBe(12345);
+      expect(result.totalCount).toBe(1);
+    });
+  });
+
   describe('triggerReindex', () => {
     it('should successfully trigger a full search reindex (all)', async () => {
       const res = await liferayService.rest.triggerReindex(config);

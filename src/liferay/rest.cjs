@@ -3695,6 +3695,246 @@ class LiferayRestService {
       'Failed to set billing and shipping addresses'
     );
   }
+
+  async getClassNameId(config, className) {
+    const cacheKey = `classname_${className}`;
+    if (this.ctx.cache) {
+      const cached = this.ctx.cache.get(cacheKey);
+      if (cached !== undefined && cached !== null) return cached;
+    }
+
+    const classNameId = await this._post(
+      config,
+      '/api/jsonws/classname/get-class-name-id',
+      { value: className },
+      'get-class-name-id',
+      'Get Class Name ID'
+    );
+
+    if (this.ctx.cache) {
+      this.ctx.cache.set(cacheKey, classNameId);
+    }
+
+    return classNameId;
+  }
+
+  async createWebContentStructure(config, siteId, structureData = {}) {
+    const { structureKey, name, description = '', fields, definition } = structureData;
+    const lang = config.languageId || 'en_US';
+
+    const classNameId = await this.getClassNameId(
+      config,
+      'com.liferay.journal.model.JournalArticle'
+    );
+
+    let finalDefinition;
+    if (typeof definition === 'string') {
+      finalDefinition = definition;
+    } else if (definition && typeof definition === 'object') {
+      if (definition.fields) {
+        finalDefinition = JSON.stringify(definition);
+      } else if (Array.isArray(definition)) {
+        finalDefinition = JSON.stringify(this._buildDDMFormDefinition(definition, lang));
+      } else {
+        finalDefinition = JSON.stringify(definition);
+      }
+    } else if (Array.isArray(fields)) {
+      finalDefinition = JSON.stringify(this._buildDDMFormDefinition(fields, lang));
+    } else {
+      throw new Error('WebContentStructure definition or fields must be provided');
+    }
+
+    const nameMap = typeof name === 'string' ? { [lang]: name } : name || {};
+    const descriptionMap = typeof description === 'string' ? { [lang]: description } : description || {};
+
+    const key = structureKey || `ddm-structure-${Date.now()}`;
+
+    const payload = {
+      groupId: String(siteId),
+      parentStructureId: '0',
+      classNameId: String(classNameId),
+      structureKey: key,
+      nameMap: JSON.stringify(nameMap),
+      descriptionMap: JSON.stringify(descriptionMap),
+      definition: finalDefinition,
+      storageType: 'json',
+      type: '0',
+      serviceContext: '{}',
+    };
+
+    const result = await this._post(
+      config,
+      '/api/jsonws/ddm.ddmstructure/add-structure',
+      payload,
+      'add-ddm-structure',
+      'Add DDM Structure'
+    );
+
+    return this._normalizeDDMStructureToContentStructure(result, lang);
+  }
+
+  _buildDDMFormDefinition(fields, lang = 'en_US') {
+    const ddmFormFields = fields.map((f) => {
+      if (f.dataType && f.type && f.name) {
+        return f;
+      }
+
+      const fieldName = f.name;
+      const fieldType = f.type || 'text';
+      const dataType = f.dataType || this._mapFieldTypeToDataType(fieldType);
+
+      const localizedLabel = typeof f.label === 'string' ? { [lang]: f.label } : f.label || { [lang]: fieldName };
+      const localizedPredefinedValue = typeof f.predefinedValue === 'string' ? { [lang]: f.predefinedValue } : f.predefinedValue;
+
+      const baseField = {
+        dataType,
+        indexType: f.indexType || 'keyword',
+        localizable: f.localizable !== undefined ? f.localizable : true,
+        multiple: f.multiple !== undefined ? f.multiple : false,
+        name: fieldName,
+        readOnly: f.readOnly !== undefined ? f.readOnly : false,
+        repeatable: f.repeatable !== undefined ? f.repeatable : false,
+        required: f.required !== undefined ? f.required : false,
+        showLabel: f.showLabel !== undefined ? f.showLabel : true,
+        type: fieldType,
+        label: localizedLabel,
+      };
+
+      if (localizedPredefinedValue) {
+        baseField.predefinedValue = localizedPredefinedValue;
+      }
+
+      if (f.options) {
+        baseField.options = f.options.map(opt => ({
+          label: typeof opt.label === 'string' ? { [lang]: opt.label } : opt.label || {},
+          value: opt.value || '',
+        }));
+      }
+
+      if (f.nestedFields) {
+        baseField.nestedDDMFormFields = this._buildDDMFormDefinition(f.nestedFields, lang).fields;
+      }
+
+      return baseField;
+    });
+
+    return {
+      availableLanguageIds: [lang],
+      defaultLanguageId: lang,
+      fields: ddmFormFields,
+    };
+  }
+
+  _mapFieldTypeToDataType(type) {
+    switch (type) {
+      case 'text':
+      case 'textarea':
+      case 'select':
+      case 'radio':
+        return 'string';
+      case 'boolean':
+      case 'checkbox':
+        return 'boolean';
+      case 'integer':
+      case 'number':
+        return 'integer';
+      case 'decimal':
+      case 'float':
+      case 'double':
+        return 'double';
+      case 'date':
+        return 'date';
+      case 'document':
+      case 'image':
+        return 'document-library';
+      default:
+        return 'string';
+    }
+  }
+
+  _normalizeDDMStructureToContentStructure(ddmStructure, lang = 'en_US') {
+    if (!ddmStructure) return null;
+
+    let definitionObj = {};
+    try {
+      if (typeof ddmStructure.definition === 'string') {
+        definitionObj = JSON.parse(ddmStructure.definition);
+      } else if (ddmStructure.definition && typeof ddmStructure.definition === 'object') {
+        definitionObj = ddmStructure.definition;
+      }
+    } catch (err) {
+      this.ctx.logger.warn(`Failed to parse DDM structure definition: ${err.message}`);
+    }
+
+    let nameMap = {};
+    let descriptionMap = {};
+    try {
+      nameMap = typeof ddmStructure.nameMap === 'string'
+        ? JSON.parse(ddmStructure.nameMap)
+        : ddmStructure.nameMap || {};
+    } catch {
+      nameMap = { [lang]: ddmStructure.name || '' };
+    }
+
+    try {
+      descriptionMap = typeof ddmStructure.descriptionMap === 'string'
+        ? JSON.parse(ddmStructure.descriptionMap)
+        : ddmStructure.descriptionMap || {};
+    } catch {
+      descriptionMap = { [lang]: ddmStructure.description || '' };
+    }
+
+    const fields = Array.isArray(definitionObj.fields)
+      ? definitionObj.fields.map(f => this._normalizeDDMFieldToContentStructureField(f, lang))
+      : [];
+
+    return {
+      id: ddmStructure.structureId,
+      siteId: ddmStructure.groupId,
+      name: nameMap[lang] || nameMap[Object.keys(nameMap)[0]] || ddmStructure.name || '',
+      name_i18n: nameMap,
+      description: descriptionMap[lang] || descriptionMap[Object.keys(descriptionMap)[0]] || ddmStructure.description || '',
+      description_i18n: descriptionMap,
+      contentStructureFields: fields,
+      structureKey: ddmStructure.structureKey,
+      xClassName: 'com.liferay.headless.delivery.dto.v1_0.ContentStructure',
+    };
+  }
+
+  _normalizeDDMFieldToContentStructureField(field, lang = 'en_US') {
+    if (!field) return null;
+
+    const labelMap = field.label || {};
+    const predefinedValueMap = field.predefinedValue || {};
+
+    const fieldOptions = Array.isArray(field.options)
+      ? field.options.map(opt => ({
+          label: opt.label?.[lang] || opt.label?.[Object.keys(opt.label || {})[0]] || '',
+          value: opt.value || '',
+        }))
+      : undefined;
+
+    const nestedFields = Array.isArray(field.nestedDDMFormFields)
+      ? field.nestedDDMFormFields.map(f => this._normalizeDDMFieldToContentStructureField(f, lang))
+      : undefined;
+
+    return {
+      dataType: field.dataType || 'string',
+      inputControl: field.type || 'text',
+      label: labelMap[lang] || labelMap[Object.keys(labelMap || {})[0]] || field.name || '',
+      label_i18n: labelMap,
+      localizable: field.localizable !== undefined ? field.localizable : true,
+      multiple: field.multiple !== undefined ? field.multiple : false,
+      name: field.name,
+      options: fieldOptions,
+      predefinedValue: predefinedValueMap[lang] || predefinedValueMap[Object.keys(predefinedValueMap || {})[0]] || '',
+      predefinedValue_i18n: predefinedValueMap,
+      repeatable: field.repeatable !== undefined ? field.repeatable : false,
+      required: field.required !== undefined ? field.required : false,
+      showLabel: field.showLabel !== undefined ? field.showLabel : true,
+      nestedContentStructureFields: nestedFields,
+    };
+  }
 }
 
 LiferayRestService.SOFT_STATUS_BY_OP = SOFT_STATUS_BY_OP;
