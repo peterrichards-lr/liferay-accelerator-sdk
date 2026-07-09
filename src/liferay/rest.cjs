@@ -3866,8 +3866,8 @@ class LiferayRestService {
       this.ctx.logger.warn(`Failed to parse DDM structure definition: ${err.message}`);
     }
 
-    let nameMap = {};
-    let descriptionMap = {};
+    let nameMap;
+    let descriptionMap;
     try {
       nameMap = typeof ddmStructure.nameMap === 'string'
         ? JSON.parse(ddmStructure.nameMap)
