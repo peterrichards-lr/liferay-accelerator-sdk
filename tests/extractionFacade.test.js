@@ -469,28 +469,56 @@ describe('ExtractionFacade', () => {
 
   describe('Web Content Structure Methods', () => {
     beforeEach(() => {
-      mockLiferayService.createWebContentStructure = vi.fn().mockResolvedValue({ id: 'struct-123', name: 'Test Struct' });
-      mockLiferayService.getContentStructure = vi.fn().mockResolvedValue({ id: 'struct-123', name: 'Test Struct' });
-      mockLiferayService.getSiteContentStructures = vi.fn().mockResolvedValue({ items: [{ id: 'struct-123', name: 'Test Struct' }] });
+      mockLiferayService.createWebContentStructure = vi
+        .fn()
+        .mockResolvedValue({ id: 'struct-123', name: 'Test Struct' });
+      mockLiferayService.getContentStructure = vi
+        .fn()
+        .mockResolvedValue({ id: 'struct-123', name: 'Test Struct' });
+      mockLiferayService.getSiteContentStructures = vi.fn().mockResolvedValue({
+        items: [{ id: 'struct-123', name: 'Test Struct' }],
+      });
     });
 
     it('should create web content structure with correct delegation', async () => {
       const structureData = { name: 'Test Struct', fields: [] };
-      const result = await facade.createWebContentStructure(config, 'site-123', structureData);
+      const result = await facade.createWebContentStructure(
+        config,
+        'site-123',
+        structureData
+      );
       expect(result).toEqual({ id: 'struct-123', name: 'Test Struct' });
-      expect(mockLiferayService.createWebContentStructure).toHaveBeenCalledWith(config, 'site-123', structureData);
+      expect(mockLiferayService.createWebContentStructure).toHaveBeenCalledWith(
+        config,
+        'site-123',
+        structureData
+      );
     });
 
     it('should fetch a single content structure by ID', async () => {
-      const result = await facade.getContentStructure(config, 'struct-123', { fields: 'id' });
+      const result = await facade.getContentStructure(config, 'struct-123', {
+        fields: 'id',
+      });
       expect(result).toEqual({ id: 'struct-123', name: 'Test Struct' });
-      expect(mockLiferayService.getContentStructure).toHaveBeenCalledWith(config, 'struct-123', { fields: 'id' });
+      expect(mockLiferayService.getContentStructure).toHaveBeenCalledWith(
+        config,
+        'struct-123',
+        { fields: 'id' }
+      );
     });
 
     it('should fetch site-scoped content structures', async () => {
-      const result = await facade.getSiteContentStructures(config, 'site-123', { pageSize: 5 });
-      expect(result).toEqual({ items: [{ id: 'struct-123', name: 'Test Struct' }] });
-      expect(mockLiferayService.getSiteContentStructures).toHaveBeenCalledWith(config, 'site-123', { pageSize: 5 });
+      const result = await facade.getSiteContentStructures(config, 'site-123', {
+        pageSize: 5,
+      });
+      expect(result).toEqual({
+        items: [{ id: 'struct-123', name: 'Test Struct' }],
+      });
+      expect(mockLiferayService.getSiteContentStructures).toHaveBeenCalledWith(
+        config,
+        'site-123',
+        { pageSize: 5 }
+      );
     });
   });
 });

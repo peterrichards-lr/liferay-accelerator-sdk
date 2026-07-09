@@ -3719,7 +3719,13 @@ class LiferayRestService {
   }
 
   async createWebContentStructure(config, siteId, structureData = {}) {
-    const { structureKey, name, description = '', fields, definition } = structureData;
+    const {
+      structureKey,
+      name,
+      description = '',
+      fields,
+      definition,
+    } = structureData;
     const lang = config.languageId || 'en_US';
 
     const classNameId = await this.getClassNameId(
@@ -3734,18 +3740,27 @@ class LiferayRestService {
       if (definition.fields) {
         finalDefinition = JSON.stringify(definition);
       } else if (Array.isArray(definition)) {
-        finalDefinition = JSON.stringify(this._buildDDMFormDefinition(definition, lang));
+        finalDefinition = JSON.stringify(
+          this._buildDDMFormDefinition(definition, lang)
+        );
       } else {
         finalDefinition = JSON.stringify(definition);
       }
     } else if (Array.isArray(fields)) {
-      finalDefinition = JSON.stringify(this._buildDDMFormDefinition(fields, lang));
+      finalDefinition = JSON.stringify(
+        this._buildDDMFormDefinition(fields, lang)
+      );
     } else {
-      throw new Error('WebContentStructure definition or fields must be provided');
+      throw new Error(
+        'WebContentStructure definition or fields must be provided'
+      );
     }
 
     const nameMap = typeof name === 'string' ? { [lang]: name } : name || {};
-    const descriptionMap = typeof description === 'string' ? { [lang]: description } : description || {};
+    const descriptionMap =
+      typeof description === 'string'
+        ? { [lang]: description }
+        : description || {};
 
     const key = structureKey || `ddm-structure-${Date.now()}`;
 
@@ -3783,8 +3798,14 @@ class LiferayRestService {
       const fieldType = f.type || 'text';
       const dataType = f.dataType || this._mapFieldTypeToDataType(fieldType);
 
-      const localizedLabel = typeof f.label === 'string' ? { [lang]: f.label } : f.label || { [lang]: fieldName };
-      const localizedPredefinedValue = typeof f.predefinedValue === 'string' ? { [lang]: f.predefinedValue } : f.predefinedValue;
+      const localizedLabel =
+        typeof f.label === 'string'
+          ? { [lang]: f.label }
+          : f.label || { [lang]: fieldName };
+      const localizedPredefinedValue =
+        typeof f.predefinedValue === 'string'
+          ? { [lang]: f.predefinedValue }
+          : f.predefinedValue;
 
       const baseField = {
         dataType,
@@ -3805,14 +3826,20 @@ class LiferayRestService {
       }
 
       if (f.options) {
-        baseField.options = f.options.map(opt => ({
-          label: typeof opt.label === 'string' ? { [lang]: opt.label } : opt.label || {},
+        baseField.options = f.options.map((opt) => ({
+          label:
+            typeof opt.label === 'string'
+              ? { [lang]: opt.label }
+              : opt.label || {},
           value: opt.value || '',
         }));
       }
 
       if (f.nestedFields) {
-        baseField.nestedDDMFormFields = this._buildDDMFormDefinition(f.nestedFields, lang).fields;
+        baseField.nestedDDMFormFields = this._buildDDMFormDefinition(
+          f.nestedFields,
+          lang
+        ).fields;
       }
 
       return baseField;
@@ -3859,41 +3886,58 @@ class LiferayRestService {
     try {
       if (typeof ddmStructure.definition === 'string') {
         definitionObj = JSON.parse(ddmStructure.definition);
-      } else if (ddmStructure.definition && typeof ddmStructure.definition === 'object') {
+      } else if (
+        ddmStructure.definition &&
+        typeof ddmStructure.definition === 'object'
+      ) {
         definitionObj = ddmStructure.definition;
       }
     } catch (err) {
-      this.ctx.logger.warn(`Failed to parse DDM structure definition: ${err.message}`);
+      this.ctx.logger.warn(
+        `Failed to parse DDM structure definition: ${err.message}`
+      );
     }
 
     let nameMap;
     let descriptionMap;
     try {
-      nameMap = typeof ddmStructure.nameMap === 'string'
-        ? JSON.parse(ddmStructure.nameMap)
-        : ddmStructure.nameMap || {};
+      nameMap =
+        typeof ddmStructure.nameMap === 'string'
+          ? JSON.parse(ddmStructure.nameMap)
+          : ddmStructure.nameMap || {};
     } catch {
       nameMap = { [lang]: ddmStructure.name || '' };
     }
 
     try {
-      descriptionMap = typeof ddmStructure.descriptionMap === 'string'
-        ? JSON.parse(ddmStructure.descriptionMap)
-        : ddmStructure.descriptionMap || {};
+      descriptionMap =
+        typeof ddmStructure.descriptionMap === 'string'
+          ? JSON.parse(ddmStructure.descriptionMap)
+          : ddmStructure.descriptionMap || {};
     } catch {
       descriptionMap = { [lang]: ddmStructure.description || '' };
     }
 
     const fields = Array.isArray(definitionObj.fields)
-      ? definitionObj.fields.map(f => this._normalizeDDMFieldToContentStructureField(f, lang))
+      ? definitionObj.fields.map((f) =>
+          this._normalizeDDMFieldToContentStructureField(f, lang)
+        )
       : [];
 
     return {
       id: ddmStructure.structureId,
       siteId: ddmStructure.groupId,
-      name: nameMap[lang] || nameMap[Object.keys(nameMap)[0]] || ddmStructure.name || '',
+      name:
+        nameMap[lang] ||
+        nameMap[Object.keys(nameMap)[0]] ||
+        ddmStructure.name ||
+        '',
       name_i18n: nameMap,
-      description: descriptionMap[lang] || descriptionMap[Object.keys(descriptionMap)[0]] || ddmStructure.description || '',
+      description:
+        descriptionMap[lang] ||
+        descriptionMap[Object.keys(descriptionMap)[0]] ||
+        ddmStructure.description ||
+        '',
       description_i18n: descriptionMap,
       contentStructureFields: fields,
       structureKey: ddmStructure.structureKey,
@@ -3908,26 +3952,38 @@ class LiferayRestService {
     const predefinedValueMap = field.predefinedValue || {};
 
     const fieldOptions = Array.isArray(field.options)
-      ? field.options.map(opt => ({
-          label: opt.label?.[lang] || opt.label?.[Object.keys(opt.label || {})[0]] || '',
+      ? field.options.map((opt) => ({
+          label:
+            opt.label?.[lang] ||
+            opt.label?.[Object.keys(opt.label || {})[0]] ||
+            '',
           value: opt.value || '',
         }))
       : undefined;
 
     const nestedFields = Array.isArray(field.nestedDDMFormFields)
-      ? field.nestedDDMFormFields.map(f => this._normalizeDDMFieldToContentStructureField(f, lang))
+      ? field.nestedDDMFormFields.map((f) =>
+          this._normalizeDDMFieldToContentStructureField(f, lang)
+        )
       : undefined;
 
     return {
       dataType: field.dataType || 'string',
       inputControl: field.type || 'text',
-      label: labelMap[lang] || labelMap[Object.keys(labelMap || {})[0]] || field.name || '',
+      label:
+        labelMap[lang] ||
+        labelMap[Object.keys(labelMap || {})[0]] ||
+        field.name ||
+        '',
       label_i18n: labelMap,
       localizable: field.localizable !== undefined ? field.localizable : true,
       multiple: field.multiple !== undefined ? field.multiple : false,
       name: field.name,
       options: fieldOptions,
-      predefinedValue: predefinedValueMap[lang] || predefinedValueMap[Object.keys(predefinedValueMap || {})[0]] || '',
+      predefinedValue:
+        predefinedValueMap[lang] ||
+        predefinedValueMap[Object.keys(predefinedValueMap || {})[0]] ||
+        '',
       predefinedValue_i18n: predefinedValueMap,
       repeatable: field.repeatable !== undefined ? field.repeatable : false,
       required: field.required !== undefined ? field.required : false,

@@ -2500,7 +2500,11 @@ class LiferayService {
   }
 
   async createWebContentStructure(config, siteId, structureData) {
-    return await this.rest.createWebContentStructure(config, siteId, structureData);
+    return await this.rest.createWebContentStructure(
+      config,
+      siteId,
+      structureData
+    );
   }
 
   async getContentStructure(config, contentStructureId, queryParams = {}) {
