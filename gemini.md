@@ -19,11 +19,11 @@
 
 ## Current Goals
 
-1. All tasks for Issue #22 are fully completed and tested!
+1. Implement and test SQLite Persistence async worker thread offloading (Issue #332).
 
 ## Next Steps
 
-- Deliver final completion summary to the user.
+- Refactor PersistenceService to use worker_threads.
 
 <!-- markdownlint-disable MD049 -->
 

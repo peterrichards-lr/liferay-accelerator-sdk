@@ -2577,15 +2577,16 @@ class LiferayRestService {
       ? PATH.PRICE_ENTRIES_BY_ERC(priceListIdOrERC)
       : PATH.PRICE_ENTRIES(priceListIdOrERC);
 
-    if (opts.isPromotion) {
-      urlPath = urlPath.replace('/price-lists/', '/promotions/');
-    }
 
     // Clean up priceListId from entryData since we specify it in the URL path,
     // to avoid Liferay matching/validation conflicts on ID-scoped endpoints.
     // Clean up IDs to avoid Vulcan Batch Engine NotSupportedException mapping bugs
-    delete entryData.priceListId;
-    delete entryData.priceListExternalReferenceCode;
+    if (isERC) {
+      entryData.priceListExternalReferenceCode = priceListIdOrERC;
+    } else {
+      delete entryData.priceListId;
+      delete entryData.priceListExternalReferenceCode;
+    }
 
     const result = await this._post(
       config,
