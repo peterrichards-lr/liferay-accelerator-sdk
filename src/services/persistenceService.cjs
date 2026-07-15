@@ -17,6 +17,10 @@ class PersistenceService {
       : path.resolve(__dirname, '..', rawPath);
 
     this.cache = new Cache();
+    this.initPromise = new Promise((resolve, reject) => {
+      this.resolveInit = resolve;
+      this.rejectInit = reject;
+    });
     this.pendingRequests = new Map();
 
     try {
@@ -25,7 +29,13 @@ class PersistenceService {
         workerData: { dbPath: finalPath },
       });
 
-      this.worker.on('message', ({ id, result, error }) => {
+      this.worker.on('message', (msg) => {
+        if (msg.id === 'init') {
+          if (msg.success) this.resolveInit();
+          else this.rejectInit(new Error(msg.error));
+          return;
+        }
+        const { id, result, error } = msg;
         const pending = this.pendingRequests.get(id);
         if (pending) {
           this.pendingRequests.delete(id);
@@ -57,7 +67,8 @@ class PersistenceService {
     }
   }
 
-  _postMessage(action, sql, params) {
+  async _postMessage(action, sql, params) {
+    await this.initPromise;
     const id = crypto.randomUUID();
     return new Promise((resolve, reject) => {
       this.pendingRequests.set(id, { resolve, reject });

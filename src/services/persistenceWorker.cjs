@@ -18,7 +18,12 @@ db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
 
 // Run migrations on start
-_initSchema(db);
+try {
+  _initSchema(db);
+  parentPort.postMessage({ id: 'init', success: true });
+} catch (err) {
+  parentPort.postMessage({ id: 'init', success: false, error: err.message });
+}
 
 const statementCache = new Map();
 
