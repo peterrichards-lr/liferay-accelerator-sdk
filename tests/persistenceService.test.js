@@ -8,13 +8,13 @@ describe('PersistenceService', () => {
     persistence = new PersistenceService(null, ':memory:');
   });
 
-  afterEach(() => {
-    persistence.close();
+  afterEach(async () => {
+    await persistence.close();
   });
 
-  it('should initialize the schema correctly', () => {
+  it('should initialize the schema correctly', async () => {
     // If we can insert a session, the schema is working
-    const session = persistence.createSession({
+    const session = await persistence.createSession({
       sessionId: 'test-session',
       flowType: 'products',
       status: 'STARTED',
@@ -27,38 +27,38 @@ describe('PersistenceService', () => {
     expect(session.context.foo).toBe('bar');
   });
 
-  it('should retrieve a session by ID', () => {
-    persistence.createSession({
+  it('should retrieve a session by ID', async () => {
+    await persistence.createSession({
       sessionId: 'test-session',
       flowType: 'products',
       status: 'STARTED',
     });
 
-    const session = persistence.getSession('test-session');
+    const session = await persistence.getSession('test-session');
     expect(session).not.toBeNull();
     expect(session.session_id).toBe('test-session');
   });
 
-  it('should update session status', () => {
-    persistence.createSession({
+  it('should update session status', async () => {
+    await persistence.createSession({
       sessionId: 'test-session',
       flowType: 'products',
       status: 'STARTED',
     });
 
-    persistence.updateSessionStatus('test-session', 'COMPLETED');
-    const session = persistence.getSession('test-session');
+    await persistence.updateSessionStatus('test-session', 'COMPLETED');
+    const session = await persistence.getSession('test-session');
     expect(session.status).toBe('COMPLETED');
   });
 
-  it('should create and retrieve batches for a session', () => {
-    persistence.createSession({
+  it('should create and retrieve batches for a session', async () => {
+    await persistence.createSession({
       sessionId: 'test-session',
       flowType: 'products',
       status: 'STARTED',
     });
 
-    persistence.createBatch({
+    await persistence.createBatch({
       erc: 'batch-1',
       sessionId: 'test-session',
       stepKey: 'create-products',
@@ -66,45 +66,45 @@ describe('PersistenceService', () => {
       totalCount: 10,
     });
 
-    const batches = persistence.getBatchesForSession('test-session');
+    const batches = await persistence.getBatchesForSession('test-session');
     expect(batches).toHaveLength(1);
     expect(batches[0].erc).toBe('batch-1');
     expect(batches[0].total_count).toBe(10);
   });
 
-  it('should update batch details', () => {
-    persistence.createSession({
+  it('should update batch details', async () => {
+    await persistence.createSession({
       sessionId: 'test-session',
       flowType: 'products',
       status: 'STARTED',
     });
 
-    persistence.createBatch({
+    await persistence.createBatch({
       erc: 'batch-1',
       sessionId: 'test-session',
       stepKey: 'create-products',
       status: 'PREPARED',
     });
 
-    persistence.updateBatch('batch-1', {
+    await persistence.updateBatch('batch-1', {
       status: 'COMPLETED',
       processedCount: 5,
     });
 
-    const batch = persistence.getBatch('batch-1');
+    const batch = await persistence.getBatch('batch-1');
     expect(batch.status).toBe('COMPLETED');
     expect(batch.processed_count).toBe(5);
   });
 
   it('should verify dependency readiness', async () => {
     const sessionId = 'test-session';
-    persistence.createSession({
+    await persistence.createSession({
       sessionId,
       flowType: 'products',
       status: 'STARTED',
     });
 
-    persistence.createBatch({
+    await persistence.createBatch({
       erc: 'batch-1',
       sessionId,
       stepKey: 'step-1',
@@ -114,7 +114,7 @@ describe('PersistenceService', () => {
     const ready = await persistence.verifyDependencyReady(sessionId, 'step-1');
     expect(ready).toBe(true);
 
-    persistence.createBatch({
+    await persistence.createBatch({
       erc: 'batch-2',
       sessionId,
       stepKey: 'step-2',
@@ -128,45 +128,45 @@ describe('PersistenceService', () => {
     expect(notReady).toBe(false);
   });
 
-  it('should log workflow events', () => {
+  it('should log workflow events', async () => {
     const sessionId = 'test-session';
-    persistence.createSession({
+    await persistence.createSession({
       sessionId,
       flowType: 'products',
       status: 'STARTED',
     });
 
-    persistence.logWorkflowEvent({
+    await persistence.logWorkflowEvent({
       sessionId,
       status: 'INFO',
       message: 'Testing event log',
       details: { key: 'value' },
     });
 
-    const events = persistence.getEventsForSession(sessionId);
+    const events = await persistence.getEventsForSession(sessionId);
     expect(events).toHaveLength(1);
     expect(events[0].message).toBe('Testing event log');
     expect(events[0].details.key).toBe('value');
   });
 
-  it('should filter completed sessions to exclude deletion flows', () => {
-    persistence.createSession({
+  it('should filter completed sessions to exclude deletion flows', async () => {
+    await persistence.createSession({
       sessionId: 'gen-1',
       flowType: 'generate',
       status: 'COMPLETED',
     });
-    persistence.createSession({
+    await persistence.createSession({
       sessionId: 'acc-1',
       flowType: 'accounts',
       status: 'COMPLETED',
     });
-    persistence.createSession({
+    await persistence.createSession({
       sessionId: 'del-1',
       flowType: 'delete',
       status: 'COMPLETED',
     });
 
-    const completed = persistence.getCompletedSessions();
+    const completed = await persistence.getCompletedSessions();
     expect(completed).toHaveLength(2);
     expect(completed.some((s) => s.session_id === 'gen-1')).toBe(true);
     expect(completed.some((s) => s.session_id === 'acc-1')).toBe(true);

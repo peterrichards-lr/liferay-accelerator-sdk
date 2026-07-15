@@ -51,6 +51,10 @@ describe('BaseGenerator', () => {
     generator = new BaseGenerator(mockCtx);
   });
 
+  afterEach(async () => {
+    await persistence.close();
+  });
+
   describe('runWorkflow', () => {
     it('should initialize a session and report progress', async () => {
       const config = { catalogId: 123 };
@@ -85,7 +89,7 @@ describe('BaseGenerator', () => {
   describe('Metadata Steps', () => {
     it('_runLoadCountriesStep should fetch and persist countries', async () => {
       const sessionId = 'test-session';
-      persistence.createSession({
+      await persistence.createSession({
         sessionId,
         flowType: 'test',
         status: 'STARTED',
@@ -96,14 +100,14 @@ describe('BaseGenerator', () => {
 
       await generator._runLoadCountriesStep(sessionId);
 
-      const session = persistence.getSession(sessionId);
+      const session = await persistence.getSession(sessionId);
       expect(session.context.countries).toBeDefined();
       expect(session.context.countries).toHaveLength(1);
     });
 
     it('_runLoadLanguagesStep should fetch and persist languages', async () => {
       const sessionId = 'lang-session';
-      persistence.createSession({
+      await persistence.createSession({
         sessionId,
         flowType: 'test',
         status: 'STARTED',
@@ -114,7 +118,7 @@ describe('BaseGenerator', () => {
 
       await generator._runLoadLanguagesStep(sessionId);
 
-      const session = persistence.getSession(sessionId);
+      const session = await persistence.getSession(sessionId);
       expect(session.context.languages).toBeDefined();
       expect(session.context.languages[0].id).toBe('en-US');
     });
@@ -123,7 +127,7 @@ describe('BaseGenerator', () => {
   describe('Sync Delay', () => {
     it('_runInterServiceSyncDelayStep should complete after delay', async () => {
       const sessionId = 'test-session';
-      persistence.createSession({
+      await persistence.createSession({
         sessionId,
         flowType: 'test',
         status: 'STARTED',
@@ -145,7 +149,7 @@ describe('BaseGenerator', () => {
 
     it('_runAdaptiveSyncDelayStep should retry with backoff and complete on success', async () => {
       const sessionId = 'adaptive-session';
-      persistence.createSession({
+      await persistence.createSession({
         sessionId,
         flowType: 'test',
         status: 'STARTED',
@@ -180,7 +184,7 @@ describe('BaseGenerator', () => {
 
     it('_runAdaptiveSyncDelayStep should proceed even if max retries reached without success', async () => {
       const sessionId = 'fail-session';
-      persistence.createSession({
+      await persistence.createSession({
         sessionId,
         flowType: 'test',
         status: 'STARTED',
