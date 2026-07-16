@@ -16,6 +16,7 @@
 - Expanded test coverage across LiferayService metadata/catalog paths, bumping SDK to `0.3.8` and release tag `v0.3.8`.
 - Implemented `getTaxonomyVocabularies` and `getTaxonomyCategories` on `ExtractionFacade`, bumped SDK to `0.3.9`, tagged release `v0.3.9`, and closed Issue #20.
 - Implemented `createWebContentStructure`, `getContentStructure`, and `getSiteContentStructures` on `LiferayService` and `ExtractionFacade`, bumped SDK to `0.3.10`, tagged release `v0.3.10`, and closed Issue #22.
+- Refactored SDK god objects (`LiferayRestService` and `LiferayService`) into domain-driven modules, cleared up import scoping issues, and removed orphaned agent skills. Bumped SDK version to `0.4.0` and tagged release `v0.4.0`.
 
 ## Current Goals
 
