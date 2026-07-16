@@ -2577,7 +2577,6 @@ class LiferayRestService {
       ? PATH.PRICE_ENTRIES_BY_ERC(priceListIdOrERC)
       : PATH.PRICE_ENTRIES(priceListIdOrERC);
 
-
     // Clean up priceListId from entryData since we specify it in the URL path,
     // to avoid Liferay matching/validation conflicts on ID-scoped endpoints.
     // Clean up IDs to avoid Vulcan Batch Engine NotSupportedException mapping bugs
