@@ -52,6 +52,9 @@ class LiferayRestService {
   _request(...args) {
     return this.httpCore._request(...args);
   }
+  getConfig(...args) {
+    return this.httpCore.getConfig(...args);
+  }
   _downloadFile(...args) {
     return this.httpCore._downloadFile(...args);
   }
