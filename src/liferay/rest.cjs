@@ -16,7 +16,7 @@ const { ERC_PREFIX, ENV } = require('../utils/constants.cjs');
 const { findContract } = require('../utils/contractMappings.cjs');
 const { delay, createERC } = require('../utils/misc.cjs');
 const { sanitizedERC } = require('../utils/normalize.cjs');
-const { ErrorHandler } = require('../utils/errorHandler.cjs');
+const { ErrorHandler } = require('../utils/expressErrorHandler.cjs');
 const { parse } = require('csv-parse/sync');
 
 const { getBatchCacheTTLms } = require('../utils/ttl.cjs');
@@ -1353,7 +1353,6 @@ class LiferayRestService {
     let urlPath = isERC
       ? PATH.PRICE_ENTRIES_BY_ERC(priceListIdOrERC)
       : PATH.PRICE_ENTRIES(priceListIdOrERC);
-
 
     // Clean up priceListId from entryData since we specify it in the URL path,
     // to avoid Liferay matching/validation conflicts on ID-scoped endpoints.

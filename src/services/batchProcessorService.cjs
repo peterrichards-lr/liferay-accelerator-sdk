@@ -1,4 +1,4 @@
-const { ErrorHandler } = require('../utils/errorHandler.cjs');
+const { ErrorHandler } = require('../utils/expressErrorHandler.cjs');
 const { delay, processWithRetry } = require('../utils/misc.cjs');
 const { ENV } = require('../utils/constants.cjs');
 

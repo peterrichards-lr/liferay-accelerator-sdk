@@ -1,7 +1,15 @@
 const { resolveErrorReference, createERC } = require('../utils/misc.cjs');
 const { ERC_PREFIX } = require('../utils/constants.cjs');
 
-function handleError(res, logger, req, config, operation, error, extra = {}) {
+function handleServiceError(
+  res,
+  logger,
+  req,
+  config,
+  operation,
+  error,
+  extra = {}
+) {
   const rawMessage =
     (error && error.userMessage) ||
     (error && error.message) ||
@@ -9,15 +17,18 @@ function handleError(res, logger, req, config, operation, error, extra = {}) {
     'An unexpected error occurred. Please try again.';
 
   const isValidationError =
-    rawMessage.includes('Not enough') ||
-    rawMessage.includes('required') ||
-    rawMessage.includes('No ') ||
-    rawMessage.includes('missing') ||
-    rawMessage.includes('invalid');
+    error?.status === 400 ||
+    error?.statusCode === 400 ||
+    error?.response?.status === 400 ||
+    error?.code === 'VALIDATION_ERROR';
 
-  const isAIKeyMissingError = rawMessage.includes('AI API key not configured');
+  const isAIKeyMissingError =
+    error?.code === 'AI_KEY_MISSING' ||
+    rawMessage.includes('AI API key not configured');
 
-  let statusCode = isValidationError ? 400 : 500;
+  let statusCode = isValidationError
+    ? 400
+    : error?.status || error?.statusCode || 500;
   let userMessage = rawMessage;
 
   if (isAIKeyMissingError) {
@@ -34,10 +45,10 @@ function handleError(res, logger, req, config, operation, error, extra = {}) {
     name: error?.name,
     stack: error?.stack,
     requestDetails: {
-      method: req.method,
-      url: req.url,
-      ip: req.ip,
-      userAgent: req.get('User-Agent'),
+      method: req?.method,
+      url: req?.url,
+      ip: req?.ip,
+      userAgent: req?.get && req.get('User-Agent'),
     },
     entityType: extra.entityType,
     ...extra,
@@ -54,4 +65,4 @@ function handleError(res, logger, req, config, operation, error, extra = {}) {
     });
   }
 }
-module.exports = { handleError };
+module.exports = { handleServiceError };
