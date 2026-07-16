@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { ErrorHandler } = require('./errorHandler.cjs');
+const { ErrorHandler } = require('./expressErrorHandler.cjs');
 const { ERC_PREFIX, ENV } = require('./constants.cjs');
 
 function getRandomInt(max) {

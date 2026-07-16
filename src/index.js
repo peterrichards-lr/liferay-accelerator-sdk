@@ -23,7 +23,8 @@ const liferayPaths = require('./utils/liferayPaths.cjs');
 const liferayUtils = require('./utils/liferayUtils.cjs');
 const constants = require('./utils/constants.cjs');
 const misc = require('./utils/misc.cjs');
-const errorHandler = require('./utils/errorHandler.cjs');
+const expressErrorHandler = require('./utils/expressErrorHandler.cjs');
+const serviceErrorHandler = require('./utils/serviceErrorHandler.cjs');
 
 module.exports = {
   LiferayService,
@@ -46,7 +47,8 @@ module.exports = {
     ...liferayPaths,
     ...liferayUtils,
     ...misc,
-    ...errorHandler,
+    ...expressErrorHandler,
+    ...serviceErrorHandler,
     constants,
   },
 
