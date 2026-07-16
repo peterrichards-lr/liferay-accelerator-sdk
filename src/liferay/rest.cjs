@@ -1,8 +1,6 @@
 const {
   resolveEffectiveLiferayConnection,
 } = require('../utils/liferayEnv.cjs');
-const axios = require('axios');
-const FormData = require('form-data');
 const fs = require('fs');
 const { tmpdir } = require('os');
 const path = require('path');
@@ -13,7 +11,6 @@ const crypto = require('crypto');
 const { PATH, CUSTOM_OBJECTS, q } = require('../utils/liferayPaths.cjs');
 const { ASSET_TYPE } = require('../utils/liferayPermissions.cjs');
 const { ERC_PREFIX, ENV } = require('../utils/constants.cjs');
-const { findContract } = require('../utils/contractMappings.cjs');
 const { delay, createERC } = require('../utils/misc.cjs');
 const { sanitizedERC } = require('../utils/normalize.cjs');
 const { ErrorHandler } = require('../utils/expressErrorHandler.cjs');
@@ -36,6 +33,86 @@ class LiferayRestService {
     this.batch = new BatchOperationService(ctx);
     this.batchDelete = new BatchDeleteService(ctx);
     this.multipart = new MultipartService(ctx);
+  }
+  _get(...args) {
+    return this.httpCore._get(...args);
+  }
+  _post(...args) {
+    return this.httpCore._post(...args);
+  }
+  _put(...args) {
+    return this.httpCore._put(...args);
+  }
+  _patch(...args) {
+    return this.httpCore._patch(...args);
+  }
+  _delete(...args) {
+    return this.httpCore._delete(...args);
+  }
+  _request(...args) {
+    return this.httpCore._request(...args);
+  }
+  _downloadFile(...args) {
+    return this.httpCore._downloadFile(...args);
+  }
+
+  _postBatch(...args) {
+    return this.batch._postBatch(...args);
+  }
+  _collectPagedItems(...args) {
+    return this.batch._collectPagedItems(...args);
+  }
+  _collectPagedIds(...args) {
+    return this.batch._collectPagedIds(...args);
+  }
+
+  _deleteBatchNative(...args) {
+    return this.batchDelete._deleteBatchNative(...args);
+  }
+  _deleteByBatch(...args) {
+    return this.batchDelete._deleteByBatch(...args);
+  }
+  _deleteByIds(...args) {
+    return this.batchDelete._deleteByIds(...args);
+  }
+  _deleteBatchSimulated(...args) {
+    return this.batchDelete._deleteBatchSimulated(...args);
+  }
+
+  _postMultipart(...args) {
+    return this.multipart._postMultipart(...args);
+  }
+  addProductImageMultipart(...args) {
+    return this.multipart.addProductImageMultipart(...args);
+  }
+  addProductDocumentAttachmentMultipart(...args) {
+    return this.multipart.addProductDocumentAttachmentMultipart(...args);
+  }
+
+  createAxiosInstance(...args) {
+    return this.httpCore.createAxiosInstance(...args);
+  }
+  testConnection(...args) {
+    return this.httpCore.testConnection(...args);
+  }
+
+  addProductImage(...args) {
+    return this.multipart.addProductImage(...args);
+  }
+  addProductDocumentAttachment(...args) {
+    return this.multipart.addProductDocumentAttachment(...args);
+  }
+  addProductImageByBase64(...args) {
+    return this.multipart.addProductImageByBase64(...args);
+  }
+  addProductDocumentAttachmentByBase64(...args) {
+    return this.multipart.addProductDocumentAttachmentByBase64(...args);
+  }
+  addProductImageDocumentLibrary(...args) {
+    return this.multipart.addProductImageDocumentLibrary(...args);
+  }
+  addProductDocumentAttachmentDocumentLibrary(...args) {
+    return this.multipart.addProductDocumentAttachmentDocumentLibrary(...args);
   }
 
   _stringifySafe(obj) {
@@ -119,7 +196,13 @@ class LiferayRestService {
             pageSize,
           },
         };
-        res = await this.httpCore._get(config, urlOrFetcher, op, friendly, pageOpts);
+        res = await this.httpCore._get(
+          config,
+          urlOrFetcher,
+          op,
+          friendly,
+          pageOpts
+        );
       }
 
       yield res;
@@ -257,7 +340,11 @@ class LiferayRestService {
   }
 
   async getCatalogs(config) {
-    const data = await this.httpCore._get(config, PATH.CATALOGS, 'get-catalogs');
+    const data = await this.httpCore._get(
+      config,
+      PATH.CATALOGS,
+      'get-catalogs'
+    );
     return asItems(data);
   }
 
@@ -281,7 +368,11 @@ class LiferayRestService {
   }
 
   async getChannels(config) {
-    const data = await this.httpCore._get(config, PATH.CHANNELS, 'get-channels');
+    const data = await this.httpCore._get(
+      config,
+      PATH.CHANNELS,
+      'get-channels'
+    );
     return asItems(data);
   }
 
@@ -319,7 +410,11 @@ class LiferayRestService {
 
   async getPrimaryAccountId(config) {
     try {
-      const me = await this.httpCore._get(config, PATH.ME, 'get-primary-account-id');
+      const me = await this.httpCore._get(
+        config,
+        PATH.ME,
+        'get-primary-account-id'
+      );
       if (me && typeof me.defaultAccountId === 'number') {
         return me.defaultAccountId;
       }
@@ -336,7 +431,11 @@ class LiferayRestService {
   }
 
   async getAccountCount(config) {
-    const data = await this.httpCore._get(config, PATH.ACCOUNTS, 'get-accounts');
+    const data = await this.httpCore._get(
+      config,
+      PATH.ACCOUNTS,
+      'get-accounts'
+    );
     return asCount(data);
   }
 
@@ -418,7 +517,11 @@ class LiferayRestService {
       const tempFilePath = path.join(tmpdir(), `${crypto.randomUUID()}.zip`);
 
       try {
-        await this.httpCore._downloadFile(config, urlResponse.url, tempFilePath);
+        await this.httpCore._downloadFile(
+          config,
+          urlResponse.url,
+          tempFilePath
+        );
 
         const zip = new StreamZip.async({ file: tempFilePath });
         const entries = await zip.entries();
@@ -573,7 +676,11 @@ class LiferayRestService {
   }
 
   async getCurrencies(config) {
-    const data = await this.httpCore._get(config, PATH.CURRENCIES, 'get-currencies');
+    const data = await this.httpCore._get(
+      config,
+      PATH.CURRENCIES,
+      'get-currencies'
+    );
     const items = asItems(data);
     const lang = config.languageId || 'en_US';
 

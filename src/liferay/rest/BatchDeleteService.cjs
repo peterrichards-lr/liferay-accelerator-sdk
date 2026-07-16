@@ -3,8 +3,60 @@ const { ERC_PREFIX, ENV } = require('../../utils/constants.cjs');
 const { createERC } = require('../../utils/misc.cjs');
 
 class BatchDeleteService {
-  constructor(ctx) {
+  constructor(ctx, http, batch) {
     this.ctx = ctx;
+    this.http = http;
+    this.batch = batch;
+  }
+
+  _chunkArray(arr, size) {
+    return Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
+      arr.slice(i * size, i * size + size)
+    );
+  }
+
+  _stringifySafe(obj) {
+    try {
+      return JSON.stringify(obj, null, 2);
+    } catch {
+      return '[Unserializable object]';
+    }
+  }
+
+  _getBaseCallbackUrl(config, session = null) {
+    if (process.env.LIFERAY_BATCH_CALLBACK_URL) {
+      return process.env.LIFERAY_BATCH_CALLBACK_URL;
+    }
+    const url =
+      config?.microserviceUrl ||
+      session?.context?.config?.microserviceUrl ||
+      session?.context?.microserviceUrl ||
+      session?.context?.microserviceURL ||
+      ENV.MICROSERVICE_URL;
+
+    if (!url) {
+      const loggerToUse =
+        this.ctx?.logger || require('../../utils/logger.cjs').logger;
+      loggerToUse.warn(
+        'microserviceUrl is not configured. Callbacks will likely fail.'
+      );
+      return null;
+    }
+    return `${url}/api/v1/batch/callback`;
+  }
+
+  _buildCallbackURL(baseUrl, meta = {}) {
+    if (!baseUrl) return null;
+    try {
+      const u = new URL(baseUrl);
+      const batchERC = meta.batchExternalReferenceCode || meta.batchERC;
+      if (batchERC) {
+        u.searchParams.set('batchERC', String(batchERC));
+      }
+      return u.toString();
+    } catch {
+      return baseUrl;
+    }
   }
 
   async _deleteBatchNative(
@@ -93,7 +145,13 @@ class BatchDeleteService {
         continue;
       }
 
-      const res = await this._delete(config, batchUrl, payload, op, friendly);
+      const res = await this.http._delete(
+        config,
+        batchUrl,
+        payload,
+        op,
+        friendly
+      );
       batchRefs.push({ taskId: res.id, count: chunk.length });
     }
 
@@ -135,7 +193,7 @@ class BatchDeleteService {
           }
 
           try {
-            await this._delete(config, url, null, op, friendly);
+            await this.http._delete(config, url, null, op, friendly);
             deletedCount++;
           } catch (err) {
             if (retryOn && retryOn.includes(err.status)) {

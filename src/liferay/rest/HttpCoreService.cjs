@@ -1,4 +1,6 @@
-const { resolveEffectiveLiferayConnection } = require('../../utils/liferayEnv.cjs');
+const {
+  resolveEffectiveLiferayConnection,
+} = require('../../utils/liferayEnv.cjs');
 const axios = require('axios');
 const fs = require('fs');
 const { logger } = require('../../utils/logger.cjs');
@@ -12,6 +14,27 @@ const { SOFT_STATUS_BY_OP } = require('./config.cjs');
 class HttpCoreService {
   constructor(ctx) {
     this.ctx = ctx;
+  }
+
+  _stringifySafe(obj) {
+    try {
+      return JSON.stringify(obj, null, 2);
+    } catch {
+      return '[Unserializable object]';
+    }
+  }
+
+  _buildSoftFallback(op, status) {
+    return {
+      items: [],
+      page: 1,
+      pageSize: 0,
+      lastPage: 1,
+      totalCount: 0,
+      status,
+      softEmpty: true,
+      op,
+    };
   }
 
   async _request(

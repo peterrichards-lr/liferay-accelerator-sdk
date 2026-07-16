@@ -7,8 +7,76 @@ const { ErrorHandler } = require('../../utils/expressErrorHandler.cjs');
 const { asItems, asCount } = require('../../utils/liferayUtils.cjs');
 
 class BatchOperationService {
-  constructor(ctx) {
+  constructor(ctx, http) {
     this.ctx = ctx;
+    this.http = http;
+  }
+  _chunkArray(arr, size) {
+    return Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
+      arr.slice(i * size, i * size + size)
+    );
+  }
+
+  _cacheItemERCs(batchERC, batchId, itemERCs, sessionId = null) {
+    if (!itemERCs || itemERCs.length === 0) return;
+    try {
+      const PersistenceService = require('../../services/persistenceService.cjs');
+      const persistence = PersistenceService.getInstance();
+
+      if (batchERC) {
+        persistence.cacheBatchItemERCs(batchERC, itemERCs, sessionId);
+      } else if (batchId) {
+        persistence.cacheBatchItemERCsById(batchId, itemERCs, sessionId);
+      }
+    } catch (err) {
+      const loggerToUse =
+        this.ctx?.logger || require('../../utils/logger.cjs').logger;
+      loggerToUse.error('Failed to cache item ERCs for batch:', err.message);
+    }
+  }
+
+  _stringifySafe(obj) {
+    try {
+      return JSON.stringify(obj, null, 2);
+    } catch {
+      return '[Unserializable object]';
+    }
+  }
+
+  _getBaseCallbackUrl(config, session = null) {
+    if (process.env.LIFERAY_BATCH_CALLBACK_URL) {
+      return process.env.LIFERAY_BATCH_CALLBACK_URL;
+    }
+    const url =
+      config?.microserviceUrl ||
+      session?.context?.config?.microserviceUrl ||
+      session?.context?.microserviceUrl ||
+      session?.context?.microserviceURL ||
+      ENV.MICROSERVICE_URL;
+
+    if (!url) {
+      const loggerToUse =
+        this.ctx?.logger || require('../../utils/logger.cjs').logger;
+      loggerToUse.warn(
+        'microserviceUrl is not configured. Callbacks will likely fail.'
+      );
+      return null;
+    }
+    return `${url}/api/v1/batch/callback`;
+  }
+
+  _buildCallbackURL(baseUrl, meta = {}) {
+    if (!baseUrl) return null;
+    try {
+      const u = new URL(baseUrl);
+      const batchERC = meta.batchExternalReferenceCode || meta.batchERC;
+      if (batchERC) {
+        u.searchParams.set('batchERC', String(batchERC));
+      }
+      return u.toString();
+    } catch {
+      return baseUrl;
+    }
   }
 
   async _postBatch(
@@ -108,7 +176,8 @@ class BatchOperationService {
         }
       );
 
-      const url = path(callbackUrl, currentERC);
+      const url =
+        typeof path === 'function' ? path(callbackUrl, currentERC) : path;
       const currentBatchPayload = {
         ...batchPayload,
         batchExternalReferenceCode: currentERC,
@@ -123,7 +192,7 @@ class BatchOperationService {
       });
 
       try {
-        const data = await this._request(config, {
+        const data = await this.http._request(config, {
           method,
           url,
           data: currentBatchPayload,
@@ -189,7 +258,7 @@ class BatchOperationService {
           // Check if DXP already has this batch task active by querying by ERC
           try {
             const getUrl = `/o/headless-batch-engine/v1.0/import-task/by-external-reference-code/${encodeURIComponent(currentERC)}`;
-            const existingTask = await this._get(
+            const existingTask = await this.http._get(
               config,
               getUrl,
               'get-import-task-by-erc',
@@ -311,7 +380,7 @@ class BatchOperationService {
     let hasMore = true;
 
     while (hasMore) {
-      const res = await this._get(config, listUrl, op, friendly, {
+      const res = await this.http._get(config, listUrl, op, friendly, {
         params: {
           page,
           pageSize,
@@ -341,7 +410,7 @@ class BatchOperationService {
     let hasMore = true;
 
     while (hasMore) {
-      const res = await this._get(config, listUrl, op, friendly, {
+      const res = await this.http._get(config, listUrl, op, friendly, {
         params: {
           page,
           pageSize,
@@ -363,13 +432,6 @@ class BatchOperationService {
     }
 
     return allIds;
-  }
-
-  _chunkArray(arr, size) {
-    if (!size || size <= 0) size = 100;
-    return Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
-      arr.slice(i * size, i * size + size)
-    );
   }
 }
 module.exports = BatchOperationService;

@@ -2,15 +2,15 @@ const { PATH } = require('../../utils/liferayPaths.cjs');
 const { createERC } = require('../../utils/misc.cjs');
 const { ERC_PREFIX } = require('../../utils/constants.cjs');
 const FormData = require('form-data');
-const fs = require('fs');
 
 class MultipartService {
-  constructor(ctx) {
+  constructor(ctx, http) {
     this.ctx = ctx;
+    this.http = http;
   }
 
   async _postMultipart(config, url, formData, op, friendly) {
-    return await this._request(config, {
+    return await this.http._request(config, {
       method: 'POST',
       url,
       data: formData,
@@ -71,7 +71,7 @@ class MultipartService {
   }
 
   async addProductImage(config, productId, image) {
-    return await this._post(
+    return await this.http._post(
       config,
       PATH.PRODUCT_IMAGES_BY_URL(productId),
       image,
@@ -81,7 +81,7 @@ class MultipartService {
   }
 
   async addProductDocumentAttachment(config, productId, attachment) {
-    return await this._post(
+    return await this.http._post(
       config,
       PATH.PRODUCT_ATTACHMENTS_BY_URL(productId),
       attachment,
@@ -91,7 +91,7 @@ class MultipartService {
   }
 
   async addProductImageByBase64(config, productERC, image) {
-    return await this._post(
+    return await this.http._post(
       config,
       PATH.PRODUCT_IMAGES_BY_BASE64(productERC),
       image,
@@ -101,7 +101,7 @@ class MultipartService {
   }
 
   async addProductDocumentAttachmentByBase64(config, productERC, attachment) {
-    return await this._post(
+    return await this.http._post(
       config,
       PATH.PRODUCT_ATTACHMENTS_BY_BASE64(productERC),
       attachment,
@@ -123,7 +123,7 @@ class MultipartService {
       src: documentId, // The internal ID or UUID depending on the endpoint expectation
     };
 
-    return await this._post(
+    return await this.http._post(
       config,
       PATH.PRODUCT_IMAGES(productId),
       payload,
@@ -145,7 +145,7 @@ class MultipartService {
       src: documentId,
     };
 
-    return await this._post(
+    return await this.http._post(
       config,
       PATH.PRODUCT_ATTACHMENTS(productId),
       payload,
