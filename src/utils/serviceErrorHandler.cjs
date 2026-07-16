@@ -1,7 +1,15 @@
 const { resolveErrorReference, createERC } = require('../utils/misc.cjs');
 const { ERC_PREFIX } = require('../utils/constants.cjs');
 
-function handleServiceError(res, logger, req, config, operation, error, extra = {}) {
+function handleServiceError(
+  res,
+  logger,
+  req,
+  config,
+  operation,
+  error,
+  extra = {}
+) {
   const rawMessage =
     (error && error.userMessage) ||
     (error && error.message) ||
@@ -18,7 +26,9 @@ function handleServiceError(res, logger, req, config, operation, error, extra = 
     error?.code === 'AI_KEY_MISSING' ||
     rawMessage.includes('AI API key not configured');
 
-  let statusCode = isValidationError ? 400 : error?.status || error?.statusCode || 500;
+  let statusCode = isValidationError
+    ? 400
+    : error?.status || error?.statusCode || 500;
   let userMessage = rawMessage;
 
   if (isAIKeyMissingError) {
