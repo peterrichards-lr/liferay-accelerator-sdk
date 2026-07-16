@@ -8,7 +8,7 @@ describe('createPriceEntriesBatch', () => {
     liferayService = new LiferayService({
       logger: { info: vi.fn(), debug: vi.fn(), error: vi.fn() },
     });
-    liferayService.rest._postBatch = vi
+    liferayService.rest.batch._postBatch = vi
       .fn()
       .mockResolvedValue({ status: 'completed' });
     liferayService.rest.createPriceEntry = vi.fn().mockResolvedValue({});
@@ -21,8 +21,8 @@ describe('createPriceEntriesBatch', () => {
       simulateBatch: false,
     });
 
-    expect(liferayService.rest._postBatch).toHaveBeenCalled();
-    expect(liferayService.rest._postBatch).toHaveBeenCalledWith(
+    expect(liferayService.rest.batch._postBatch).toHaveBeenCalled();
+    expect(liferayService.rest.batch._postBatch).toHaveBeenCalledWith(
       config,
       expect.objectContaining({
         path: expect.stringContaining('/price-entries/batch'),
@@ -37,7 +37,7 @@ describe('createPriceEntriesBatch', () => {
     const entries = [{ sku: 'A', price: 10 }];
     await liferayService.rest.createPriceEntriesBatch(config, entries, {});
 
-    expect(liferayService.rest._postBatch).not.toHaveBeenCalled();
+    expect(liferayService.rest.batch._postBatch).not.toHaveBeenCalled();
     expect(liferayService.rest.createPriceEntry).toHaveBeenCalled();
   });
 });
