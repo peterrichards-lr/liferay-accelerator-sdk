@@ -6,7 +6,6 @@ const ExtractionFacade = require('../services/extractionFacade.cjs');
 const { asItems } = require('../utils/liferayUtils.cjs');
 const { PATH } = require('../utils/liferayPaths.cjs');
 const { delay, fromI18n } = require('../utils/misc.cjs');
-
 class LiferayService {
   constructor(ctx) {
     this.ctx = ctx;
@@ -18,21 +17,30 @@ class LiferayService {
     this.ctx.logger.debug(
       'LiferayService: GraphQL, Fluent client, catalogAdapterFactory, and extractionFacade initialized'
     );
+    const ContentService = require('./services/ContentService.cjs');
+    const CommerceService = require('./services/CommerceService.cjs');
+    const PricingService = require('./services/PricingService.cjs');
+    const AccountService = require('./services/AccountService.cjs');
+    const TaxonomyService = require('./services/TaxonomyService.cjs');
+    this.content = new ContentService(this);
+    this.commerce = new CommerceService(this);
+    this.pricing = new PricingService(this);
+    this.account = new AccountService(this);
+    this.taxonomy = new TaxonomyService(this);
   }
-
-  async getCatalogAdapter(config) {
-    return await this.catalogAdapterFactory.getAdapter(this.rest, config);
+  async getCatalogAdapter(...args) {
+    return this.commerce.getCatalogAdapter(...args);
   }
-
   async _collectAllItems(config, fetcherFn, maxItems = 5000) {
     let allItems = [];
-
     for await (const pageRes of this.rest.iteratePages(
       config,
       fetcherFn,
       null,
       null,
-      { pageSize: 200 }
+      {
+        pageSize: 200,
+      }
     )) {
       const items = asItems(pageRes);
       allItems.push(...items);
@@ -40,637 +48,51 @@ class LiferayService {
         break;
       }
     }
-
     if (allItems.length > maxItems) {
       allItems = allItems.slice(0, maxItems);
     }
-
-    return { items: allItems, totalCount: allItems.length };
+    return {
+      items: allItems,
+      totalCount: allItems.length,
+    };
   }
 
   // --- Discovery Methods (Standardized Entry Points with Exclusions) ---
-
-  async getProductsWithSkus(config, { catalogId, pageSize = 200 } = {}) {
-    // 1. Fetch all products
-    const { items: products } = await this.getProducts(config, {
-      catalogId,
-      pageSize,
-    });
-
-    // 2. Fetch all SKUs globally from SQL to ensure real-time consistency
-    let allSkus = [];
-    try {
-      const res = await this.rest._get(
-        config,
-        PATH.SKUS,
-        'get-skus-bulk',
-        'Get SKUs Bulk',
-        { params: { pageSize: 250 } }
-      );
-      allSkus = asItems(res);
-    } catch (err) {
-      this.ctx.logger.warn(`Failed to fetch SKUs globally: ${err.message}`);
-    }
-
-    // 3. Map SKUs by productId in memory
-    const skusByProductId = new Map();
-    for (const s of allSkus) {
-      const pId = s.productId || s.product?.id;
-      if (pId) {
-        if (!skusByProductId.has(pId)) {
-          skusByProductId.set(pId, []);
-        }
-        skusByProductId.get(pId).push({
-          sku: s.sku,
-          purchasable: s.purchasable,
-          price: s.price,
-          externalReferenceCode: s.externalReferenceCode,
-        });
-      }
-    }
-
-    // 4. Associate SKUs to products
-    const items = products.map((p) => {
-      const targetId = p.productId || p.id;
-      return {
-        ...p,
-        skus: skusByProductId.get(targetId) || [],
-      };
-    });
-
-    return { items, totalCount: items.length };
+  async getProductsWithSkus(...args) {
+    return this.commerce.getProductsWithSkus(...args);
   }
-
-  async getProducts(
-    config,
-    {
-      catalogId,
-      pageSize = 200,
-      fields = 'productId,externalReferenceCode,name',
-      filter: providedFilter,
-    } = {}
-  ) {
-    const exclusions = await this._getExclusions(config, 'product');
-
-    // HARDENING: Liferay's /products API throws 404 if no catalogId is provided.
-    // If we want a "Global" search, we MUST iterate through all catalogs.
-    if (!catalogId && !providedFilter?.includes('catalogId')) {
-      this.ctx.logger.info(
-        'Performing multi-catalog product discovery sweep...'
-      );
-      const allCatalogs = await this.getCatalogs(config);
-      const allItems = [];
-
-      for (const cat of allCatalogs) {
-        try {
-          const { items } = await this.getProducts(config, {
-            catalogId: cat.id,
-            pageSize,
-            fields,
-          });
-          allItems.push(...items);
-        } catch (err) {
-          this.ctx.logger.warn(
-            `Skipping products for catalog ${cat.id}: ${err.message}`
-          );
-        }
-      }
-
-      // Deduplicate and filter in memory
-      const filteredItems = [
-        ...new Map(allItems.map((i) => [i.productId || i.id, i])).values(),
-      ].filter((it) => !this._shouldExclude(it, exclusions));
-
-      return {
-        items: filteredItems,
-        totalCount: filteredItems.length,
-      };
-    }
-
-    // Standard single-catalog fetch
-    const filters = [];
-    if (catalogId) filters.push(`catalogId eq ${catalogId}`);
-    if (providedFilter) filters.push(providedFilter);
-
-    const filter = filters.length > 0 ? filters.join(' and ') : null;
-
-    const adapter = await this.getCatalogAdapter(config);
-    const { items } = await this._collectAllItems(config, (cfg, p, size) =>
-      adapter.getProductsRaw(cfg, filter, p, size, fields)
-    );
-
-    const filteredItems = items.filter(
-      (it) => !this._shouldExclude(it, exclusions)
-    );
-
-    return {
-      items: filteredItems,
-      totalCount: filteredItems.length,
-    };
+  async getProducts(...args) {
+    return this.commerce.getProducts(...args);
   }
-
-  async getAccountGroups(
-    config,
-    {
-      _pageSize = 200,
-      fields = 'id,externalReferenceCode,name',
-      filter: providedFilter,
-      search,
-    } = {}
-  ) {
-    const exclusions = await this._getExclusions(config, 'account-group');
-
-    let { items } = await this._collectAllItems(config, (cfg, p, size) =>
-      this.rest._get(
-        cfg,
-        PATH.ACCOUNT_GROUPS,
-        'get-account-groups-bulk',
-        'Get Account Groups Bulk',
-        {
-          params: {
-            page: p,
-            pageSize: size,
-            fields,
-          },
-        }
-      )
-    );
-
-    if (providedFilter) {
-      const idMatch = providedFilter.match(/id eq (\d+)/);
-      const ercMatch = providedFilter.match(
-        /externalReferenceCode eq '([^']+)'/
-      );
-
-      if (idMatch) {
-        const targetId = parseInt(idMatch[1], 10);
-        items = items.filter((it) => it.id === targetId);
-      } else if (ercMatch) {
-        const targetErc = ercMatch[1];
-        items = items.filter((it) => it.externalReferenceCode === targetErc);
-      }
-    }
-
-    if (search) {
-      const query = search.toLowerCase();
-      items = items.filter(
-        (it) =>
-          it.name?.toLowerCase().includes(query) ||
-          it.externalReferenceCode?.toLowerCase().includes(query)
-      );
-    }
-
-    const filteredItems = items.filter(
-      (it) => !this._shouldExclude(it, exclusions)
-    );
-
-    return {
-      items: filteredItems,
-      totalCount: filteredItems.length,
-    };
+  async getAccountGroups(...args) {
+    return this.account.getAccountGroups(...args);
   }
-
-  async getAccounts(
-    config,
-    {
-      channelId: _channelId,
-      _pageSize = 200,
-      fields = 'id,externalReferenceCode,name',
-      filter: providedFilter,
-      search,
-    } = {}
-  ) {
-    const exclusions = await this._getExclusions(config, 'account');
-
-    // HARDENING: Fetch all accounts without OData filters
-    // (Liferay's Account API rejects 'id' and 'name' filters in many environments)
-    let { items } = await this._collectAllItems(config, (cfg, p, size) =>
-      this.rest._get(
-        cfg,
-        PATH.ACCOUNTS,
-        'get-accounts-bulk',
-        'Get Accounts Bulk',
-        {
-          params: {
-            page: p,
-            pageSize: size,
-            fields,
-          },
-        }
-      )
-    );
-
-    // Filter 1: Provided OData filter (Simulated in JS memory)
-    // We only support simple "id eq" or "externalReferenceCode eq" simulation
-    if (providedFilter) {
-      const idMatch = providedFilter.match(/id eq (\d+)/);
-      const ercMatch = providedFilter.match(
-        /externalReferenceCode eq '([^']+)'/
-      );
-
-      if (idMatch) {
-        const targetId = parseInt(idMatch[1], 10);
-        items = items.filter((it) => it.id === targetId);
-      } else if (ercMatch) {
-        const targetErc = ercMatch[1];
-        items = items.filter((it) => it.externalReferenceCode === targetErc);
-      }
-    }
-
-    // Filter 2: Name Exclusions
-    const filteredItems = items.filter(
-      (it) => !this._shouldExclude(it, exclusions)
-    );
-
-    // Filter 3: Search Term
-    const finalItems = search
-      ? filteredItems.filter(
-          (it) =>
-            it.name?.toLowerCase().includes(search.toLowerCase()) ||
-            it.externalReferenceCode
-              ?.toLowerCase()
-              .includes(search.toLowerCase())
-        )
-      : filteredItems;
-
-    return {
-      items: finalItems,
-      totalCount: finalItems.length,
-    };
+  async getAccounts(...args) {
+    return this.account.getAccounts(...args);
   }
-
-  async getOptionCategories(
-    config,
-    {
-      page: _page = 1,
-      pageSize: _pageSize = 200,
-      fields: _fields = 'id',
-      filter: providedFilter,
-      ercPrefix,
-    } = {}
-  ) {
-    const exclusions = await this._getExclusions(config, 'optionCategory');
-
-    const filters = [];
-    if (providedFilter) filters.push(providedFilter);
-
-    // REMOVAL: Do not use OData for name exclusions (unreliable)
-    const filter = filters.length > 0 ? filters.join(' and ') : null;
-
-    const { items: allItems } = await this._collectAllItems(
-      config,
-      (cfg, p, size) =>
-        this.rest._get(
-          cfg,
-          PATH.OPTION_CATEGORIES,
-          'get-option-categories-bulk',
-          'Get Option Categories Bulk',
-          {
-            params: {
-              filter,
-              page: p,
-              pageSize: size,
-            },
-          }
-        )
-    );
-    let items = allItems;
-
-    // Apply prefix filter in JS memory
-    if (ercPrefix) {
-      items = items.filter(
-        (it) =>
-          it.externalReferenceCode &&
-          it.externalReferenceCode.startsWith(ercPrefix)
-      );
-    }
-
-    // HARDENING: Perform all exclusions in JS memory
-    const filteredItems = items.filter(
-      (it) => !this._shouldExclude(it, exclusions)
-    );
-
-    return {
-      items: filteredItems,
-      totalCount: filteredItems.length,
-    };
+  async getOptionCategories(...args) {
+    return this.commerce.getOptionCategories(...args);
   }
-
-  async getSpecifications(
-    config,
-    {
-      page: _page = 1,
-      pageSize: _pageSize = 200,
-      fields: _fields = 'id',
-      filter: providedFilter,
-      ercPrefix,
-    } = {}
-  ) {
-    const exclusions = await this._getExclusions(config, 'specification');
-
-    const filters = [];
-    if (providedFilter) filters.push(providedFilter);
-
-    // REMOVAL: Do not use OData for name exclusions (unreliable)
-    const filter = filters.length > 0 ? filters.join(' and ') : null;
-
-    const { items: allItems } = await this._collectAllItems(
-      config,
-      (cfg, p, size) =>
-        this.rest._get(
-          cfg,
-          PATH.SPECIFICATIONS,
-          'get-specifications-bulk',
-          'Get Specifications Bulk',
-          {
-            params: {
-              filter,
-              page: p,
-              pageSize: size,
-            },
-          }
-        )
-    );
-
-    let items = allItems;
-
-    // Apply prefix filter in JS memory
-    if (ercPrefix) {
-      items = items.filter(
-        (it) =>
-          it.externalReferenceCode &&
-          it.externalReferenceCode.startsWith(ercPrefix)
-      );
-    }
-
-    // HARDENING: Perform all exclusions in JS memory
-    const filteredItems = items.filter(
-      (it) => !this._shouldExclude(it, exclusions)
-    );
-
-    return {
-      items: filteredItems,
-      totalCount: filteredItems.length,
-    };
+  async getSpecifications(...args) {
+    return this.commerce.getSpecifications(...args);
   }
-
-  async getOptions(
-    config,
-    {
-      page: _page = 1,
-      pageSize: _pageSize = 200,
-      fields: _fields = 'id',
-      filter: providedFilter,
-      ercPrefix,
-    } = {}
-  ) {
-    const exclusions = await this._getExclusions(config, 'option');
-
-    const filters = [];
-    if (providedFilter) filters.push(providedFilter);
-
-    // REMOVAL: Do not use OData for name exclusions (unreliable)
-    const filter = filters.length > 0 ? filters.join(' and ') : null;
-
-    const { items: allItems } = await this._collectAllItems(
-      config,
-      (cfg, p, size) =>
-        this.rest._get(
-          cfg,
-          PATH.OPTIONS,
-          'get-options-bulk',
-          'Get Options Bulk',
-          {
-            params: {
-              filter,
-              page: p,
-              pageSize: size,
-            },
-          }
-        )
-    );
-    let items = allItems;
-
-    // Apply prefix filter in JS memory
-    if (ercPrefix) {
-      items = items.filter(
-        (it) =>
-          it.externalReferenceCode &&
-          it.externalReferenceCode.startsWith(ercPrefix)
-      );
-    }
-
-    // HARDENING: Perform all exclusions in JS memory
-    const filteredItems = items.filter(
-      (it) => !this._shouldExclude(it, exclusions)
-    );
-
-    return {
-      items: filteredItems,
-      totalCount: filteredItems.length,
-    };
+  async getOptions(...args) {
+    return this.commerce.getOptions(...args);
   }
-
-  async getOrders(
-    config,
-    {
-      pageSize: _pageSize = 200,
-      fields: _fields = 'id',
-      filter: providedFilter,
-    } = {}
-  ) {
-    const exclusions = await this._getExclusions(config, 'order');
-
-    const filters = [];
-    if (providedFilter) filters.push(providedFilter);
-
-    // REMOVAL: Do not use OData for name/status exclusions (unreliable)
-    const filter = filters.length > 0 ? filters.join(' and ') : null;
-
-    // Brute force discovery
-    const { items } = await this._collectAllItems(config, (cfg, p, size) =>
-      this.rest._get(cfg, PATH.ORDERS, 'get-orders-bulk', 'Get Orders Bulk', {
-        params: {
-          filter,
-          page: p,
-          pageSize: size,
-        },
-      })
-    );
-
-    // HARDENING: Perform all exclusions in JS memory
-    const filteredItems = items.filter(
-      (it) => !this._shouldExclude(it, exclusions)
-    );
-
-    return {
-      items: filteredItems,
-      totalCount: filteredItems.length,
-    };
+  async getOrders(...args) {
+    return this.pricing.getOrders(...args);
   }
-
-  async getWarehouses(
-    config,
-    {
-      pageSize: _pageSize = 200,
-      fields: _fields = 'id,externalReferenceCode,name',
-      filter: providedFilter,
-    } = {}
-  ) {
-    const exclusions = await this._getExclusions(config, 'warehouse');
-
-    const filters = [];
-    if (providedFilter) filters.push(providedFilter);
-
-    // REMOVAL: Do not use OData for name exclusions (unreliable)
-    const filter = filters.length > 0 ? filters.join(' and ') : null;
-
-    // Brute force discovery
-    const { items } = await this._collectAllItems(config, (cfg, p, size) =>
-      this.rest._get(
-        cfg,
-        PATH.WAREHOUSES,
-        'get-warehouses-bulk',
-        'Get Warehouses Bulk',
-        {
-          params: {
-            filter,
-            page: p,
-            pageSize: size,
-          },
-        }
-      )
-    );
-
-    // HARDENING: Perform all exclusions in JS memory
-    const filteredItems = items.filter(
-      (it) => !this._shouldExclude(it, exclusions)
-    );
-
-    return {
-      items: filteredItems,
-      totalCount: filteredItems.length,
-    };
+  async getWarehouses(...args) {
+    return this.commerce.getWarehouses(...args);
   }
-
-  async getAllWarehouseItems(
-    config,
-    { pageSize = 200, fields = 'id', filter } = {}
-  ) {
-    const warehouses = await this.getWarehouses(config, { pageSize: 1000 });
-    const allItems = [];
-    let totalCount = 0;
-
-    // Standardize requested fields for GraphQL
-    const requestedFields = new Set([
-      'id',
-      'externalReferenceCode',
-      'sku',
-      'quantity',
-    ]);
-    if (fields) {
-      fields.split(',').forEach((f) => requestedFields.add(f.trim()));
-    }
-
-    const filters = [];
-    if (filter) filters.push(filter);
-    const combinedFilter = filters.length > 0 ? filters.join(' and ') : null;
-
-    for (const warehouse of warehouses.items) {
-      try {
-        const res = await this.graphql.getWarehouseItems(
-          config,
-          warehouse.id,
-          combinedFilter,
-          Array.from(requestedFields),
-          {
-            page: 1,
-            pageSize,
-          }
-        );
-        let items = asItems(res);
-
-        allItems.push(...items);
-        totalCount += res.totalCount || items.length;
-      } catch (err) {
-        this.ctx.logger.warn(
-          `Failed to list warehouse items via GraphQL for ${warehouse.id}`,
-          { error: err.message }
-        );
-      }
-
-      if (allItems.length >= pageSize) break;
-    }
-
-    return { items: allItems, totalCount };
+  async getAllWarehouseItems(...args) {
+    return this.commerce.getAllWarehouseItems(...args);
   }
-
-  async getPriceLists(
-    config,
-    { catalogId, pageSize = 200, filter: providedFilter } = {}
-  ) {
-    // HARDENING: Pricing V2.0 GraphQL and REST filters are unstable in 2025.Q1.
-    // Specifically, 'catalogId eq' triggers "Collection not allowed".
-    // We permanently switch to Iterative REST Discovery with Memory Filtering.
-
-    if (!catalogId && !providedFilter?.includes('catalogId')) {
-      this.ctx.logger.info(
-        'Performing multi-catalog price list discovery sweep...'
-      );
-      const allCatalogs = await this.getCatalogs(config);
-      const allItems = [];
-
-      for (const cat of allCatalogs) {
-        try {
-          const { items } = await this.rest.getPriceLists(config, {
-            catalogId: cat.id,
-            pageSize,
-          });
-          allItems.push(...items);
-        } catch (err) {
-          this.ctx.logger.warn(
-            `Skipping price lists for catalog ${cat.id}: ${err.message}`
-          );
-        }
-      }
-
-      // Deduplicate and filter in memory
-      const filteredItems = [
-        ...new Map(allItems.map((i) => [i.id, i])).values(),
-      ];
-
-      return {
-        items: filteredItems,
-        totalCount: filteredItems.length,
-      };
-    }
-
-    // Standard single-catalog fetch via REST but with MEMORY FILTERING
-    // We fetch without the catalogId filter to avoid "Collection not allowed"
-    const { items } = await this.rest.getPriceLists(config, {
-      pageSize,
-      filter: providedFilter,
-    });
-
-    const filteredItems = items.filter(
-      (it) => !catalogId || Number(it.catalogId) === Number(catalogId)
-    );
-
-    return {
-      items: filteredItems,
-      totalCount: filteredItems.length,
-    };
+  async getPriceLists(...args) {
+    return this.pricing.getPriceLists(...args);
   }
-
-  async getPromotions(config, args = {}) {
-    // HARDENING: Switch to memory filtering for promotions to avoid OData issues
-    const { items } = await this.getPriceLists(config, args);
-    const filtered = items.filter((it) => it.type === 'promotion');
-
-    return {
-      items: filtered,
-      totalCount: filtered.length,
-    };
+  async getPromotions(...args) {
+    return this.pricing.getPromotions(...args);
   }
 
   // --- Filtered Deletion Loop ---
@@ -689,7 +111,6 @@ class LiferayService {
     }
   ) {
     const { logger } = this.ctx;
-
     const exclusions = await this._getExclusions(config, entityName);
 
     // Define discovery fields per entity to avoid GraphQL DataFetchingException
@@ -706,19 +127,15 @@ class LiferayService {
       option: 'id,externalReferenceCode,name,key',
       optionCategory: 'id,externalReferenceCode,title,key',
     };
-
     const fieldsParam =
       DISCOVERY_FIELDS[entityName] || 'id,externalReferenceCode,name';
-
     let totalDeleted = 0;
     const batchRefs = [];
-
     let batchCount = 0;
     const processBatch = async (items) => {
       const filteredItems = items.filter(
         (it) => !this._shouldExclude(it, exclusions)
       );
-
       const ids = filteredItems
         .map((it) =>
           entityName === 'product'
@@ -726,16 +143,13 @@ class LiferayService {
             : it.id || it.productId
         )
         .filter(Boolean);
-
       if (ids.length === 0) return;
-
       let result;
       const currentErc = rest.externalReferenceCode
         ? batchCount > 0
           ? `${rest.externalReferenceCode}-${batchCount}`
           : rest.externalReferenceCode
         : undefined;
-
       if (nativeBatch) {
         result = await this.rest._deleteBatchNative(config, {
           entityName,
@@ -752,12 +166,10 @@ class LiferayService {
           externalReferenceCode: currentErc,
         });
       }
-
       batchCount++;
       totalDeleted += result.count || 0;
       if (result.batchRefs) batchRefs.push(...result.batchRefs);
     };
-
     if (providedItems && providedItems.length > 0) {
       const chunks = this.rest._chunkArray(providedItems, 500);
       for (const chunk of chunks) {
@@ -773,7 +185,6 @@ class LiferayService {
             entityName === 'product' ? `productId eq ${id}` : `id eq ${id}`
           )
           .join(' or ');
-
         try {
           const items = await this.rest._collectPagedItems(config, {
             listUrl: rest.listUrl,
@@ -783,7 +194,6 @@ class LiferayService {
             op: `${entityName}:list-for-exclusion`,
             friendly: `Fetch ${entityName} for metadata check`,
           });
-
           if (items && items.length > 0) {
             await processBatch(items);
           }
@@ -808,7 +218,6 @@ class LiferayService {
       let page = 1;
       let hasMore = true;
       const pageSize = 200;
-
       while (hasMore) {
         let res;
         if (entityName === 'account') {
@@ -908,20 +317,16 @@ class LiferayService {
             }
           );
         }
-
         const items = asItems(res);
         if (items.length === 0) {
           break;
         }
-
         await processBatch(items);
-
         if (items.length < pageSize) {
           hasMore = false;
         } else {
           page++;
         }
-
         if (page > 1000) {
           logger.warn('Safety break hit in deleteByFilter pagination', {
             entityName,
@@ -931,346 +336,44 @@ class LiferayService {
         }
       }
     }
-
-    return { success: true, count: totalDeleted, batchRefs };
+    return {
+      success: true,
+      count: totalDeleted,
+      batchRefs,
+    };
   }
-
-  async deletePriceListsBatch(
-    config,
-    {
-      pageSize = 200,
-      filter,
-      callbackBatchERC,
-      dryRun = false,
-      sessionId,
-      items,
-    } = {}
-  ) {
-    return this.deleteByFilter(config, {
-      entityName: 'priceList',
-      filter,
-      pageSize,
-      externalReferenceCode: callbackBatchERC,
-      dryRun,
-      sessionId,
-      nativeBatch: false,
-      path: PATH.PRICE_LISTS_BATCH,
-      basePath: PATH.PRICE_LISTS,
-      listUrl: PATH.PRICE_LISTS,
-      op: 'pricelists:batch-delete',
-      friendly: 'Delete price lists (batch)',
-      items,
-    });
+  async deletePriceListsBatch(...args) {
+    return this.pricing.deletePriceListsBatch(...args);
   }
-
-  async deletePromotionsBatch(
-    config,
-    {
-      pageSize = 200,
-      filter,
-      callbackBatchERC,
-      dryRun = false,
-      sessionId,
-      items,
-    } = {}
-  ) {
-    return this.deleteByFilter(config, {
-      entityName: 'promotion',
-      filter,
-      pageSize,
-      externalReferenceCode: callbackBatchERC,
-      dryRun,
-      sessionId,
-      nativeBatch: false,
-      path: PATH.PRICE_LISTS_BATCH,
-      basePath: PATH.PRICE_LISTS,
-      listUrl: PATH.PRICE_LISTS,
-      op: 'promotions:batch-delete',
-      friendly: 'Delete promotions (batch)',
-      items,
-    });
+  async deletePromotionsBatch(...args) {
+    return this.pricing.deletePromotionsBatch(...args);
   }
-
-  async deleteProductsBatch(
-    config,
-    {
-      catalogId,
-      pageSize = 200,
-      filter,
-      ids,
-      callbackBatchERC,
-      dryRun = false,
-      sessionId,
-      items,
-    } = {}
-  ) {
-    const adapter = await this.getCatalogAdapter(config);
-    return this.deleteByFilter(config, {
-      entityName: 'product',
-      filter: filter || (catalogId ? `catalogId eq ${catalogId}` : undefined),
-      ids,
-      pageSize,
-      externalReferenceCode: callbackBatchERC,
-      dryRun,
-      sessionId,
-      nativeBatch: false,
-      path: adapter.paths.PATH.PRODUCTS_BATCH,
-      basePath: adapter.paths.PATH.PRODUCTS,
-      listUrl: adapter.paths.PATH.PRODUCTS,
-      op: 'products:batch-delete',
-      friendly: 'Delete products (batch)',
-      items,
-      catalogId,
-    });
+  async deleteProductsBatch(...args) {
+    return this.commerce.deleteProductsBatch(...args);
   }
-
-  async deleteAccountsBatch(
-    config,
-    {
-      pageSize = 200,
-      filter,
-      search,
-      ids,
-      callbackBatchERC,
-      dryRun = false,
-      sessionId,
-      items,
-      channelId,
-    } = {}
-  ) {
-    return this.deleteByFilter(config, {
-      entityName: 'account',
-      filter,
-      search,
-      ids,
-      pageSize,
-      externalReferenceCode: callbackBatchERC,
-      dryRun,
-      sessionId,
-      nativeBatch: false,
-      path: PATH.ACCOUNTS_BATCH,
-      basePath: PATH.ACCOUNTS,
-      listUrl: PATH.ACCOUNTS,
-      op: 'accounts:batch-delete',
-      friendly: 'Delete accounts (batch)',
-      items,
-      channelId,
-    });
+  async deleteAccountsBatch(...args) {
+    return this.account.deleteAccountsBatch(...args);
   }
-
-  async deleteAccountGroupsBatch(
-    config,
-    {
-      pageSize = 200,
-      filter,
-      search,
-      ids,
-      callbackBatchERC,
-      dryRun = false,
-      sessionId,
-      items,
-    } = {}
-  ) {
-    return this.deleteByFilter(config, {
-      entityName: 'account-group',
-      filter,
-      search,
-      ids,
-      pageSize,
-      externalReferenceCode: callbackBatchERC,
-      dryRun,
-      sessionId,
-      nativeBatch: false,
-      basePath: PATH.ACCOUNT_GROUPS,
-      listUrl: PATH.ACCOUNT_GROUPS,
-      op: 'account-groups:batch-delete',
-      friendly: 'Delete account groups (batch)',
-      items,
-    });
+  async deleteAccountGroupsBatch(...args) {
+    return this.account.deleteAccountGroupsBatch(...args);
   }
-
-  async deleteOrdersBatch(
-    config,
-    {
-      pageSize = 200,
-      filter,
-      ids,
-      callbackBatchERC,
-      dryRun = false,
-      sessionId,
-      items,
-    } = {}
-  ) {
-    return this.deleteByFilter(config, {
-      entityName: 'order',
-      filter,
-      ids,
-      pageSize,
-      externalReferenceCode: callbackBatchERC,
-      dryRun,
-      sessionId,
-      nativeBatch: false,
-      path: PATH.ORDERS_BATCH,
-      basePath: PATH.ORDERS,
-      listUrl: PATH.ORDERS,
-      op: 'orders:batch-delete',
-      friendly: 'Delete orders (batch)',
-      items,
-    });
+  async deleteOrdersBatch(...args) {
+    return this.pricing.deleteOrdersBatch(...args);
   }
-
-  async deleteWarehousesBatch(
-    config,
-    {
-      pageSize = 200,
-      filter,
-      ids,
-      callbackBatchERC,
-      dryRun = false,
-      sessionId,
-      items,
-    } = {}
-  ) {
-    return this.deleteByFilter(config, {
-      entityName: 'warehouse',
-      filter,
-      ids,
-      pageSize,
-      externalReferenceCode: callbackBatchERC,
-      dryRun,
-      sessionId,
-      nativeBatch: false,
-      basePath: PATH.WAREHOUSES,
-      listUrl: PATH.WAREHOUSES,
-      op: 'warehouses:batch-delete',
-      friendly: 'Delete warehouses (batch)',
-      items,
-      concurrency: 1,
-    });
+  async deleteWarehousesBatch(...args) {
+    return this.commerce.deleteWarehousesBatch(...args);
   }
-
-  async deleteWarehouseItemsBatch(
-    config,
-    {
-      pageSize = 200,
-      filter,
-      ids,
-      callbackBatchERC,
-      dryRun = false,
-      sessionId,
-      items,
-    } = {}
-  ) {
-    const listUrl = PATH.WAREHOUSE_INVENTORIES_DELETE_BATCH('')
-      .split('?')[0]
-      .replace('/batch', '');
-
-    return this.deleteByFilter(config, {
-      entityName: 'warehouseItem',
-      filter,
-      ids,
-      pageSize,
-      externalReferenceCode: callbackBatchERC,
-      dryRun,
-      sessionId,
-      nativeBatch: false,
-      path: PATH.WAREHOUSE_INVENTORIES_DELETE_BATCH,
-      basePath: listUrl,
-      listUrl: listUrl,
-      op: 'inventory:batch-delete',
-      friendly: 'Delete inventory items (batch)',
-      items,
-    });
+  async deleteWarehouseItemsBatch(...args) {
+    return this.commerce.deleteWarehouseItemsBatch(...args);
   }
-
-  async deleteSpecificationsBatch(
-    config,
-    {
-      pageSize = 200,
-      filter,
-      ids,
-      callbackBatchERC,
-      dryRun = false,
-      sessionId,
-      items,
-    } = {}
-  ) {
-    return this.deleteByFilter(config, {
-      entityName: 'specification',
-      filter,
-      ids,
-      pageSize,
-      externalReferenceCode: callbackBatchERC,
-      dryRun,
-      sessionId,
-      nativeBatch: false,
-      path: PATH.SPECIFICATIONS_BATCH,
-      basePath: PATH.SPECIFICATIONS,
-      listUrl: PATH.SPECIFICATIONS,
-      op: 'specifications:batch-delete',
-      friendly: 'Delete specifications (batch)',
-      items,
-    });
+  async deleteSpecificationsBatch(...args) {
+    return this.commerce.deleteSpecificationsBatch(...args);
   }
-
-  async deleteOptionsBatch(
-    config,
-    {
-      pageSize = 200,
-      filter,
-      ids,
-      callbackBatchERC,
-      dryRun = false,
-      sessionId,
-      items,
-    } = {}
-  ) {
-    return this.deleteByFilter(config, {
-      entityName: 'option',
-      filter,
-      ids,
-      pageSize,
-      externalReferenceCode: callbackBatchERC,
-      dryRun,
-      sessionId,
-      nativeBatch: false,
-      path: PATH.OPTIONS_BATCH,
-      basePath: PATH.OPTIONS,
-      listUrl: PATH.OPTIONS,
-      op: 'options:batch-delete',
-      friendly: 'Delete options (batch)',
-      items,
-    });
+  async deleteOptionsBatch(...args) {
+    return this.commerce.deleteOptionsBatch(...args);
   }
-
-  async deleteOptionCategoriesBatch(
-    config,
-    {
-      pageSize = 200,
-      filter,
-      ids,
-      callbackBatchERC,
-      dryRun = false,
-      sessionId,
-      items,
-    } = {}
-  ) {
-    return this.deleteByFilter(config, {
-      entityName: 'optionCategory',
-      filter,
-      ids,
-      pageSize,
-      externalReferenceCode: callbackBatchERC,
-      dryRun,
-      sessionId,
-      nativeBatch: false,
-      path: PATH.OPTION_CATEGORIES_BATCH,
-      basePath: PATH.OPTION_CATEGORIES,
-      listUrl: PATH.OPTION_CATEGORIES,
-      op: 'optionCategories:batch-delete',
-      friendly: 'Delete option categories (batch)',
-      items,
-    });
+  async deleteOptionCategoriesBatch(...args) {
+    return this.commerce.deleteOptionCategoriesBatch(...args);
   }
 
   // --- Exclusion Helpers ---
@@ -1283,30 +386,26 @@ class LiferayService {
     if (names.length === 0) return null;
     return names.map((name) => `${fieldName} ne '${name}'`).join(' and ');
   }
-
   async _getExclusions(config, entityName) {
     const { config: configService } = this.ctx;
     const excludeLists = await configService.getExcludeLists(config);
-
     const keyMap = {
       account: 'excludedAccounts',
       product: 'excludedProducts',
       warehouse: 'excludedWarehouses',
       priceList: 'excludedPriceLists',
-      promotion: 'excludedPriceLists', // Promotions are in the PriceLists exclude list
+      promotion: 'excludedPriceLists',
+      // Promotions are in the PriceLists exclude list
       order: 'excludedOrders',
       specification: 'excludedSpecifications',
       option: 'excludedOptions',
       optionCategory: 'excludedOptionCategories',
     };
-
     const configKey = keyMap[entityName];
     return excludeLists?.[configKey] || [];
   }
-
   _shouldExclude(item, exclusions) {
     if (item.system === true || item.system === 'true') return true;
-
     if (
       item.catalogBasePriceList === true ||
       item.catalogBasePriceList === 'true'
@@ -1318,9 +417,7 @@ class LiferayService {
         return true;
       }
     }
-
     if (!exclusions || exclusions.length === 0) return false;
-
     return exclusions.some((ex) => {
       const idMatch =
         ex.entityId &&
@@ -1333,7 +430,6 @@ class LiferayService {
           item.title === ex.name ||
           (typeof item.name === 'object' &&
             Object.values(item.name).includes(ex.name)));
-
       return idMatch || ercMatch || nameMatch;
     });
   }
@@ -1365,16 +461,16 @@ class LiferayService {
         lookupConfig('com.liferay.lxc.dxp.server.host') ||
         process.env.LIFERAY_URL ||
         'http://localhost:8080';
-
       let liferayUrl = rawUrl;
       if (rawUrl && !rawUrl.includes('://')) {
         const protocol =
           lookupConfig('com.liferay.lxc.dxp.server.protocol') || 'http';
         liferayUrl = `${protocol}://${rawUrl}`;
       }
-      config = { liferayUrl };
+      config = {
+        liferayUrl,
+      };
     }
-
     logger.info(
       `Starting Liferay connectivity probe for ${config.liferayUrl}`,
       {
@@ -1383,7 +479,6 @@ class LiferayService {
         delayMs,
       }
     );
-
     for (let i = 1; i <= maxAttempts; i++) {
       try {
         const result = await this.testConnection(config);
@@ -1404,7 +499,6 @@ class LiferayService {
       }
       await delay(delayMs);
     }
-
     logger.warn(
       `Liferay connectivity probe timed out after ${maxAttempts} attempts. Proceeding with caution.`,
       {
@@ -1413,629 +507,290 @@ class LiferayService {
     );
     return false;
   }
-
   testConnection(config) {
     return this.rest.testConnection(config);
   }
-
   getConfig(config, configKey) {
     return this.rest.getConfig(config, configKey);
   }
-
   updateConfig(config, configKey, configValue) {
     return this.rest.updateConfig(config, configKey, configValue);
   }
-
-  async getCurrencies(config) {
-    return await this.rest.getCurrencies(config);
+  async getCurrencies(...args) {
+    return this.taxonomy.getCurrencies(...args);
   }
-
-  async getTaxonomyVocabularies(config, siteKey) {
-    const res = await this.graphql.getTaxonomyVocabularies(config, siteKey);
-    const items = asItems(res);
-    return items.map((item) => ({
-      ...item,
-      name: fromI18n(item.name),
-      description: fromI18n(item.description),
-    }));
+  async getTaxonomyVocabularies(...args) {
+    return this.taxonomy.getTaxonomyVocabularies(...args);
   }
-
-  async getTaxonomyCategories(config, vocabularyId) {
-    const res = await this.graphql.getTaxonomyCategories(config, vocabularyId);
-    const items = asItems(res);
-    return items.map((item) => ({
-      ...item,
-      name: fromI18n(item.name),
-      description: fromI18n(item.description),
-    }));
+  async getTaxonomyCategories(...args) {
+    return this.taxonomy.getTaxonomyCategories(...args);
   }
-
-  async getRegions(config, countryId) {
-    return this.rest.getRegions(config, countryId);
+  async getRegions(...args) {
+    return this.taxonomy.getRegions(...args);
   }
-
-  async getCatalogs(config) {
-    const res = await this.rest._get(
-      config,
-      PATH.CATALOGS,
-      'get-catalogs-bulk',
-      'Get Catalogs Bulk',
-      {
-        params: { page: 1, pageSize: 100 },
-      }
-    );
-    const items = asItems(res);
-    return items.map((item) => ({
-      ...item,
-      name: fromI18n(item.name),
-    }));
+  async getCatalogs(...args) {
+    return this.commerce.getCatalogs(...args);
   }
-
-  async getCatalog(config, catalogId) {
-    return this.rest.getCatalog(config, catalogId);
+  async getCatalog(...args) {
+    return this.commerce.getCatalog(...args);
   }
-
-  async patchCatalog(config, catalogId, catalogData) {
-    return this.rest.patchCatalog(config, catalogId, catalogData);
+  async patchCatalog(...args) {
+    return this.commerce.patchCatalog(...args);
   }
-
-  async getChannels(config) {
-    const res = await this.rest._get(
-      config,
-      PATH.CHANNELS,
-      'get-channels-bulk',
-      'Get Channels Bulk',
-      {
-        params: { page: 1, pageSize: 100 },
-      }
-    );
-    let items = asItems(res);
-    // Self-Healing: If there are no active Commerce Channels, auto-scaffold a Guest Web Store Channel
-    let siteGroupId = parseInt(config.siteGroupId, 10);
-    if (!siteGroupId || isNaN(siteGroupId)) {
-      try {
-        const sitesRes = await this.rest._get(
-          config,
-          '/o/headless-admin-site/v1.0/sites',
-          'get-sites'
-        );
-        const sites = asItems(sitesRes);
-        if (sites && sites.length > 0) {
-          const guestSite = sites.find(
-            (s) =>
-              s.friendlyUrlPath === '/guest' ||
-              s.name?.toLowerCase() === 'guest'
-          );
-          const targetSite = guestSite || sites[0];
-          siteGroupId = parseInt(targetSite.id, 10);
-          config.siteGroupId = siteGroupId;
-          this.ctx.logger.info(
-            `Resolved fallback siteGroupId from Liferay: ${siteGroupId} (${targetSite.name})`
-          );
-        }
-      } catch (err) {
-        this.ctx.logger.warn(
-          `Failed to resolve fallback siteGroupId from Liferay (handled): ${err.message}`
-        );
-      }
-    }
-
-    if (items.length === 0 && siteGroupId > 0) {
-      this.ctx.logger.info(
-        `No active Commerce channels discovered. Auto-scaffolding a Guest Web Store Channel...`,
-        { siteGroupId }
-      );
-      try {
-        const newChannel = await this.rest._post(
-          config,
-          PATH.CHANNELS,
-          {
-            name: 'Web Store',
-            type: 'site',
-            siteGroupId: siteGroupId,
-            currencyCode: config.currencyCode || 'USD',
-            externalReferenceCode: `AICA-CH-GUEST-STORE-${siteGroupId}`,
-          },
-          'create-channel',
-          'Failed to auto-scaffold Guest Web Store Channel'
-        );
-        if (newChannel) {
-          items.push(newChannel);
-        }
-      } catch (err) {
-        this.ctx.logger.warn(
-          `Self-healing Commerce Channel creation failed (handled): ${err.message}`
-        );
-      }
-    }
-
-    return items.map((item) => ({
-      ...item,
-      name: fromI18n(item.name),
-    }));
+  async getChannels(...args) {
+    return this.commerce.getChannels(...args);
   }
-
-  async createChannel(config, channelData) {
-    return this.rest.createChannel(config, channelData);
+  async createChannel(...args) {
+    return this.commerce.createChannel(...args);
   }
-
-  async getLanguages(config, siteKey) {
-    const { logger } = this.ctx;
-    try {
-      if (!siteKey) {
-        logger.warn(
-          'siteKey is missing for getLanguages, falling back to REST'
-        );
-        return await this.rest.getLanguages(config, siteKey);
-      }
-
-      const res = await this.graphql.getLanguages(config, siteKey);
-      const items = asItems(res);
-
-      if (!items || items.length === 0) {
-        logger.warn(
-          `GraphQL returned 0 languages for site ${siteKey}, falling back to REST`
-        );
-        return await this.rest.getLanguages(config, siteKey);
-      }
-
-      return items.map((lang) => ({
-        id: lang.id,
-        name: lang.name,
-        isDefault: lang.markedAsDefault || false,
-      }));
-    } catch (err) {
-      logger.warn(
-        `Failed to fetch languages for site ${siteKey}: ${err.message}. Attempting REST fallback.`
-      );
-      try {
-        return await this.rest.getLanguages(config, siteKey);
-      } catch (restErr) {
-        logger.error(
-          `Critical failure: Failed to fetch languages via GraphQL AND REST for site ${siteKey}.`
-        );
-        throw restErr;
-      }
-    }
+  async getLanguages(...args) {
+    return this.taxonomy.getLanguages(...args);
   }
-
   getProductCount(config) {
     return this.rest.getProductCount(config);
   }
-
-  getPrimaryAccountId(config) {
-    return this.rest.getPrimaryAccountId(config);
+  async getPrimaryAccountId(...args) {
+    return this.account.getPrimaryAccountId(...args);
   }
-
-  getAccountCount(config) {
-    return this.rest.getAccountCount(config);
+  async getAccountCount(...args) {
+    return this.account.getAccountCount(...args);
   }
-
   getImportTask(config, batchId) {
     return this.rest.getImportTask(config, batchId);
   }
-
   getImportTaskSubmittedContent(config, batchId) {
     return this.rest.getImportTaskSubmittedContent(config, batchId);
   }
-
   getImportTaskFailedItemReport(config, batchId) {
     return this.rest.getImportTaskFailedItemReport(config, batchId);
   }
-
   deleteAll(config, args) {
-    return this.deleteByFilter(config, { ...args, filter: undefined });
-  }
-
-  createWarehouse(config, warehouseData) {
-    return this.rest.createWarehouse(config, warehouseData);
-  }
-
-  createWarehousesBatch(config, warehousesData, opts) {
-    return this.rest.createWarehousesBatch(config, warehousesData, opts);
-  }
-
-  createWarehouseItemsBatch(config, itemsData, opts) {
-    return this.rest.createWarehouseItemsBatch(config, itemsData, opts);
-  }
-
-  createWarehouseChannelsBatch(config, itemsData, opts) {
-    return this.rest.createWarehouseChannelsBatch(config, itemsData, opts);
-  }
-
-  createWarehouseChannel(config, warehouseId, channelId) {
-    return this.rest.createWarehouseChannel(config, warehouseId, channelId);
-  }
-
-  deleteWarehouse(config, warehouseId) {
-    return this.rest.deleteWarehouse(config, warehouseId);
-  }
-
-  updateProductInventory(config, warehouseId, sku, inventoryData) {
-    return this.rest.updateProductInventory(
-      config,
-      warehouseId,
-      sku,
-      inventoryData
-    );
-  }
-
-  updateInventory(config, warehouseId, sku, inventoryData) {
-    return this.updateProductInventory(config, warehouseId, sku, inventoryData);
-  }
-
-  createProduct(config, productData) {
-    return this.rest.createProduct(config, productData);
-  }
-
-  async createProductsBatch(config, productsData, opts) {
-    const adapter = await this.getCatalogAdapter(config);
-    return adapter.createProductsBatch(config, productsData, opts);
-  }
-
-  async createProductSkusBatch(config, skusData, opts) {
-    const adapter = await this.getCatalogAdapter(config);
-    return adapter.createProductSkusBatch(config, skusData, opts);
-  }
-
-  createAccount(config, accountData) {
-    return this.rest.createAccount(config, accountData);
-  }
-
-  patchAccount(config, accountId, accountData) {
-    return this.rest.patchAccount(config, accountId, accountData);
-  }
-
-  patchAccountByERC(config, externalReferenceCode, accountData) {
-    return this.rest.patchAccountByERC(
-      config,
-      externalReferenceCode,
-      accountData
-    );
-  }
-
-  getAccountByERC(config, externalReferenceCode) {
-    return this.rest.getAccountByERC(config, externalReferenceCode);
-  }
-
-  getPostalAddressByERC(config, externalReferenceCode) {
-    return this.rest.getPostalAddressByERC(config, externalReferenceCode);
-  }
-
-  async getCountries(config) {
-    const { cache } = this.ctx;
-    const cacheKey = 'LIFERAY_COUNTRIES';
-
-    let countries = cache.get(cacheKey);
-    if (countries) {
-      return countries;
-    }
-
-    const res = await this.graphql.getCountries(config);
-    countries = asItems(res);
-
-    if (countries && countries.length > 0) {
-      cache.set(cacheKey, countries, 900000);
-    } else {
-      this.ctx.logger.warn(
-        'Fetched 0 countries from Liferay. Not caching empty result.'
-      );
-    }
-
-    return countries;
-  }
-
-  async getCountryRegions(config, countryId) {
-    const { cache } = this.ctx;
-    const cacheKey = `LIFERAY_REGIONS_${countryId}`;
-
-    let regions = cache.get(cacheKey);
-    if (regions) {
-      return regions;
-    }
-
-    const res = await this.graphql.getCountryRegions(config, countryId);
-    regions = asItems(res);
-
-    cache.set(cacheKey, regions, 900000);
-    return regions;
-  }
-
-  createAccountAddress(config, accountId, addressData) {
-    return this.rest.createAccountAddress(config, accountId, addressData);
-  }
-
-  createAccountAddressBatch(config, accountId, addressesData, opts) {
-    return this.rest.createAccountAddressBatch(
-      config,
-      accountId,
-      addressesData,
-      opts
-    );
-  }
-
-  createSpecificationsBatch(config, specificationsData, opts) {
-    return this.rest.createSpecificationsBatch(
-      config,
-      specificationsData,
-      opts
-    );
-  }
-
-  createOptionsBatch(config, optionsData, opts) {
-    return this.rest.createOptionsBatch(config, optionsData, opts);
-  }
-
-  createAccountsBatch(config, accountsData, opts) {
-    return this.rest.createAccountsBatch(config, accountsData, opts);
-  }
-
-  createOrdersBatch(config, ordersData, opts) {
-    return this.rest.createOrdersBatch(config, ordersData, opts);
-  }
-
-  createOrder(config, orderData) {
-    return this.rest.createOrder(config, orderData);
-  }
-
-  createAccountGroup(config, accountGroupData) {
-    return this.rest.createAccountGroup(config, accountGroupData);
-  }
-
-  getAccountGroupByERC(config, externalReferenceCode) {
-    return this.rest.getAccountGroupByERC(config, externalReferenceCode);
-  }
-
-  assignAccountToGroup(config, groupERC, accountERC) {
-    return this.rest.assignAccountToGroup(config, groupERC, accountERC);
-  }
-
-  createPriceListAccountGroup(config, priceListERC, payload) {
-    return this.rest.createPriceListAccountGroup(config, priceListERC, payload);
-  }
-
-  createPriceList(config, priceListData) {
-    return this.rest.createPriceList(config, priceListData);
-  }
-
-  patchPriceList(config, priceListId, priceListData) {
-    return this.rest.patchPriceList(config, priceListId, priceListData);
-  }
-
-  getPriceListByERC(config, externalReferenceCode) {
-    return this.rest.getPriceListByERC(config, externalReferenceCode);
-  }
-
-  createPriceListsBatch(config, priceListsData, opts) {
-    return this.rest.createPriceListsBatch(config, priceListsData, opts);
-  }
-
-  createPriceEntriesBatch(config, priceEntriesData, opts) {
-    return this.rest.createPriceEntriesBatch(config, priceEntriesData, opts);
-  }
-
-  createPriceEntry(config, priceListId, priceEntryData) {
-    return this.rest.createPriceEntry(config, priceListId, priceEntryData);
-  }
-
-  createSkuPriceEntry(config, priceListId, skuId, priceEntryData) {
-    return this.rest.createSkuPriceEntry(
-      config,
-      priceListId,
-      skuId,
-      priceEntryData
-    );
-  }
-
-  async createProductSku(config, productId, skuData) {
-    const adapter = await this.getCatalogAdapter(config);
-    return adapter.createProductSku(config, productId, skuData);
-  }
-
-  addProductImage(config, productId, image) {
-    return this.rest.addProductImage(config, productId, image);
-  }
-
-  addProductDocumentAttachment(config, productId, attachment) {
-    return this.rest.addProductDocumentAttachment(
-      config,
-      productId,
-      attachment
-    );
-  }
-
-  addProductImageByBase64(config, productERC, image) {
-    return this.rest.addProductImageByBase64(config, productERC, image);
-  }
-
-  addProductDocumentAttachmentByBase64(config, productERC, attachment) {
-    return this.rest.addProductDocumentAttachmentByBase64(
-      config,
-      productERC,
-      attachment
-    );
-  }
-
-  addProductImageMultipart(config, productId, data) {
-    return this.rest.addProductImageMultipart(config, productId, data);
-  }
-
-  addProductDocumentAttachmentMultipart(config, productId, data) {
-    return this.rest.addProductDocumentAttachmentMultipart(
-      config,
-      productId,
-      data
-    );
-  }
-
-  addProductImageDocumentLibrary(config, productId, data) {
-    return this.rest.addProductImageDocumentLibrary(config, productId, data);
-  }
-
-  addProductDocumentAttachmentDocumentLibrary(config, productId, data) {
-    return this.rest.addProductDocumentAttachmentDocumentLibrary(
-      config,
-      productId,
-      data
-    );
-  }
-
-  async addProductOptions(config, productId, productOptions, productERC) {
-    const adapter = await this.getCatalogAdapter(config);
-    return adapter.addProductOptions(
-      config,
-      productId,
-      productOptions,
-      productERC
-    );
-  }
-
-  async deleteProductOption(config, productId, productOptionId) {
-    const adapter = await this.getCatalogAdapter(config);
-    return adapter.deleteProductOption(config, productId, productOptionId);
-  }
-
-  addProductChannels(config, productId, channelIds, productERC) {
-    return this.rest.addProductChannels(
-      config,
-      productId,
-      channelIds,
-      productERC
-    );
-  }
-
-  addWarehouseChannel(config, warehouseId, channelId) {
-    return this.rest.addWarehouseChannel(config, warehouseId, channelId);
-  }
-
-  async getProductOptions(config, productId) {
-    const adapter = await this.getCatalogAdapter(config);
-    return adapter.getProductOptions(config, productId);
-  }
-
-  async deleteProductSpecification(config, productId, productSpecificationId) {
-    const adapter = await this.getCatalogAdapter(config);
-    return adapter.deleteProductSpecification(
-      config,
-      productId,
-      productSpecificationId
-    );
-  }
-
-  async getProductSpecifications(config, productId) {
-    const adapter = await this.getCatalogAdapter(config);
-    return adapter.getProductSpecifications(config, productId);
-  }
-
-  createOption(config, optionData) {
-    return this.rest.createOption(config, optionData);
-  }
-
-  createOptionWithReuse(config, optionData) {
-    return this.rest.createOptionWithReuse(config, optionData);
-  }
-
-  updateOptionById(config, id, payload) {
-    return this.rest.updateOptionById(config, id, payload);
-  }
-
-  createOptionValue(config, optionId, optionValueData) {
-    return this.rest.createOptionValue(config, optionId, optionValueData);
-  }
-
-  getOptionByERC(config, externalReferenceCode) {
-    return this.rest.getOptionByERC(config, externalReferenceCode);
-  }
-
-  getOptionByKey(config, key) {
-    return this.rest.getOptionByKey(config, key);
-  }
-
-  getOptionValueByERC(config, optionId, externalReferenceCode) {
-    return this.rest.getOptionValueByERC(
-      config,
-      optionId,
-      externalReferenceCode
-    );
-  }
-
-  getOptionValueByKey(config, optionId, key) {
-    return this.rest.getOptionValueByKey(config, optionId, key);
-  }
-
-  updateOptionValueById(config, optionId, valueId, payload) {
-    return this.rest.updateOptionValueById(config, optionId, valueId, payload);
-  }
-
-  updateOptionValueByERC(config, optionId, externalReferenceCode, payload) {
-    return this.rest.updateOptionValueByERC(
-      config,
-      optionId,
-      externalReferenceCode,
-      payload
-    );
-  }
-
-  createOptionValueWithReuse(config, optionId, payload) {
-    return this.rest.createOptionValueWithReuse(config, optionId, payload);
-  }
-
-  createOptionCategory(config, optionCategoryData) {
-    return this.rest.createOptionCategory(config, optionCategoryData);
-  }
-
-  getOptionCategoryByKey(config, key) {
-    return this.rest.getOptionCategoryByKey(config, key);
-  }
-
-  updateOptionCategoryById(config, id, payload) {
-    return this.rest.updateOptionCategoryById(config, id, payload);
-  }
-
-  createOptionCategoryWithReuse(config, payload) {
-    return this.rest.createOptionCategoryWithReuse(config, payload);
-  }
-
-  getOptionCategoryByERC(config, externalReferenceCode) {
-    return this.rest.getOptionCategoryByERC(config, externalReferenceCode);
-  }
-
-  updateSpecificationById(config, id, payload) {
-    return this.rest.updateSpecificationById(config, id, payload);
-  }
-
-  getSpecificationByKey(config, key) {
-    return this.rest.getSpecificationByKey(config, key);
-  }
-
-  createSpecificationCategoryWithReuse(config, payload) {
-    return this.rest.createSpecificationCategoryWithReuse(config, payload);
-  }
-
-  createTaxonomyCategory(config, vocabularyId, categoryPayload) {
-    return this.rest.createTaxonomyCategory(
-      config,
-      vocabularyId,
-      categoryPayload
-    );
-  }
-
-  createSpecificationWithReuse(config, payload) {
-    return this.rest.createSpecificationWithReuse(config, payload);
-  }
-
-  setBillingAndShippingAddresses(
-    config,
-    accountId,
-    shippingAddressId,
-    billingAddressId
-  ) {
-    return this.rest.setBillingAndShippingAddresses(
-      config,
-      accountId,
-      shippingAddressId,
-      billingAddressId
-    );
+    return this.deleteByFilter(config, {
+      ...args,
+      filter: undefined,
+    });
+  }
+  async createWarehouse(...args) {
+    return this.commerce.createWarehouse(...args);
+  }
+  async createWarehousesBatch(...args) {
+    return this.commerce.createWarehousesBatch(...args);
+  }
+  async createWarehouseItemsBatch(...args) {
+    return this.commerce.createWarehouseItemsBatch(...args);
+  }
+  async createWarehouseChannelsBatch(...args) {
+    return this.commerce.createWarehouseChannelsBatch(...args);
+  }
+  async createWarehouseChannel(...args) {
+    return this.commerce.createWarehouseChannel(...args);
+  }
+  async deleteWarehouse(...args) {
+    return this.commerce.deleteWarehouse(...args);
+  }
+  async updateProductInventory(...args) {
+    return this.commerce.updateProductInventory(...args);
+  }
+  async updateInventory(...args) {
+    return this.commerce.updateInventory(...args);
+  }
+  async createProduct(...args) {
+    return this.commerce.createProduct(...args);
+  }
+  async createProductsBatch(...args) {
+    return this.commerce.createProductsBatch(...args);
+  }
+  async createProductSkusBatch(...args) {
+    return this.commerce.createProductSkusBatch(...args);
+  }
+  async createAccount(...args) {
+    return this.account.createAccount(...args);
+  }
+  async patchAccount(...args) {
+    return this.account.patchAccount(...args);
+  }
+  async patchAccountByERC(...args) {
+    return this.account.patchAccountByERC(...args);
+  }
+  async getAccountByERC(...args) {
+    return this.account.getAccountByERC(...args);
+  }
+  async getPostalAddressByERC(...args) {
+    return this.account.getPostalAddressByERC(...args);
+  }
+  async getCountries(...args) {
+    return this.taxonomy.getCountries(...args);
+  }
+  async getCountryRegions(...args) {
+    return this.taxonomy.getCountryRegions(...args);
+  }
+  async createAccountAddress(...args) {
+    return this.account.createAccountAddress(...args);
+  }
+  async createAccountAddressBatch(...args) {
+    return this.account.createAccountAddressBatch(...args);
+  }
+  async createSpecificationsBatch(...args) {
+    return this.commerce.createSpecificationsBatch(...args);
+  }
+  async createOptionsBatch(...args) {
+    return this.commerce.createOptionsBatch(...args);
+  }
+  async createAccountsBatch(...args) {
+    return this.account.createAccountsBatch(...args);
+  }
+  async createOrdersBatch(...args) {
+    return this.pricing.createOrdersBatch(...args);
+  }
+  async createOrder(...args) {
+    return this.pricing.createOrder(...args);
+  }
+  async createAccountGroup(...args) {
+    return this.account.createAccountGroup(...args);
+  }
+  async getAccountGroupByERC(...args) {
+    return this.account.getAccountGroupByERC(...args);
+  }
+  async assignAccountToGroup(...args) {
+    return this.account.assignAccountToGroup(...args);
+  }
+  async createPriceListAccountGroup(...args) {
+    return this.pricing.createPriceListAccountGroup(...args);
+  }
+  async createPriceList(...args) {
+    return this.pricing.createPriceList(...args);
+  }
+  async patchPriceList(...args) {
+    return this.pricing.patchPriceList(...args);
+  }
+  async getPriceListByERC(...args) {
+    return this.pricing.getPriceListByERC(...args);
+  }
+  async createPriceListsBatch(...args) {
+    return this.pricing.createPriceListsBatch(...args);
+  }
+  async createPriceEntriesBatch(...args) {
+    return this.pricing.createPriceEntriesBatch(...args);
+  }
+  async createPriceEntry(...args) {
+    return this.pricing.createPriceEntry(...args);
+  }
+  async createSkuPriceEntry(...args) {
+    return this.pricing.createSkuPriceEntry(...args);
+  }
+  async createProductSku(...args) {
+    return this.commerce.createProductSku(...args);
+  }
+  async addProductImage(...args) {
+    return this.commerce.addProductImage(...args);
+  }
+  async addProductDocumentAttachment(...args) {
+    return this.commerce.addProductDocumentAttachment(...args);
+  }
+  async addProductImageByBase64(...args) {
+    return this.commerce.addProductImageByBase64(...args);
+  }
+  async addProductDocumentAttachmentByBase64(...args) {
+    return this.commerce.addProductDocumentAttachmentByBase64(...args);
+  }
+  async addProductImageMultipart(...args) {
+    return this.commerce.addProductImageMultipart(...args);
+  }
+  async addProductDocumentAttachmentMultipart(...args) {
+    return this.commerce.addProductDocumentAttachmentMultipart(...args);
+  }
+  async addProductImageDocumentLibrary(...args) {
+    return this.commerce.addProductImageDocumentLibrary(...args);
+  }
+  async addProductDocumentAttachmentDocumentLibrary(...args) {
+    return this.commerce.addProductDocumentAttachmentDocumentLibrary(...args);
+  }
+  async addProductOptions(...args) {
+    return this.commerce.addProductOptions(...args);
+  }
+  async deleteProductOption(...args) {
+    return this.commerce.deleteProductOption(...args);
+  }
+  async addProductChannels(...args) {
+    return this.commerce.addProductChannels(...args);
+  }
+  async addWarehouseChannel(...args) {
+    return this.commerce.addWarehouseChannel(...args);
+  }
+  async getProductOptions(...args) {
+    return this.commerce.getProductOptions(...args);
+  }
+  async deleteProductSpecification(...args) {
+    return this.commerce.deleteProductSpecification(...args);
+  }
+  async getProductSpecifications(...args) {
+    return this.commerce.getProductSpecifications(...args);
+  }
+  async createOption(...args) {
+    return this.commerce.createOption(...args);
+  }
+  async createOptionWithReuse(...args) {
+    return this.commerce.createOptionWithReuse(...args);
+  }
+  async updateOptionById(...args) {
+    return this.commerce.updateOptionById(...args);
+  }
+  async createOptionValue(...args) {
+    return this.commerce.createOptionValue(...args);
+  }
+  async getOptionByERC(...args) {
+    return this.commerce.getOptionByERC(...args);
+  }
+  async getOptionByKey(...args) {
+    return this.commerce.getOptionByKey(...args);
+  }
+  async getOptionValueByERC(...args) {
+    return this.commerce.getOptionValueByERC(...args);
+  }
+  async getOptionValueByKey(...args) {
+    return this.commerce.getOptionValueByKey(...args);
+  }
+  async updateOptionValueById(...args) {
+    return this.commerce.updateOptionValueById(...args);
+  }
+  async updateOptionValueByERC(...args) {
+    return this.commerce.updateOptionValueByERC(...args);
+  }
+  async createOptionValueWithReuse(...args) {
+    return this.commerce.createOptionValueWithReuse(...args);
+  }
+  async createOptionCategory(...args) {
+    return this.commerce.createOptionCategory(...args);
+  }
+  async getOptionCategoryByKey(...args) {
+    return this.commerce.getOptionCategoryByKey(...args);
+  }
+  async updateOptionCategoryById(...args) {
+    return this.commerce.updateOptionCategoryById(...args);
+  }
+  async createOptionCategoryWithReuse(...args) {
+    return this.commerce.createOptionCategoryWithReuse(...args);
+  }
+  async getOptionCategoryByERC(...args) {
+    return this.commerce.getOptionCategoryByERC(...args);
+  }
+  async updateSpecificationById(...args) {
+    return this.commerce.updateSpecificationById(...args);
+  }
+  async getSpecificationByKey(...args) {
+    return this.commerce.getSpecificationByKey(...args);
+  }
+  async createSpecificationCategoryWithReuse(...args) {
+    return this.commerce.createSpecificationCategoryWithReuse(...args);
+  }
+  async createTaxonomyCategory(...args) {
+    return this.taxonomy.createTaxonomyCategory(...args);
+  }
+  async createSpecificationWithReuse(...args) {
+    return this.commerce.createSpecificationWithReuse(...args);
+  }
+  async setBillingAndShippingAddresses(...args) {
+    return this.account.setBillingAndShippingAddresses(...args);
   }
 
   // Resilient Resolution Utility
@@ -2044,16 +799,15 @@ class LiferayService {
     const label = options.label || 'entities';
     const maxRetries = options.maxRetries || 8;
     const initialDelay = options.initialDelay || 3000;
-
     logger.debug(
       `Starting resolution loop for ${ercs.length} ${label} (max ${maxRetries} retries)...`,
-      { correlationId: config.correlationId }
+      {
+        correlationId: config.correlationId,
+      }
     );
-
     let currentErcs = [...ercs];
     let resolvedMap = new Map();
     let attempt = 0;
-
     while (attempt < maxRetries && currentErcs.length > 0) {
       if (attempt > 0) {
         const delayMs = initialDelay * Math.pow(2, attempt - 1);
@@ -2066,13 +820,11 @@ class LiferayService {
         );
         await delay(delayMs);
       }
-
       try {
         const batchResults = await resolverFn(config, currentErcs);
         const resultsArray = Array.isArray(batchResults)
           ? batchResults
           : batchResults?.items || [];
-
         resultsArray.filter(Boolean).forEach((item) => {
           const itemErc = item.externalReferenceCode || item.erc;
           if (itemErc) {
@@ -2083,11 +835,12 @@ class LiferayService {
         // Update list of missing ERCs by checking which ones are now in our map
         const previousCount = currentErcs.length;
         currentErcs = currentErcs.filter((erc) => !resolvedMap.has(erc));
-
         if (currentErcs.length < previousCount) {
           logger.debug(
             `Resolution progress: ${label} found ${previousCount - currentErcs.length} new items. ${currentErcs.length} remaining.`,
-            { correlationId: config.correlationId }
+            {
+              correlationId: config.correlationId,
+            }
           );
         }
       } catch (error) {
@@ -2098,7 +851,6 @@ class LiferayService {
           }
         );
       }
-
       attempt++;
     }
 
@@ -2110,7 +862,6 @@ class LiferayService {
           correlationId: config.correlationId,
         }
       );
-
       for (const erc of currentErcs) {
         try {
           const account = await this.rest.getAccountByERC(config, erc);
@@ -2123,10 +874,8 @@ class LiferayService {
       }
       currentErcs = currentErcs.filter((erc) => !resolvedMap.has(erc));
     }
-
     if (currentErcs.length > 0) {
       const errorMsg = `Resolution failed to find ${currentErcs.length} / ${ercs.length} ${label} after ${maxRetries} attempts.`;
-
       if (options.tolerateMissing) {
         logger.warn(
           errorMsg +
@@ -2154,376 +903,105 @@ class LiferayService {
   }
 
   // Other Coordination/Logic
-  getSpecificationsByProductIds(config, productIds, fields) {
-    return this.graphql.getSpecificationsByProductIds(
-      config,
-      productIds,
-      fields
-    );
+  async getSpecificationsByProductIds(...args) {
+    return this.commerce.getSpecificationsByProductIds(...args);
   }
-
-  getOptionsByProductIds(config, productIds, fields) {
-    return this.graphql.getOptionsByProductIds(config, productIds, fields);
+  async getOptionsByProductIds(...args) {
+    return this.commerce.getOptionsByProductIds(...args);
   }
-
-  async getAccountsByERC(config, ercs, fields) {
-    try {
-      const results = await this.graphql.getAccountsByERC(config, ercs, fields);
-      if (results && results.length > 0) return results;
-      throw new Error('GraphQL returned empty results');
-    } catch (error) {
-      this.ctx.logger.warn(
-        `GraphQL account resolution failed, falling back to REST: ${error.message}`
-      );
-      const res = await this.getAccounts(config, { pageSize: 500 });
-      const items = res.items || [];
-      return items.filter((a) => ercs.includes(a.externalReferenceCode));
-    }
+  async getAccountsByERC(...args) {
+    return this.account.getAccountsByERC(...args);
   }
-
-  async getProductsByERC(config, ercs, fields) {
-    try {
-      const results = await this.graphql.getProductsByERC(config, ercs, fields);
-      if (results && results.length > 0) return results;
-      throw new Error('GraphQL returned empty results');
-    } catch (error) {
-      this.ctx.logger.warn(
-        `GraphQL product resolution failed, falling back to REST: ${error.message}`
-      );
-      const res = await this.getProducts(config, { pageSize: 500 });
-      const items = res.items || [];
-      return items.filter((p) => ercs.includes(p.externalReferenceCode));
-    }
+  async getProductsByERC(...args) {
+    return this.commerce.getProductsByERC(...args);
   }
-
-  async getWarehousesByERC(config, ercs, fields) {
-    try {
-      const results = await this.graphql.getWarehousesByERC(
-        config,
-        ercs,
-        fields
-      );
-      if (results && results.length > 0) return results;
-      throw new Error('GraphQL returned empty results');
-    } catch (error) {
-      this.ctx.logger.warn(
-        `GraphQL warehouse resolution failed, falling back to REST: ${error.message}`
-      );
-      const res = await this.getWarehouses(config, { pageSize: 500 });
-      const items = res.items || [];
-      return items.filter((w) => ercs.includes(w.externalReferenceCode));
-    }
+  async getWarehousesByERC(...args) {
+    return this.commerce.getWarehousesByERC(...args);
   }
-
-  getPostalAddressesByERC(config, ercs, fields) {
-    return this.graphql.getPostalAddressesByERC(config, ercs, fields);
+  async getPostalAddressesByERC(...args) {
+    return this.account.getPostalAddressesByERC(...args);
   }
-
-  async getSkusByERC(config, ercs, fields) {
-    const adapter = await this.getCatalogAdapter(config);
-    return adapter.getSkusByERC(config, ercs, fields);
+  async getSkusByERC(...args) {
+    return this.commerce.getSkusByERC(...args);
   }
 
   // --- REST SDK Passthrough ---
 
   // --- Page Management (LPD-35443) APIs ---
-
-  async getSitePages(config, siteExternalReferenceCode, queryParams = {}) {
-    return await this.client.headlessAdminSite.v1_0.getSiteSitePagesPage(
-      config,
-      siteExternalReferenceCode,
-      null,
-      { params: queryParams }
-    );
+  async getSitePages(...args) {
+    return this.content.getSitePages(...args);
   }
-
-  async createSitePage(
-    config,
-    siteExternalReferenceCode,
-    sitePageData,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.postSiteSitePage(
-      config,
-      siteExternalReferenceCode,
-      sitePageData,
-      opts
-    );
+  async createSitePage(...args) {
+    return this.content.createSitePage(...args);
   }
-
-  async getSitePage(
-    config,
-    siteExternalReferenceCode,
-    sitePageExternalReferenceCode,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.getSiteSitePage(
-      config,
-      siteExternalReferenceCode,
-      sitePageExternalReferenceCode,
-      null,
-      opts
-    );
+  async getSitePage(...args) {
+    return this.content.getSitePage(...args);
   }
-
-  async updateSitePage(
-    config,
-    siteExternalReferenceCode,
-    sitePageExternalReferenceCode,
-    sitePageData,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.putSiteSitePage(
-      config,
-      siteExternalReferenceCode,
-      sitePageExternalReferenceCode,
-      sitePageData,
-      opts
-    );
+  async updateSitePage(...args) {
+    return this.content.updateSitePage(...args);
   }
-
-  async deleteSitePage(
-    config,
-    siteExternalReferenceCode,
-    sitePageExternalReferenceCode,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.deleteSiteSitePage(
-      config,
-      siteExternalReferenceCode,
-      sitePageExternalReferenceCode,
-      null,
-      opts
-    );
+  async deleteSitePage(...args) {
+    return this.content.deleteSitePage(...args);
   }
-
-  async patchSitePage(
-    config,
-    siteExternalReferenceCode,
-    sitePageExternalReferenceCode,
-    sitePageData,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.patchSiteSitePage(
-      config,
-      siteExternalReferenceCode,
-      sitePageExternalReferenceCode,
-      sitePageData,
-      opts
-    );
+  async patchSitePage(...args) {
+    return this.content.patchSitePage(...args);
   }
 
   // --- Page Template Management APIs ---
-
-  async getPageTemplates(config, siteExternalReferenceCode, queryParams = {}) {
-    return await this.client.headlessAdminSite.v1_0.getSitePageTemplatesPage(
-      config,
-      siteExternalReferenceCode,
-      null,
-      { params: queryParams }
-    );
+  async getPageTemplates(...args) {
+    return this.content.getPageTemplates(...args);
   }
-
-  async createPageTemplate(
-    config,
-    siteExternalReferenceCode,
-    pageTemplateData,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.postSitePageTemplate(
-      config,
-      siteExternalReferenceCode,
-      pageTemplateData,
-      opts
-    );
+  async createPageTemplate(...args) {
+    return this.content.createPageTemplate(...args);
   }
-
-  async getPageTemplate(
-    config,
-    siteExternalReferenceCode,
-    pageTemplateExternalReferenceCode,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.getSitePageTemplate(
-      config,
-      siteExternalReferenceCode,
-      pageTemplateExternalReferenceCode,
-      null,
-      opts
-    );
+  async getPageTemplate(...args) {
+    return this.content.getPageTemplate(...args);
   }
-
-  async updatePageTemplate(
-    config,
-    siteExternalReferenceCode,
-    pageTemplateExternalReferenceCode,
-    pageTemplateData,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.putSitePageTemplate(
-      config,
-      siteExternalReferenceCode,
-      pageTemplateExternalReferenceCode,
-      pageTemplateData,
-      opts
-    );
+  async updatePageTemplate(...args) {
+    return this.content.updatePageTemplate(...args);
   }
-
-  async deletePageTemplate(
-    config,
-    siteExternalReferenceCode,
-    pageTemplateExternalReferenceCode,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.deleteSitePageTemplate(
-      config,
-      siteExternalReferenceCode,
-      pageTemplateExternalReferenceCode,
-      null,
-      opts
-    );
+  async deletePageTemplate(...args) {
+    return this.content.deletePageTemplate(...args);
   }
-
-  async patchPageTemplate(
-    config,
-    siteExternalReferenceCode,
-    pageTemplateExternalReferenceCode,
-    pageTemplateData,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.patchSitePageTemplate(
-      config,
-      siteExternalReferenceCode,
-      pageTemplateExternalReferenceCode,
-      pageTemplateData,
-      opts
-    );
+  async patchPageTemplate(...args) {
+    return this.content.patchPageTemplate(...args);
   }
 
   // --- Page Template Set Management APIs ---
-
-  async getPageTemplateSets(
-    config,
-    siteExternalReferenceCode,
-    queryParams = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.getSitePageTemplateSetsPage(
-      config,
-      siteExternalReferenceCode,
-      null,
-      { params: queryParams }
-    );
+  async getPageTemplateSets(...args) {
+    return this.content.getPageTemplateSets(...args);
   }
-
-  async createPageTemplateSet(
-    config,
-    siteExternalReferenceCode,
-    pageTemplateSetData,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.postSitePageTemplateSet(
-      config,
-      siteExternalReferenceCode,
-      pageTemplateSetData,
-      opts
-    );
+  async createPageTemplateSet(...args) {
+    return this.content.createPageTemplateSet(...args);
   }
-
-  async getPageTemplateSet(
-    config,
-    siteExternalReferenceCode,
-    pageTemplateSetExternalReferenceCode,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.getSitePageTemplateSet(
-      config,
-      siteExternalReferenceCode,
-      pageTemplateSetExternalReferenceCode,
-      null,
-      opts
-    );
+  async getPageTemplateSet(...args) {
+    return this.content.getPageTemplateSet(...args);
   }
-
-  async updatePageTemplateSet(
-    config,
-    siteExternalReferenceCode,
-    pageTemplateSetExternalReferenceCode,
-    pageTemplateSetData,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.putSitePageTemplateSet(
-      config,
-      siteExternalReferenceCode,
-      pageTemplateSetExternalReferenceCode,
-      pageTemplateSetData,
-      opts
-    );
+  async updatePageTemplateSet(...args) {
+    return this.content.updatePageTemplateSet(...args);
   }
-
-  async deletePageTemplateSet(
-    config,
-    siteExternalReferenceCode,
-    pageTemplateSetExternalReferenceCode,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.deleteSitePageTemplateSet(
-      config,
-      siteExternalReferenceCode,
-      pageTemplateSetExternalReferenceCode,
-      null,
-      opts
-    );
+  async deletePageTemplateSet(...args) {
+    return this.content.deletePageTemplateSet(...args);
   }
-
-  async patchPageTemplateSet(
-    config,
-    siteExternalReferenceCode,
-    pageTemplateSetExternalReferenceCode,
-    pageTemplateSetData,
-    opts = {}
-  ) {
-    return await this.client.headlessAdminSite.v1_0.patchSitePageTemplateSet(
-      config,
-      siteExternalReferenceCode,
-      pageTemplateSetExternalReferenceCode,
-      pageTemplateSetData,
-      opts
-    );
+  async patchPageTemplateSet(...args) {
+    return this.content.patchPageTemplateSet(...args);
   }
-
-  getWarehouseItemsByWarehouseId(config, warehouseId, opts) {
-    return this.rest.getWarehouseItems(config, warehouseId, opts);
+  async getWarehouseItemsByWarehouseId(...args) {
+    return this.commerce.getWarehouseItemsByWarehouseId(...args);
   }
-
-  getPriceEntries(config, priceListId, opts) {
-    return this.rest.getPriceEntries(config, priceListId, opts);
+  async getPriceEntries(...args) {
+    return this.pricing.getPriceEntries(...args);
   }
-
-  async createWebContentStructure(config, siteId, structureData) {
-    return await this.rest.createWebContentStructure(
-      config,
-      siteId,
-      structureData
-    );
+  async createWebContentStructure(...args) {
+    return this.content.createWebContentStructure(...args);
   }
-
-  async getContentStructure(config, contentStructureId, queryParams = {}) {
-    return await this.client.headlessDelivery.v1_0.getContentStructure(
-      config,
-      contentStructureId,
-      null,
-      { params: queryParams }
-    );
+  async getContentStructure(...args) {
+    return this.content.getContentStructure(...args);
   }
-
-  async getSiteContentStructures(config, siteId, queryParams = {}) {
-    return await this.client.headlessDelivery.v1_0.getSiteContentStructuresPage(
-      config,
-      siteId,
-      null,
-      { params: queryParams }
-    );
+  async getSiteContentStructures(...args) {
+    return this.content.getSiteContentStructures(...args);
   }
 }
-
-module.exports = { LiferayService };
+module.exports = {
+  LiferayService,
+};

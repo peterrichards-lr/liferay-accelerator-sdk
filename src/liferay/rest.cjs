@@ -30,9 +30,9 @@ class LiferayRestService {
   constructor(ctx) {
     this.ctx = ctx;
     this.httpCore = new HttpCoreService(ctx);
-    this.batch = new BatchOperationService(ctx);
-    this.batchDelete = new BatchDeleteService(ctx);
-    this.multipart = new MultipartService(ctx);
+    this.batch = new BatchOperationService(ctx, this.httpCore);
+    this.batchDelete = new BatchDeleteService(ctx, this.httpCore, this.batch);
+    this.multipart = new MultipartService(ctx, this.httpCore);
   }
   _get(...args) {
     return this.httpCore._get(...args);
