@@ -23,39 +23,19 @@ const { getBatchCacheTTLms } = require('../utils/ttl.cjs');
 const { COMMERCE_CONSTRAINTS } = require('../utils/commerceConstants.cjs');
 const { asItems, asCount } = require('../utils/liferayUtils.cjs');
 
-const SOFT_STATUS_BY_OP = {
-  'accounts:list': [404],
-  'products:list': [404],
-  'orders:list': [404],
-  'import-task': [404],
-  'options:list': [404],
-  'pricelists:list': [404],
-  'get-price-list-by-erc': [404],
-  'get-account-by-erc': [404],
-  'get-product-by-erc': [404],
-  'get-warehouse-by-erc': [404],
-  'get-sku-by-erc': [404],
-  'specifications:list': [404],
-  'optionCategories:list': [404],
-  'warehouse:items': [404],
-  'price-entries:list': [404],
-  'pricelists:batch-delete': [403, 404],
-  'promotions:batch-delete': [403, 404],
-  'products:batch-delete': [403, 404],
-  'accounts:batch-delete': [400, 403, 404],
-  'account-groups:batch-delete': [400, 403, 404],
-  'orders:batch-delete': [400, 403, 404],
-  'warehouses:batch-delete': [403, 404],
-  'inventory:batch-delete': [403, 404],
-  'specifications:batch-delete': [403, 404],
-  'options:batch-delete': [403, 404],
-  'optionCategories:batch-delete': [403, 404],
-};
+const HttpCoreService = require('./rest/HttpCoreService.cjs');
+const BatchOperationService = require('./rest/BatchOperationService.cjs');
+const BatchDeleteService = require('./rest/BatchDeleteService.cjs');
+const MultipartService = require('./rest/MultipartService.cjs');
+const { SOFT_STATUS_BY_OP } = require('./rest/config.cjs');
 
 class LiferayRestService {
   constructor(ctx) {
     this.ctx = ctx;
-    this.axiosInstance = null;
+    this.httpCore = new HttpCoreService(ctx);
+    this.batch = new BatchOperationService(ctx);
+    this.batchDelete = new BatchDeleteService(ctx);
+    this.multipart = new MultipartService(ctx);
   }
 
   _stringifySafe(obj) {
@@ -121,390 +101,6 @@ class LiferayRestService {
     };
   }
 
-  async _request(
-    config,
-    {
-      method = 'GET',
-      url,
-      data,
-      params,
-      headers,
-      op,
-      friendly,
-      fullResponse = false,
-      responseType = 'json',
-      maxRetries: maxRetriesOverride,
-    } = {}
-  ) {
-    // RUNTIME CONTRACT VALIDATION
-    if (data && (ENV.NODE_ENV === 'development' || ENV.NODE_ENV === 'test')) {
-      const contract = findContract(url, method);
-      if (contract && !contract.isBatch && this.ctx.contractValidator) {
-        try {
-          if (contract.isArray) {
-            this.ctx.contractValidator.validateArray(
-              contract.spec,
-              contract.schema,
-              data
-            );
-          } else {
-            this.ctx.contractValidator.validate(
-              contract.spec,
-              contract.schema,
-              data
-            );
-          }
-        } catch (err) {
-          if (err.name === 'ContractViolationError') {
-            this.ctx.logger.error(
-              `Outbound request to ${url} violates Liferay OpenAPI contract`,
-              {
-                op,
-                schema: contract.schema,
-                errors: err.errors,
-              }
-            );
-            // In development/test, we want to fail fast to catch schema drifts.
-            throw err;
-          }
-        }
-      }
-    }
-
-    const maxRetries = Math.max(
-      1,
-      maxRetriesOverride !== undefined
-        ? maxRetriesOverride
-        : parseInt(ENV.LIFERAY_API_MAX_RETRIES, 10) || 3
-    );
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const client = await this._client(config);
-
-        if (
-          data &&
-          (method === 'POST' || method === 'PATCH' || method === 'PUT')
-        ) {
-          const raw = JSON.stringify(data);
-          logger.trace(
-            `Outbound payload structure (${op}): ${raw.substring(0, 1000)}...`,
-            { correlationId: config?.correlationId }
-          );
-        }
-
-        logger.debug('Liferay API Request', {
-          operation: op,
-          method,
-          url,
-          correlationId: config?.correlationId,
-          data: this._stringifySafe(data),
-        });
-
-        const res = await client.request({
-          method,
-          url,
-          data,
-          params,
-          headers,
-          responseType,
-          timeout: 30000, // 30 second timeout
-        });
-
-        const logData = {
-          operation: op,
-          status: res.status,
-          correlationId: config?.correlationId,
-        };
-
-        if (res.data) {
-          if (Array.isArray(res.data.items)) {
-            logData.itemCount = res.data.items.length;
-            logData.totalCount = res.data.totalCount;
-          } else if (typeof res.data === 'object') {
-            logData.dataKeys = Object.keys(res.data);
-          }
-        }
-
-        logger.debug('Liferay API Response', {
-          ...logData,
-          correlationId: config?.correlationId,
-        });
-
-        // INBOUND RESPONSE CONTRACT VALIDATION
-        const shouldValidateInbound =
-          config.validateInboundResponse ||
-          (ENV.NODE_ENV === 'development' && !process.env.VITEST);
-
-        if (res.data && shouldValidateInbound) {
-          const contract = findContract(url, method);
-          if (contract && contract.isInbound && this.ctx.contractValidator) {
-            try {
-              if (contract.isPage) {
-                if (Array.isArray(res.data.items)) {
-                  this.ctx.contractValidator.validateArray(
-                    contract.spec,
-                    contract.schema,
-                    res.data.items
-                  );
-                }
-              } else {
-                this.ctx.contractValidator.validate(
-                  contract.spec,
-                  contract.schema,
-                  res.data
-                );
-              }
-              logger.debug(
-                `Inbound response from ${url} conforms to Liferay OpenAPI contract`,
-                {
-                  op,
-                  schema: contract.schema,
-                }
-              );
-            } catch (err) {
-              if (err.name === 'ContractViolationError') {
-                logger.error(
-                  `Inbound response from ${url} violates Liferay OpenAPI contract`,
-                  {
-                    op,
-                    schema: contract.schema,
-                    errors: err.errors,
-                  }
-                );
-                throw err;
-              }
-            }
-          }
-        }
-
-        if (fullResponse) {
-          return {
-            data: res.data,
-            headers: res.headers || {},
-            status: res.status,
-            statusText: res.statusText,
-          };
-        }
-
-        return res.data;
-      } catch (err) {
-        if (err.name === 'ContractViolationError') {
-          throw err;
-        }
-        // Determine if we should retry
-        const isRetryable =
-          err.name !== 'ContractViolationError' &&
-          ErrorHandler.isRetryableError(err) &&
-          attempt < maxRetries;
-
-        if (isRetryable) {
-          const baseDelay =
-            parseInt(process.env.LIFERAY_RETRY_DELAY_MS, 10) ||
-            parseInt(ENV.LIFERAY_RETRY_DELAY_MS, 10) ||
-            2000;
-          const retryDelay = baseDelay * attempt;
-          logger.warn(
-            `Liferay API request failed (${op}), retrying ${attempt}/${maxRetries} in ${retryDelay}ms: ${err.message}`,
-            {
-              correlationId: config?.correlationId,
-              status: err.response?.status,
-            }
-          );
-          await delay(retryDelay);
-          continue;
-        }
-
-        const hasHTTPResponse = !!err?.response;
-        const res = err.response;
-
-        const status = hasHTTPResponse ? res.status : undefined;
-        const statusText = hasHTTPResponse ? res.statusText : undefined;
-        const resHeaders = hasHTTPResponse ? res.headers || {} : {};
-        const body = hasHTTPResponse ? res.data : undefined;
-
-        const problem =
-          hasHTTPResponse && body && typeof body === 'object'
-            ? {
-                status: body.status,
-                title: body.title,
-                type: body.type,
-                detail: body.detail,
-                errorReference:
-                  body.errorReference ||
-                  resHeaders['x-liferay-error-reference'],
-              }
-            : null;
-
-        const existingRef =
-          problem?.errorReference ||
-          err?.errorReference ||
-          err?.response?.headers?.['x-liferay-error-reference'];
-
-        const errorReference = existingRef || createERC(ERC_PREFIX.ERROR);
-
-        const detailMsg =
-          (hasHTTPResponse && (problem?.detail || problem?.title)) ||
-          friendly ||
-          statusText ||
-          err?.message ||
-          'Request failed';
-
-        if (hasHTTPResponse && op && SOFT_STATUS_BY_OP[op]?.includes(status)) {
-          logger?.info?.('Soft HTTP status treated as empty result', {
-            op,
-            method,
-            url,
-            status,
-            errorReference,
-            problem,
-            responseBody:
-              typeof body === 'string'
-                ? body
-                : body
-                  ? this._stringifySafe(body)
-                  : null,
-          });
-
-          const softResult = this._buildSoftFallback(op, status);
-
-          if (fullResponse) {
-            return {
-              data: softResult,
-              headers: resHeaders,
-              status,
-              statusText,
-            };
-          }
-
-          return softResult;
-        }
-
-        if (hasHTTPResponse) {
-          logger?.error?.('Request failed (HTTP error)', {
-            op,
-            friendly,
-            method,
-            url,
-            params,
-            status,
-            statusText,
-            correlationId: config?.correlationId,
-            errorReference,
-            problem,
-            responseBody:
-              typeof body === 'string'
-                ? body
-                : body
-                  ? this._stringifySafe(body)
-                  : null,
-            headers,
-            responseHeaders: resHeaders,
-          });
-        } else {
-          logger?.error?.('Request failed (no response from server)', {
-            op,
-            friendly,
-            method,
-            url,
-            params,
-            correlationId: config?.correlationId,
-            errorReference,
-            errorName: err?.name,
-            errorCode: err?.code,
-            message: err?.message,
-            stack: err?.stack,
-          });
-        }
-
-        const e = new Error(friendly || op || 'Request failed');
-        e.name = 'LiferayRequestError';
-
-        if (hasHTTPResponse) {
-          e.status = status;
-          e.statusText = statusText;
-        }
-
-        e.errorReference = errorReference;
-        e.problem = problem || null;
-        e.operation = op || friendly || 'request';
-        e.userMessage = detailMsg;
-        e.response = hasHTTPResponse
-          ? { status, statusText, headers: resHeaders, data: body }
-          : null;
-        e.request = {
-          method,
-          url,
-          params,
-          hasData: !!data,
-        };
-
-        if (!hasHTTPResponse && err?.code) {
-          e.networkCode = err.code;
-        }
-
-        throw e;
-      }
-    }
-  }
-
-  async _downloadFile(config, url, destination) {
-    const writer = fs.createWriteStream(destination);
-
-    const response = await this._get(
-      config,
-      url,
-      'download-file',
-      'Failed to download file',
-      { responseType: 'stream' },
-      true
-    );
-
-    response.data.pipe(writer);
-
-    return new Promise((resolve, reject) => {
-      writer.on('finish', resolve);
-      writer.on('error', reject);
-    });
-  }
-
-  async _client(config) {
-    const { persistence } = this.ctx;
-    const effective = resolveEffectiveLiferayConnection(
-      { ...this.ctx, ...config },
-      this.ctx.oauth,
-      persistence
-    );
-    return this.createAxiosInstance(effective);
-  }
-
-  async _get(config, url, op, friendly, opts = {}, fullResponse = false) {
-    const { params, headers, responseType, maxRetries } = opts || {};
-
-    const paramsSerializer = (p) =>
-      new URLSearchParams(
-        Object.entries(p || {}).filter(
-          ([, v]) => v !== undefined && v !== null && v !== ''
-        )
-      ).toString();
-
-    const qs = paramsSerializer(params);
-    const finalUrl = qs ? `${url}${url.includes('?') ? '&' : '?'}${qs}` : url;
-
-    logger.trace('http:get', { url: finalUrl, params });
-
-    return this._request(config, {
-      method: 'GET',
-      url: finalUrl,
-      headers,
-      op,
-      friendly,
-      fullResponse,
-      responseType,
-      maxRetries,
-    });
-  }
-
   async *iteratePages(config, urlOrFetcher, op, friendly, opts = {}) {
     let page = 1;
     const pageSize = opts.pageSize || 200;
@@ -523,7 +119,7 @@ class LiferayRestService {
             pageSize,
           },
         };
-        res = await this._get(config, urlOrFetcher, op, friendly, pageOpts);
+        res = await this.httpCore._get(config, urlOrFetcher, op, friendly, pageOpts);
       }
 
       yield res;
@@ -535,92 +131,6 @@ class LiferayRestService {
         page++;
       }
     }
-  }
-
-  async _post(
-    config,
-    url,
-    data,
-    op,
-    friendly,
-    onError = 'throw',
-    fullResponse = false
-  ) {
-    return this._request(config, {
-      method: 'POST',
-      url,
-      data,
-      op,
-      friendly,
-      onError,
-      fullResponse,
-    });
-  }
-
-  async _put(config, url, data, op, friendly, fullResponse = false) {
-    return this._request(config, {
-      method: 'PUT',
-      url,
-      data,
-      op,
-      friendly,
-      fullResponse,
-    });
-  }
-
-  async _patch(config, url, data, op, friendly, fullResponse = false) {
-    return this._request(config, {
-      method: 'PATCH',
-      url,
-      data,
-      op,
-      friendly,
-      fullResponse,
-    });
-  }
-
-  async _delete(config, url, data, op, friendly, fullResponse = false) {
-    return this._request(config, {
-      method: 'DELETE',
-      url,
-      data,
-      op,
-      friendly,
-      fullResponse,
-    });
-  }
-
-  async _collectPagedIds(
-    config,
-    { listUrl, pageSize, filter, search, fields, op, friendly, idKey = 'id' }
-  ) {
-    let allIds = [];
-    let page = 1;
-    let hasMore = true;
-
-    while (hasMore) {
-      const res = await this._get(config, listUrl, op, friendly, {
-        params: {
-          page,
-          pageSize,
-          filter,
-          search,
-          fields,
-        },
-      });
-
-      const items = asItems(res);
-      const ids = items
-        .map((it) => it[idKey])
-        .filter((id) => id !== undefined && id !== null);
-      allIds = allIds.concat(ids);
-
-      const totalCount = asCount(res);
-      hasMore = allIds.length < totalCount && items.length > 0;
-      page++;
-    }
-
-    return allIds;
   }
 
   _normalizePermissionItems(items = []) {
@@ -684,7 +194,7 @@ class LiferayRestService {
 
   async _getPermissions(config, assetType, id) {
     const ops = this._permissionsOps(assetType);
-    const data = await this._get(
+    const data = await this.httpCore._get(
       config,
       ops.getPath(id),
       `get-permissions:${assetType}`
@@ -701,237 +211,12 @@ class LiferayRestService {
       actionIds: Array.isArray(it?.actionIds) ? it.actionIds.slice() : [],
     }));
     const ops = this._permissionsOps(assetType);
-    return this._put(
+    return this.httpCore._put(
       config,
       ops.putPath(id),
       payload,
       `put-permissions:${assetType}`
     );
-  }
-
-  async createAxiosInstance(config) {
-    const { oauth } = this.ctx;
-    let authHeader;
-
-    // HARDENING: Fallback to Basic Auth if OAuth is not configured or specifically requested
-    const useBasic =
-      config.authMethod === 'basic' ||
-      (!config.clientId &&
-        ENV.LIFERAY_API_USERNAME &&
-        ENV.LIFERAY_API_PASSWORD);
-
-    if (useBasic) {
-      const user = config.username || ENV.LIFERAY_API_USERNAME;
-      const pass = config.password || ENV.LIFERAY_API_PASSWORD;
-      const token = Buffer.from(`${user}:${pass}`).toString('base64');
-      authHeader = `Basic ${token}`;
-      this.ctx.logger.debug('Using Basic Auth for Liferay connection', {
-        user,
-        passLen: pass ? pass.length : 0,
-        liferayUrl: config.liferayUrl,
-      });
-    } else {
-      const accessToken = await oauth.getAccessToken(
-        config.liferayUrl,
-        config.clientId,
-        config.clientSecret
-      );
-      authHeader = `Bearer ${accessToken}`;
-    }
-
-    return axios.create({
-      baseURL: config.liferayUrl,
-      headers: {
-        Authorization: authHeader,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      timeout: 30000,
-    });
-  }
-
-  async testConnection(config) {
-    const { logger, oauth, persistence } = this.ctx;
-    try {
-      const effective = {
-        ...config,
-        ...resolveEffectiveLiferayConnection(config, oauth, persistence),
-      };
-
-      try {
-        new URL(effective.liferayUrl);
-      } catch {
-        throw new Error(`Invalid URL format: ${effective.liferayUrl}`);
-      }
-
-      // HARDENING: Only validate OAuth if we aren't using Basic Auth
-      const useBasic =
-        effective.authMethod === 'basic' ||
-        ENV.LIFERAY_AUTH_METHOD === 'basic' ||
-        (!effective.clientId &&
-          ENV.LIFERAY_API_USERNAME &&
-          ENV.LIFERAY_API_PASSWORD);
-
-      if (!useBasic && !oauth.isLiferayRouteAvailable()) {
-        oauth.validateOAuthConfig(effective);
-      }
-
-      await this._get(effective, PATH.ME, 'test-connection');
-
-      // Probe for LPD-35443 feature flag (Page Management API)
-      try {
-        await this._get(
-          effective,
-          '/o/headless-admin-site/v1.0/sites/0/site-pages',
-          'probe-feature-flag'
-        );
-      } catch (err) {
-        const status = err.response?.status;
-        const errMsg = err.response?.data?.error?.message;
-
-        // If the route is missing entirely, JAX-RS returns 404 "Not Found".
-        // If the route exists but site '0' is missing, it returns 404 "No Site exists...".
-        if (status === 404 && errMsg === 'Not Found') {
-          throw new Error(
-            'Liferay Page Management API feature flag (LPD-35443) is disabled. ' +
-              "Please add 'feature.flag.LPD-35443=true' to your portal-ext.properties file and restart Liferay.",
-            { cause: err }
-          );
-        }
-
-        // Log other acceptable status codes/messages (like 401/403 or detailed site error)
-        logger.debug('LPD-35443 feature flag probe complete', {
-          status,
-          message: errMsg,
-        });
-      }
-
-      return {
-        status: 'connected',
-        message: 'Successfully connected to Liferay Commerce using OAuth 2',
-      };
-    } catch (error) {
-      logger.error('OAuth connection test failed', {
-        error: error.response?.data || error.message,
-      });
-
-      const structuredError = {
-        success: false,
-        error: '',
-        errorType: '',
-        field: '',
-        originalError: error.message,
-        status: error.response?.status || error.statusCode || error.status,
-      };
-
-      if (
-        error.code === 'ENOTFOUND' ||
-        error.code === 'ECONNREFUSED' ||
-        error.code === 'ETIMEDOUT' ||
-        error.code === 'EHOSTUNREACH' ||
-        error.code === 'ECONNRESET' ||
-        error.message.includes('Invalid URL') ||
-        error.message.includes('Network Error') ||
-        error.message.includes('timeout') ||
-        error.message.includes('ENOTFOUND') ||
-        error.message.includes('ECONNREFUSED') ||
-        error.message.includes('getaddrinfo') ||
-        (!error.response && error.request)
-      ) {
-        structuredError.error = `Unable to connect to ${config.liferayUrl}. Please verify the URL is correct and the server is accessible.`;
-        structuredError.errorType = 'connection';
-        structuredError.field = 'liferayUrl';
-      } else if (error.message.includes('OAuth configuration missing')) {
-        structuredError.error =
-          'OAuth configuration is incomplete. Please provide valid Client ID and Client Secret.';
-        structuredError.errorType = 'auth_config';
-        structuredError.field = 'clientSecret';
-      } else if (
-        [401, 403].includes(error.response?.status) ||
-        [401, 403].includes(error.statusCode) ||
-        [401, 403].includes(error.status) ||
-        error.message.includes('OAuth authentication failed')
-      ) {
-        structuredError.error =
-          'Authentication failed. Please verify your OAuth Client ID and Client Secret are correct.';
-        structuredError.errorType = 'auth_error';
-        structuredError.field = 'clientSecret';
-
-        if (error.errorReference) {
-          structuredError.errorReference = error.errorReference;
-        }
-      } else {
-        structuredError.error = `Connection failed: ${
-          error.response?.statusText || error.message
-        }`;
-        structuredError.errorType = 'connection';
-        structuredError.field = 'liferayUrl';
-      }
-
-      const errorReference =
-        structuredError.errorReference || createERC(ERC_PREFIX.ERROR);
-      logger.error(`Error Reference: ${errorReference}`);
-      structuredError.errorReference = errorReference;
-
-      const uiErrorResponse = {
-        success: false,
-        error: structuredError.error,
-        errorType: structuredError.errorType,
-        field: structuredError.field,
-        status: structuredError.status,
-        errorReference,
-      };
-
-      const errorResponse = new Error(structuredError.error);
-      errorResponse.response = {
-        data: uiErrorResponse,
-        status: structuredError.status || 500,
-      };
-
-      throw errorResponse;
-    }
-  }
-
-  async getConfig(config, configKey) {
-    const erc = String(configKey || '').toUpperCase();
-
-    // MANDATE: Filter-In-Memory. Avoid 'or' filters.
-    // We try to find by configKey first.
-    try {
-      const response = await this._get(
-        config,
-        PATH.CUSTOM_OBJECT_QUERY(CUSTOM_OBJECTS.AICA_CONFIGS, {
-          filter: `configKey eq '${configKey}'`,
-          pageSize: 500,
-        }),
-        `get-config:${configKey}`
-      );
-
-      // If we found a direct match, return it
-      if (response?.items?.length) {
-        return response;
-      }
-
-      // FALLBACK: Try fetching by ERC directly (another simple filter)
-      return await this._get(
-        config,
-        PATH.CUSTOM_OBJECT_QUERY(CUSTOM_OBJECTS.AICA_CONFIGS, {
-          filter: `externalReferenceCode eq '${erc}'`,
-          pageSize: 10,
-        }),
-        `get-config-by-erc:${configKey}`
-      );
-    } catch (err) {
-      // If the object definition doesn't exist yet, it will throw 404. Just return empty.
-      if (
-        err.message?.includes('404') ||
-        err.response?.status === 404 ||
-        err.problem?.status === 'NOT_FOUND'
-      ) {
-        return { items: [] };
-      }
-      throw err;
-    }
   }
 
   async updateConfig(config, configKey, configValue) {
@@ -946,14 +231,14 @@ class LiferayRestService {
 
     if (existing?.items?.length) {
       const id = existing.items[0].id;
-      return await this._patch(
+      return await this.httpCore._patch(
         config,
         `${PATH.CUSTOM_OBJECT(CUSTOM_OBJECTS.AICA_CONFIGS)}/${id}`,
         payload,
         `update-config:${configKey}`
       );
     } else {
-      return await this._post(
+      return await this.httpCore._post(
         config,
         PATH.CUSTOM_OBJECT(CUSTOM_OBJECTS.AICA_CONFIGS),
         payload,
@@ -963,7 +248,7 @@ class LiferayRestService {
   }
 
   async getRegions(config, countryId) {
-    const data = await this._get(
+    const data = await this.httpCore._get(
       config,
       PATH.COUNTRY_REGIONS(countryId),
       `get-regions:${countryId}`
@@ -972,12 +257,12 @@ class LiferayRestService {
   }
 
   async getCatalogs(config) {
-    const data = await this._get(config, PATH.CATALOGS, 'get-catalogs');
+    const data = await this.httpCore._get(config, PATH.CATALOGS, 'get-catalogs');
     return asItems(data);
   }
 
   async getCatalog(config, catalogId) {
-    const data = await this._get(
+    const data = await this.httpCore._get(
       config,
       PATH.CATALOG(catalogId),
       'get-catalog'
@@ -986,7 +271,7 @@ class LiferayRestService {
   }
 
   async patchCatalog(config, catalogId, data) {
-    return await this._patch(
+    return await this.httpCore._patch(
       config,
       PATH.CATALOG(catalogId),
       data,
@@ -996,12 +281,12 @@ class LiferayRestService {
   }
 
   async getChannels(config) {
-    const data = await this._get(config, PATH.CHANNELS, 'get-channels');
+    const data = await this.httpCore._get(config, PATH.CHANNELS, 'get-channels');
     return asItems(data);
   }
 
   async createChannel(config, channelData) {
-    return await this._post(
+    return await this.httpCore._post(
       config,
       PATH.CHANNELS,
       channelData,
@@ -1015,7 +300,7 @@ class LiferayRestService {
       throw new Error('siteGroupId is required for getLanguages');
     }
     const url = PATH.SITE_LANGUAGES(siteGroupId);
-    const data = await this._get(
+    const data = await this.httpCore._get(
       config,
       url,
       'get-languages',
@@ -1028,13 +313,13 @@ class LiferayRestService {
     let url =
       PATH.PRODUCTS +
       (config.catalogId ? `?filter=catalogId eq ${config.catalogId}` : '');
-    const data = await this._get(config, url, 'get-products');
+    const data = await this.httpCore._get(config, url, 'get-products');
     return asCount(data);
   }
 
   async getPrimaryAccountId(config) {
     try {
-      const me = await this._get(config, PATH.ME, 'get-primary-account-id');
+      const me = await this.httpCore._get(config, PATH.ME, 'get-primary-account-id');
       if (me && typeof me.defaultAccountId === 'number') {
         return me.defaultAccountId;
       }
@@ -1051,7 +336,7 @@ class LiferayRestService {
   }
 
   async getAccountCount(config) {
-    const data = await this._get(config, PATH.ACCOUNTS, 'get-accounts');
+    const data = await this.httpCore._get(config, PATH.ACCOUNTS, 'get-accounts');
     return asCount(data);
   }
 
@@ -1062,7 +347,7 @@ class LiferayRestService {
 
     while (attempts < maxAttempts) {
       try {
-        const result = await this._get(
+        const result = await this.httpCore._get(
           config,
           PATH.IMPORT_TASK(batchId),
           'import-task',
@@ -1116,7 +401,7 @@ class LiferayRestService {
   }
 
   async getImportTaskSubmittedContent(config, batchId) {
-    const urlResponse = await this._get(
+    const urlResponse = await this.httpCore._get(
       config,
       PATH.IMPORT_TASK_SUBMITTED_CONTENT(batchId),
       'import-task-submitted-content',
@@ -1133,7 +418,7 @@ class LiferayRestService {
       const tempFilePath = path.join(tmpdir(), `${crypto.randomUUID()}.zip`);
 
       try {
-        await this._downloadFile(config, urlResponse.url, tempFilePath);
+        await this.httpCore._downloadFile(config, urlResponse.url, tempFilePath);
 
         const zip = new StreamZip.async({ file: tempFilePath });
         const entries = await zip.entries();
@@ -1155,7 +440,7 @@ class LiferayRestService {
   }
 
   async getImportTaskFailedItemReport(config, batchId) {
-    const csvContent = await this._get(
+    const csvContent = await this.httpCore._get(
       config,
       PATH.IMPORT_TASK_ERROR_REPORT(batchId),
       'import-task-error-report',
@@ -1171,516 +456,8 @@ class LiferayRestService {
     return records;
   }
 
-  async _postBatch(
-    config,
-    {
-      entityName,
-      items,
-      externalReferenceCode,
-      itemERCKey,
-      op,
-      friendly,
-      path,
-      sessionId,
-      session = null,
-      createStrategy = 'UPSERT',
-      skipItemERC = false,
-      method = 'POST',
-    }
-  ) {
-    const { logger, cache, config: configService } = this.ctx;
-
-    const prefixKey = `${entityName.toUpperCase()}_BATCH`;
-    const erc =
-      externalReferenceCode ??
-      createERC(ERC_PREFIX[prefixKey] || ERC_PREFIX.BATCH);
-
-    const processedItems = (items || []).map((item) => {
-      if (skipItemERC) {
-        return { ...item };
-      }
-      const extERC = sanitizedERC(
-        item.externalReferenceCode || item[itemERCKey] || crypto.randomUUID()
-      );
-      return { ...item, externalReferenceCode: extERC };
-    });
-
-    const itemERCs = processedItems.map((i) => i.externalReferenceCode);
-
-    this._cacheItemERCs(erc, null, itemERCs, sessionId);
-
-    // RUNTIME CONTRACT VALIDATION (BATCH)
-    if (
-      processedItems &&
-      processedItems.length > 0 &&
-      this.ctx.contractValidator &&
-      (ENV.NODE_ENV === 'development' || ENV.NODE_ENV === 'test')
-    ) {
-      const sampleUrl =
-        typeof path === 'function' ? path('http://sample') : path;
-      const contract = findContract(sampleUrl, 'POST');
-      if (contract && contract.isBatch) {
-        try {
-          // Validate first 3 items to avoid excessive overhead while still catching patterns
-          const sample = processedItems.slice(0, 3);
-          for (const item of sample) {
-            this.ctx.contractValidator.validate(
-              contract.spec,
-              contract.schema,
-              item
-            );
-          }
-        } catch (err) {
-          if (err.name === 'ContractViolationError') {
-            this.ctx.logger.error(
-              `Batch item for ${entityName} violates Liferay OpenAPI contract`,
-              {
-                op,
-                schema: contract.schema,
-                errors: err.errors,
-              }
-            );
-            throw err;
-          }
-        }
-      }
-    }
-
-    const batchPayload = {
-      batchExternalReferenceCode: erc,
-      createStrategy,
-      items: processedItems,
-    };
-
-    let currentERC = erc;
-    let attempts = 0;
-    const maxAttempts = 3;
-    let lastError;
-
-    while (attempts < maxAttempts) {
-      const callbackUrl = this._buildCallbackURL(
-        this._getBaseCallbackUrl(config, session),
-        {
-          batchERC: currentERC,
-          sessionId: sessionId,
-          correlationId: config?.correlationId || session?.correlationId,
-          op: 'create',
-        }
-      );
-
-      const url = path(callbackUrl, currentERC);
-      const currentBatchPayload = {
-        ...batchPayload,
-        batchExternalReferenceCode: currentERC,
-      };
-
-      logger.debug(`Sending batch ${entityName} creation request`, {
-        operation: op,
-        count: processedItems.length,
-        callbackUrl: url,
-        batchExternalReferenceCode: currentERC,
-        correlationId: config?.correlationId || session?.correlationId,
-      });
-
-      try {
-        const data = await this._request(config, {
-          method,
-          url,
-          data: currentBatchPayload,
-          op,
-          friendly,
-          maxRetries: 1,
-        });
-
-        this._cacheItemERCs(currentERC, data?.id, itemERCs, sessionId);
-
-        if (cache && data?.id) {
-          cache.set(
-            `batch:${data.id}:submission`,
-            {
-              op: op,
-              erc: currentERC,
-              itemERCs,
-              count: processedItems.length,
-              createdAt: new Date().toISOString(),
-            },
-            getBatchCacheTTLms(configService)
-          );
-        }
-
-        logger?.trace?.('cache:itemERCs:stored', {
-          scopeERC: currentERC,
-          sessionId: sessionId || null,
-          batchId: data?.id || null,
-          count: itemERCs.length,
-        });
-
-        logger.debug(`Batch ${entityName} creation initiated`, {
-          operation: op,
-          batchId: data.id || 'unknown',
-          status: data.status || 'submitted',
-          batchExternalReferenceCode: currentERC,
-          correlationId: config?.correlationId || session?.correlationId,
-        });
-
-        return {
-          batchId: data.id || `batch-${Date.now()}`,
-          status: data.status || 'submitted',
-          count: processedItems.length,
-          batchExternalReferenceCode: currentERC,
-          batchRefs: [
-            { taskId: data.id, count: processedItems.length, erc: currentERC },
-          ],
-        };
-      } catch (error) {
-        lastError = error;
-
-        const errorTitle = error.problem?.title || '';
-        const errorMessage = error.message || '';
-
-        const isDuplicateERC =
-          error.status === 400 &&
-          (errorTitle.toLowerCase().includes('already in use') ||
-            errorMessage.toLowerCase().includes('already in use'));
-
-        const isRetryable = ErrorHandler.isRetryableError(error);
-
-        if (isDuplicateERC || isRetryable) {
-          // Check if DXP already has this batch task active by querying by ERC
-          try {
-            const getUrl = `/o/headless-batch-engine/v1.0/import-task/by-external-reference-code/${encodeURIComponent(currentERC)}`;
-            const existingTask = await this._get(
-              config,
-              getUrl,
-              'get-import-task-by-erc',
-              'Failed to fetch import task by ERC'
-            );
-
-            if (existingTask && existingTask.id) {
-              logger.warn(
-                `Batch ${entityName} with ERC ${currentERC} was already received by Liferay (recovery from transient error/duplicate). Resuming tracking...`,
-                {
-                  batchId: existingTask.id,
-                  status: existingTask.status,
-                  correlationId:
-                    config?.correlationId || session?.correlationId,
-                }
-              );
-
-              this._cacheItemERCs(
-                currentERC,
-                existingTask.id,
-                itemERCs,
-                sessionId
-              );
-
-              if (cache) {
-                cache.set(
-                  `batch:${existingTask.id}:submission`,
-                  {
-                    op,
-                    erc: currentERC,
-                    itemERCs,
-                    count: processedItems.length,
-                    createdAt: new Date().toISOString(),
-                  },
-                  getBatchCacheTTLms(configService)
-                );
-              }
-
-              return {
-                batchId: existingTask.id,
-                status: existingTask.status || 'submitted',
-                count: processedItems.length,
-                batchExternalReferenceCode: currentERC,
-                batchRefs: [
-                  {
-                    taskId: existingTask.id,
-                    count: processedItems.length,
-                    erc: currentERC,
-                  },
-                ],
-              };
-            }
-          } catch (getErr) {
-            logger.debug(
-              `Batch task for ERC ${currentERC} not found or query failed (expected if it hasn't reached Liferay yet): ${getErr.message}`
-            );
-          }
-
-          if (isDuplicateERC) {
-            const isBatchERCCollision =
-              errorTitle.includes(currentERC) ||
-              errorMessage.includes(currentERC);
-
-            if (isBatchERCCollision && attempts < maxAttempts - 1) {
-              const oldERC = currentERC;
-              currentERC = createERC(ERC_PREFIX[prefixKey] || ERC_PREFIX.BATCH);
-              logger.warn(
-                `Batch ERC collision detected for ${entityName}. Regenerating batch ERC and retrying.`,
-                {
-                  oldERC,
-                  newERC: currentERC,
-                  sessionId,
-                  correlationId: config?.correlationId,
-                }
-              );
-              attempts++;
-              await delay(500 * attempts);
-              continue;
-            }
-
-            logger.error(
-              `Fatal ERC collision in batch ${op}. One or more items already exist in Liferay.`,
-              {
-                batchERC: currentERC,
-                isBatchCollision: isBatchERCCollision,
-                title: errorTitle,
-                message: errorMessage,
-                correlationId: config?.correlationId,
-              }
-            );
-          } else if (isRetryable && attempts < maxAttempts - 1) {
-            attempts++;
-            const backoffDelay = 1000 * Math.pow(2, attempts);
-            logger.warn(
-              `Transient error in batch POST for ${entityName}. Retrying (${attempts}/${maxAttempts}) in ${backoffDelay}ms: ${errorMessage}`,
-              {
-                batchERC: currentERC,
-                correlationId: config?.correlationId,
-              }
-            );
-            await delay(backoffDelay);
-            continue;
-          }
-        }
-
-        throw error;
-      }
-    }
-
-    throw lastError;
-  }
-
-  async _deleteBatchNative(
-    config,
-    {
-      entityName,
-      ids,
-      externalReferenceCode,
-      dryRun,
-      sessionId,
-      session = null,
-      path,
-      op,
-      friendly,
-      idField = 'id',
-    }
-  ) {
-    const { logger } = this.ctx;
-
-    const prefixKey = `${entityName.toUpperCase()}_BATCH`;
-    const batchERC =
-      externalReferenceCode ??
-      createERC(ERC_PREFIX[prefixKey] || ERC_PREFIX.BATCH);
-
-    const taggedCallback = this._buildCallbackURL(
-      this._getBaseCallbackUrl(config, session),
-      {
-        entity: entityName,
-        op: 'delete',
-        batchERC,
-        sessionId,
-        correlationId: config?.correlationId || session?.correlationId,
-      }
-    );
-
-    const batchUrl = path(taggedCallback);
-
-    logger.debug(`Submitting batch delete for ${entityName}`, {
-      count: ids.length,
-      dryRun,
-      callbackUrl: taggedCallback || 'none',
-      externalReferenceCode: batchERC,
-    });
-
-    const res = await this._deleteByBatch(config, {
-      batchUrl,
-      ids,
-      batchSize: config.batchSize,
-      dryRun,
-      op: op,
-      friendly: friendly,
-      idField,
-    });
-    res.batchRefs = (res.batchRefs || []).map((r) => ({ ...r, erc: batchERC }));
-    return res;
-  }
-
-  async _deleteByBatch(
-    config,
-    {
-      batchUrl,
-      ids,
-      batchSize = 100,
-      dryRun = false,
-      op,
-      friendly,
-      idField = 'id',
-    }
-  ) {
-    if (!ids || ids.length === 0) return { success: true, count: 0 };
-
-    const chunks = this._chunkArray(ids, batchSize);
-    const batchRefs = [];
-
-    for (const chunk of chunks) {
-      const payload = chunk.map((id) => ({ [idField]: id }));
-
-      if (dryRun) {
-        logger.info(`[DRY RUN] Would delete batch of ${chunk.length} items`, {
-          url: batchUrl,
-        });
-        batchRefs.push({
-          taskId: `dry-run-${crypto.randomUUID()}`,
-          count: chunk.length,
-        });
-        continue;
-      }
-
-      const res = await this._delete(config, batchUrl, payload, op, friendly);
-      batchRefs.push({ taskId: res.id, count: chunk.length });
-    }
-
-    return {
-      success: true,
-      count: ids.length,
-      batchRefs,
-    };
-  }
-
-  async _deleteByIds(
-    config,
-    {
-      baseDeletePath,
-      ids,
-      concurrency = 5,
-      retryOn = [404],
-      dryRun = false,
-      op,
-      friendly,
-    }
-  ) {
-    if (!ids || ids.length === 0) return { success: true, count: 0 };
-
-    let deletedCount = 0;
-    const errors = [];
-    const maxErrors = ENV.LIFERAY_MAX_DELETION_ERRORS || 3;
-
-    const chunks = this._chunkArray(ids, concurrency);
-
-    for (const chunk of chunks) {
-      await Promise.all(
-        chunk.map(async (id) => {
-          const url = `${baseDeletePath}/${id}`;
-          if (dryRun) {
-            logger.info(`[DRY RUN] Would delete entity at ${url}`);
-            deletedCount++;
-            return;
-          }
-
-          try {
-            await this._delete(config, url, null, op, friendly);
-            deletedCount++;
-          } catch (err) {
-            if (retryOn && retryOn.includes(err.status)) {
-              logger.debug(`Ignored error ${err.status} deleting ${url}`);
-              deletedCount++; // Count as "processed"
-              return;
-            }
-            errors.push({ id, error: err.message });
-          }
-        })
-      );
-
-      if (errors.length >= maxErrors) {
-        logger.error(
-          `Stopping deletion loop: encountered ${errors.length} errors (threshold: ${maxErrors})`
-        );
-        throw new Error(
-          `Deletion failed: encountered ${errors.length} errors. Last error: ${errors[errors.length - 1].error}`
-        );
-      }
-    }
-
-    return {
-      success: errors.length === 0,
-      count: deletedCount,
-      errors: errors.length > 0 ? errors : undefined,
-    };
-  }
-
-  _chunkArray(arr, size) {
-    if (!size || size <= 0) size = 100;
-    return Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
-      arr.slice(i * size, i * size + size)
-    );
-  }
-
-  async _deleteBatchSimulated(
-    config,
-    { entityName, ids, dryRun, basePath, op, friendly, concurrency, retryOn }
-  ) {
-    const { logger } = this.ctx;
-
-    logger.debug(`Submitting simulated batch delete for ${entityName}`, {
-      count: ids.length,
-      dryRun,
-    });
-
-    return await this._deleteByIds(config, {
-      baseDeletePath: basePath,
-      ids: ids,
-      concurrency: concurrency,
-      retryOn: retryOn,
-      dryRun,
-      op: op,
-      friendly: friendly,
-    });
-  }
-
-  async _collectPagedItems(
-    config,
-    { listUrl, pageSize, filter, search, fields, op, friendly }
-  ) {
-    let allItems = [];
-    let page = 1;
-    let hasMore = true;
-
-    while (hasMore) {
-      const res = await this._get(config, listUrl, op, friendly, {
-        params: {
-          page,
-          pageSize,
-          filter,
-          search,
-          fields,
-        },
-      });
-
-      const items = asItems(res);
-      allItems = allItems.concat(items);
-
-      const totalCount = asCount(res);
-      hasMore = allItems.length < totalCount && items.length > 0;
-      page++;
-    }
-
-    return allItems;
-  }
-
   async createWarehousesBatch(config, warehousesData, opts = {}) {
-    const results = await this._postBatch(config, {
+    const results = await this.batch._postBatch(config, {
       entityName: 'warehouse',
       items: warehousesData,
       externalReferenceCode: opts.externalReferenceCode,
@@ -1724,7 +501,7 @@ class LiferayRestService {
       await Promise.all(
         chunk.map(async (entry) => {
           try {
-            await this._post(
+            await this.httpCore._post(
               config,
               PATH.WAREHOUSE_INVENTORIES(warehouseId),
               entry,
@@ -1752,7 +529,7 @@ class LiferayRestService {
   }
 
   async createWarehouse(config, warehouseData) {
-    return await this._post(
+    return await this.httpCore._post(
       config,
       PATH.WAREHOUSES,
       warehouseData,
@@ -1762,7 +539,7 @@ class LiferayRestService {
   }
 
   async deleteWarehouse(config, warehouseId) {
-    return await this._delete(
+    return await this.httpCore._delete(
       config,
       `${PATH.WAREHOUSES}/${warehouseId}`,
       null,
@@ -1772,7 +549,7 @@ class LiferayRestService {
   }
 
   async updateProductInventory(config, warehouseId, sku, inventoryData) {
-    return await this._post(
+    return await this.httpCore._post(
       config,
       PATH.WAREHOUSE_INVENTORIES(warehouseId),
       { ...inventoryData, sku },
@@ -1786,7 +563,7 @@ class LiferayRestService {
     warehouseId,
     { filter, page, pageSize } = {}
   ) {
-    return await this._get(
+    return await this.httpCore._get(
       config,
       PATH.WAREHOUSE_INVENTORIES(warehouseId),
       'warehouse:items',
@@ -1796,7 +573,7 @@ class LiferayRestService {
   }
 
   async getCurrencies(config) {
-    const data = await this._get(config, PATH.CURRENCIES, 'get-currencies');
+    const data = await this.httpCore._get(config, PATH.CURRENCIES, 'get-currencies');
     const items = asItems(data);
     const lang = config.languageId || 'en_US';
 
@@ -1822,7 +599,7 @@ class LiferayRestService {
   }
 
   async getProductById(config, productId) {
-    return await this._get(
+    return await this.httpCore._get(
       config,
       PATH.PRODUCT(productId),
       'get-product-by-id'
@@ -1830,7 +607,7 @@ class LiferayRestService {
   }
 
   async patchProductById(config, productId, data) {
-    return await this._patch(
+    return await this.httpCore._patch(
       config,
       PATH.PRODUCT(productId),
       data,
@@ -1853,7 +630,7 @@ class LiferayRestService {
       payloadKeys: Object.keys(productData),
     });
 
-    const data = await this._post(
+    const data = await this.httpCore._post(
       config,
       PATH.PRODUCTS,
       productData,
@@ -1865,7 +642,7 @@ class LiferayRestService {
   }
 
   async createProductsBatch(config, productsData, opts = {}) {
-    const results = await this._postBatch(config, {
+    const results = await this.batch._postBatch(config, {
       entityName: 'product',
       items: productsData,
       externalReferenceCode: opts.externalReferenceCode,
@@ -1920,7 +697,7 @@ class LiferayRestService {
     };
 
     try {
-      const data = await this._post(
+      const data = await this.httpCore._post(
         config,
         PATH.WAREHOUSE_CHANNELS(cleanedWarehouseId),
         payload,
@@ -1938,7 +715,7 @@ class LiferayRestService {
   }
 
   async createAccount(config, accountData) {
-    const data = await this._post(
+    const data = await this.httpCore._post(
       config,
       PATH.ACCOUNTS,
       accountData,
@@ -1951,7 +728,7 @@ class LiferayRestService {
   }
 
   async patchAccount(config, accountId, accountData) {
-    return await this._patch(
+    return await this.httpCore._patch(
       config,
       PATH.ACCOUNT(accountId),
       accountData,
@@ -1961,7 +738,7 @@ class LiferayRestService {
   }
 
   async patchAccountByERC(config, externalReferenceCode, accountData) {
-    return await this._patch(
+    return await this.httpCore._patch(
       config,
       PATH.ACCOUNT_BY_ERC(externalReferenceCode),
       accountData,
@@ -1972,7 +749,7 @@ class LiferayRestService {
 
   async getAccountByERC(config, externalReferenceCode) {
     try {
-      const res = await this._get(
+      const res = await this.httpCore._get(
         config,
         PATH.ACCOUNT_BY_ERC(externalReferenceCode),
         'get-account-by-erc'
@@ -2005,7 +782,7 @@ class LiferayRestService {
     }
     logger.debug('[getCountries] - Cache miss', { correlationId, cacheKey });
 
-    const data = await this._get(
+    const data = await this.httpCore._get(
       config,
       PATH.COUNTRIES,
       'get-countries',
@@ -2052,7 +829,7 @@ class LiferayRestService {
       cacheKey,
     });
 
-    const data = await this._get(
+    const data = await this.httpCore._get(
       config,
       PATH.COUNTRY_REGIONS(countryId),
       'get-country-regions',
@@ -2077,7 +854,7 @@ class LiferayRestService {
   }
 
   async createAccountAddress(config, accountId, addressData) {
-    return await this._post(
+    return await this.httpCore._post(
       config,
       PATH.ACCOUNT_ADDRESSES(accountId),
       addressData,
@@ -2094,7 +871,7 @@ class LiferayRestService {
       return rest;
     });
 
-    const results = await this._postBatch(config, {
+    const results = await this.batch._postBatch(config, {
       entityName: 'address',
       items: preparedItems,
       externalReferenceCode: opts.externalReferenceCode,
@@ -2113,7 +890,7 @@ class LiferayRestService {
   }
 
   async createProductSkusBatch(config, skusData, opts = {}) {
-    const results = await this._postBatch(config, {
+    const results = await this.batch._postBatch(config, {
       entityName: 'sku',
       items: skusData,
       externalReferenceCode: opts.externalReferenceCode,
@@ -2141,7 +918,7 @@ class LiferayRestService {
   }
 
   async createSpecificationsBatch(config, specificationsData, opts = {}) {
-    return await this._postBatch(config, {
+    return await this.batch._postBatch(config, {
       entityName: 'specification',
       items: specificationsData,
       externalReferenceCode: opts.externalReferenceCode,
@@ -2155,7 +932,7 @@ class LiferayRestService {
   }
 
   async createOptionsBatch(config, optionsData, opts = {}) {
-    return await this._postBatch(config, {
+    return await this.batch._postBatch(config, {
       entityName: 'option',
       items: optionsData,
       externalReferenceCode: opts.externalReferenceCode,
@@ -2261,7 +1038,7 @@ class LiferayRestService {
     // 5. Create new accounts using batch if any
     let results;
     if (toCreate.length > 0) {
-      results = await this._postBatch(config, {
+      results = await this.batch._postBatch(config, {
         entityName: 'account',
         items: toCreate,
         externalReferenceCode: opts.externalReferenceCode,
@@ -2322,7 +1099,7 @@ class LiferayRestService {
   }
 
   async createOrdersBatch(config, ordersData, opts = {}) {
-    const results = await this._postBatch(config, {
+    const results = await this.batch._postBatch(config, {
       entityName: 'order',
       items: ordersData,
       externalReferenceCode: opts.externalReferenceCode,
@@ -2356,7 +1133,7 @@ class LiferayRestService {
       payloadKeys: Object.keys(orderData),
     });
 
-    return await this._post(
+    return await this.httpCore._post(
       config,
       PATH.ORDERS,
       orderData,
@@ -2366,7 +1143,7 @@ class LiferayRestService {
   }
 
   async createAccountGroup(config, accountGroupData) {
-    return await this._post(
+    return await this.httpCore._post(
       config,
       '/o/headless-admin-user/v1.0/account-groups',
       accountGroupData,
@@ -2377,7 +1154,7 @@ class LiferayRestService {
 
   async getAccountGroupByERC(config, externalReferenceCode) {
     try {
-      const res = await this._get(
+      const res = await this.httpCore._get(
         config,
         `/o/headless-admin-user/v1.0/account-groups/by-external-reference-code/${encodeURIComponent(externalReferenceCode)}`,
         'get-account-group-by-erc'
@@ -2393,7 +1170,7 @@ class LiferayRestService {
   async assignAccountToGroup(config, groupERC, accountERC) {
     // WORKAROUND: Liferay's REST endpoint internally swaps the parameters:
     // the first placeholder maps to account ERC, and the second maps to group ERC.
-    return await this._post(
+    return await this.httpCore._post(
       config,
       `/o/headless-admin-user/v1.0/account-groups/by-external-reference-code/${encodeURIComponent(accountERC)}/accounts/by-external-reference-code/${encodeURIComponent(groupERC)}`,
       null,
@@ -2403,7 +1180,7 @@ class LiferayRestService {
   }
 
   async createPriceListAccountGroup(config, priceListERC, payload) {
-    return await this._post(
+    return await this.httpCore._post(
       config,
       PATH.PRICE_LIST_ACCOUNT_GROUPS_BY_ERC(priceListERC),
       payload,
@@ -2413,7 +1190,7 @@ class LiferayRestService {
   }
 
   async createPriceList(config, priceListData) {
-    return await this._post(
+    return await this.httpCore._post(
       config,
       PATH.PRICE_LISTS,
       priceListData,
@@ -2423,7 +1200,7 @@ class LiferayRestService {
   }
 
   async patchPriceList(config, priceListId, priceListData) {
-    return await this._patch(
+    return await this.httpCore._patch(
       config,
       PATH.PRICE_LIST(priceListId),
       priceListData,
@@ -2434,7 +1211,7 @@ class LiferayRestService {
 
   async getPriceListByERC(config, externalReferenceCode) {
     try {
-      const res = await this._get(
+      const res = await this.httpCore._get(
         config,
         PATH.PRICE_LIST_BY_ERC(externalReferenceCode),
         'get-price-list-by-erc'
@@ -2452,7 +1229,7 @@ class LiferayRestService {
     { filter, page, pageSize, search, sort, catalogId } = {}
   ) {
     const params = { filter, page, pageSize, search, sort };
-    const res = await this._get(
+    const res = await this.httpCore._get(
       config,
       PATH.PRICE_LISTS + q(params),
       'get-price-lists'
@@ -2474,7 +1251,7 @@ class LiferayRestService {
 
   async getPriceEntries(config, priceListId, { filter, page, pageSize } = {}) {
     const params = { filter, page, pageSize };
-    return await this._get(
+    return await this.httpCore._get(
       config,
       PATH.PRICE_ENTRIES(priceListId) + q(params),
       'price-entries:list'
@@ -2482,7 +1259,7 @@ class LiferayRestService {
   }
 
   async createPriceListsBatch(config, priceListsData, opts = {}) {
-    return await this._postBatch(config, {
+    return await this.batch._postBatch(config, {
       entityName: 'pricelist',
       items: priceListsData,
       externalReferenceCode: opts.externalReferenceCode,
@@ -2504,7 +1281,7 @@ class LiferayRestService {
         `Creating batch of ${priceEntriesData.length} price entries natively...`,
         { sessionId: opts.sessionId }
       );
-      return await this._postBatch(config, {
+      return await this.batch._postBatch(config, {
         entityName: 'price-entries',
         items: priceEntriesData,
         externalReferenceCode: opts.externalReferenceCode,
@@ -2588,7 +1365,7 @@ class LiferayRestService {
       delete entryData.priceListExternalReferenceCode;
     }
 
-    const result = await this._post(
+    const result = await this.httpCore._post(
       config,
       urlPath,
       entryData,
@@ -2598,7 +1375,7 @@ class LiferayRestService {
 
     if (tierPrices && tierPrices.length > 0 && result && result.id) {
       for (const tp of tierPrices) {
-        await this._post(
+        await this.httpCore._post(
           config,
           `${PATH.PRICE_ENTRY(result.id)}/tier-prices`,
           tp,
@@ -2612,7 +1389,7 @@ class LiferayRestService {
   }
 
   async createSkuPriceEntry(config, priceListId, skuId, priceEntryData) {
-    return await this._post(
+    return await this.httpCore._post(
       config,
       PATH.PRICE_ENTRIES(priceListId),
       { ...priceEntryData, skuId },
@@ -2622,7 +1399,7 @@ class LiferayRestService {
   }
 
   async createProductSku(config, productId, skuData) {
-    return await this._post(
+    return await this.httpCore._post(
       config,
       PATH.PRODUCT_SKUS(productId),
       skuData,
@@ -2643,7 +1420,7 @@ class LiferayRestService {
 
     while (attempts < maxAttempts) {
       try {
-        return await this._post(
+        return await this.httpCore._post(
           config,
           path,
           productOptions,
@@ -2685,7 +1462,7 @@ class LiferayRestService {
 
     while (attempts < maxAttempts) {
       try {
-        return await this._post(
+        return await this.httpCore._post(
           config,
           path,
           payload,
@@ -2719,7 +1496,7 @@ class LiferayRestService {
       warehouseId: parseInt(warehouseId, 10),
     };
 
-    return await this._post(
+    return await this.httpCore._post(
       config,
       path,
       payload,
@@ -2729,7 +1506,7 @@ class LiferayRestService {
   }
 
   async deleteProductOption(config, productId, productOptionId) {
-    return await this._delete(
+    return await this.httpCore._delete(
       config,
       PATH.PRODUCT_OPTION(productOptionId),
       null,
@@ -2739,7 +1516,7 @@ class LiferayRestService {
   }
 
   async getCommerceProductOptions(config, productId) {
-    const data = await this._get(
+    const data = await this.httpCore._get(
       config,
       PATH.PRODUCT_OPTIONS(productId),
       'get-product-options'
@@ -2748,7 +1525,7 @@ class LiferayRestService {
   }
 
   async deleteProductSpecification(config, productId, productSpecificationId) {
-    return await this._delete(
+    return await this.httpCore._delete(
       config,
       PATH.PRODUCT_SPECIFICATION(productSpecificationId),
       null,
@@ -2758,7 +1535,7 @@ class LiferayRestService {
   }
 
   async getCommerceProductSpecifications(config, productId) {
-    const data = await this._get(
+    const data = await this.httpCore._get(
       config,
       PATH.PRODUCT_SPECIFICATIONS(productId),
       'get-product-specifications'
@@ -2776,7 +1553,7 @@ class LiferayRestService {
       key: categoryData.key,
     };
 
-    return await this._post(
+    return await this.httpCore._post(
       config,
       PATH.SPECIFICATION_CATEGORIES,
       payload,
@@ -2787,7 +1564,7 @@ class LiferayRestService {
 
   async getSpecificationCategoryByKey(config, key) {
     try {
-      const res = await this._get(
+      const res = await this.httpCore._get(
         config,
         PATH.SPECIFICATION_CATEGORIES,
         'specification-categories:list',
@@ -2859,7 +1636,7 @@ class LiferayRestService {
       liferayUrl: config.liferayUrl,
     });
 
-    const data = await this._post(
+    const data = await this.httpCore._post(
       config,
       PATH.SPECIFICATIONS,
       specificationData,
@@ -2872,7 +1649,7 @@ class LiferayRestService {
   }
 
   async getSkuByERC(config, erc) {
-    return await this._get(
+    return await this.httpCore._get(
       config,
       PATH.SKU_BY_ERC(erc),
       'get-sku-by-erc',
@@ -2893,7 +1670,7 @@ class LiferayRestService {
 
   async getSpecificationByERC(config, externalReferenceCode) {
     try {
-      return await this._get(
+      return await this.httpCore._get(
         config,
         PATH.SPECIFICATION_BY_ERC(externalReferenceCode),
         'get-specification-by-erc'
@@ -2909,7 +1686,7 @@ class LiferayRestService {
 
   async getSpecificationByKey(config, key) {
     try {
-      const res = await this._get(
+      const res = await this.httpCore._get(
         config,
         PATH.SPECIFICATIONS,
         'specifications:list',
@@ -2937,7 +1714,7 @@ class LiferayRestService {
 
   async updateSpecificationById(config, id, payload) {
     const url = `${PATH.SPECIFICATIONS}/${encodeURIComponent(id)}`;
-    return this._put(
+    return this.httpCore._put(
       config,
       url,
       payload,
@@ -3059,7 +1836,7 @@ class LiferayRestService {
       liferayUrl: config.liferayUrl,
     });
 
-    const data = await this._post(
+    const data = await this.httpCore._post(
       config,
       PATH.OPTIONS,
       optionData,
@@ -3165,7 +1942,7 @@ class LiferayRestService {
   }
 
   async createOptionValue(config, optionId, optionValueData) {
-    return await this._post(
+    return await this.httpCore._post(
       config,
       PATH.OPTION_VALUES(optionId),
       optionValueData,
@@ -3176,7 +1953,7 @@ class LiferayRestService {
 
   async getOptionByERC(config, externalReferenceCode) {
     try {
-      return await this._get(
+      return await this.httpCore._get(
         config,
         PATH.OPTION_BY_ERC(externalReferenceCode),
         'get-option-by-erc'
@@ -3192,7 +1969,7 @@ class LiferayRestService {
 
   async getOptionByKey(config, key) {
     try {
-      const res = await this._get(
+      const res = await this.httpCore._get(
         config,
         PATH.OPTIONS,
         'options:list',
@@ -3220,7 +1997,7 @@ class LiferayRestService {
 
   async updateOptionById(config, id, payload) {
     const url = `${PATH.OPTIONS}/${encodeURIComponent(id)}`;
-    return this._put(
+    return this.httpCore._put(
       config,
       url,
       payload,
@@ -3231,7 +2008,7 @@ class LiferayRestService {
 
   async getOptionValueByERC(config, optionId, externalReferenceCode) {
     try {
-      return await this._get(
+      return await this.httpCore._get(
         config,
         PATH.OPTION_VALUE_BY_ERC(optionId, externalReferenceCode),
         'get-option-value-by-erc'
@@ -3248,7 +2025,7 @@ class LiferayRestService {
     const listUrl = `${PATH.OPTIONS}/${encodeURIComponent(
       optionId
     )}/productOptionValues`;
-    const res = await this._get(
+    const res = await this.httpCore._get(
       config,
       listUrl,
       'optionValues:list',
@@ -3268,7 +2045,7 @@ class LiferayRestService {
 
   async updateOptionValueById(config, optionId, valueId, payload) {
     const url = PATH.OPTION_VALUE(valueId);
-    return this._patch(
+    return this.httpCore._patch(
       config,
       url,
       payload,
@@ -3284,7 +2061,7 @@ class LiferayRestService {
     payload
   ) {
     const url = PATH.OPTION_VALUE_BY_ERC(optionId, externalReferenceCode);
-    return this._patch(
+    return this.httpCore._patch(
       config,
       url,
       payload,
@@ -3344,7 +2121,7 @@ class LiferayRestService {
   }
 
   async createOptionCategory(config, optionCategoryData) {
-    return await this._post(
+    return await this.httpCore._post(
       config,
       PATH.OPTION_CATEGORIES,
       optionCategoryData,
@@ -3354,7 +2131,7 @@ class LiferayRestService {
   }
 
   async createTaxonomyCategory(config, vocabularyId, categoryPayload) {
-    return await this._post(
+    return await this.httpCore._post(
       config,
       PATH.TAXONOMY_CATEGORIES(vocabularyId),
       categoryPayload,
@@ -3365,7 +2142,7 @@ class LiferayRestService {
 
   async getOptionCategoryByKey(config, key) {
     try {
-      const res = await this._get(
+      const res = await this.httpCore._get(
         config,
         PATH.OPTION_CATEGORIES,
         'optionCategories:list',
@@ -3400,7 +2177,7 @@ class LiferayRestService {
       fields = 'id,key,externalReferenceCode',
     } = {}
   ) {
-    return this._get(
+    return this.httpCore._get(
       config,
       PATH.OPTION_CATEGORIES,
       'optionCategories:list',
@@ -3419,7 +2196,7 @@ class LiferayRestService {
 
   async updateOptionCategoryById(config, id, payload) {
     const url = PATH.OPTION_CATEGORY(id);
-    return this._patch(
+    return this.httpCore._patch(
       config,
       url,
       payload,
@@ -3482,7 +2259,7 @@ class LiferayRestService {
 
   async getOptionCategoryByERC(config, externalReferenceCode) {
     try {
-      return await this._get(
+      return await this.httpCore._get(
         config,
         PATH.OPTION_CATEGORY_BY_ERC(externalReferenceCode),
         'get-option-category-by-erc'
@@ -3507,7 +2284,7 @@ class LiferayRestService {
 
   async getPostalAddressByERC(config, externalReferenceCode) {
     try {
-      return await this._get(
+      return await this.httpCore._get(
         config,
         PATH.POSTAL_ADDRESS_BY_ERC(externalReferenceCode),
         'get-postal-address-by-erc'
@@ -3520,156 +2297,11 @@ class LiferayRestService {
     }
   }
 
-  async addProductImage(config, productId, image) {
-    return await this._post(
-      config,
-      PATH.PRODUCT_IMAGES_BY_URL(productId),
-      image,
-      'add-product-image',
-      'Failed to add product image'
-    );
-  }
-
-  async addProductDocumentAttachment(config, productId, attachment) {
-    return await this._post(
-      config,
-      PATH.PRODUCT_ATTACHMENTS_BY_URL(productId),
-      attachment,
-      'add-product-document-attachment',
-      'Failed to add product document attachment'
-    );
-  }
-
-  async addProductImageByBase64(config, productERC, image) {
-    return await this._post(
-      config,
-      PATH.PRODUCT_IMAGES_BY_BASE64(productERC),
-      image,
-      'add-product-image-by-base64',
-      'Failed to add product image by base64'
-    );
-  }
-
-  async addProductDocumentAttachmentByBase64(config, productERC, attachment) {
-    return await this._post(
-      config,
-      PATH.PRODUCT_ATTACHMENTS_BY_BASE64(productERC),
-      attachment,
-      'add-product-document-attachment-by-base64',
-      'Failed to add product document attachment by base64'
-    );
-  }
-
-  async addProductImageDocumentLibrary(
-    config,
-    productId,
-    { documentId, title, priority = 1 }
-  ) {
-    const payload = {
-      externalReferenceCode: createERC(ERC_PREFIX.IMAGE),
-      priority,
-      title: typeof title === 'object' ? title : { en_US: title },
-      type: 2, // 2 is typically the type for Document Library entries in some Liferay versions, or we use standard URL pattern
-      src: documentId, // The internal ID or UUID depending on the endpoint expectation
-    };
-
-    return await this._post(
-      config,
-      PATH.PRODUCT_IMAGES(productId),
-      payload,
-      'add-product-image-dl',
-      'Failed to add product image via Document Library'
-    );
-  }
-
-  async addProductDocumentAttachmentDocumentLibrary(
-    config,
-    productId,
-    { documentId, title, priority = 1 }
-  ) {
-    const payload = {
-      externalReferenceCode: createERC(ERC_PREFIX.ATTACHMENT),
-      priority,
-      title: typeof title === 'object' ? title : { en_US: title },
-      type: 2,
-      src: documentId,
-    };
-
-    return await this._post(
-      config,
-      PATH.PRODUCT_ATTACHMENTS(productId),
-      payload,
-      'add-product-attachment-dl',
-      'Failed to add product attachment via Document Library'
-    );
-  }
-
-  async _postMultipart(config, url, formData, op, friendly) {
-    return await this._request(config, {
-      method: 'POST',
-      url,
-      data: formData,
-      headers: formData.getHeaders(),
-      op,
-      friendly,
-    });
-  }
-
-  async addProductImageMultipart(
-    config,
-    productId,
-    { fileStream, fileName, title, priority = 1 }
-  ) {
-    const formData = new FormData();
-    formData.append('file', fileStream, fileName);
-
-    const metadata = {
-      title: typeof title === 'object' ? title : { en_US: title || fileName },
-      priority,
-    };
-    formData.append('metadata', JSON.stringify(metadata), {
-      contentType: 'application/json',
-    });
-
-    return await this._postMultipart(
-      config,
-      PATH.PRODUCT_IMAGES(productId),
-      formData,
-      'add-product-image-multipart',
-      'Failed to add product image via multipart'
-    );
-  }
-
-  async addProductDocumentAttachmentMultipart(
-    config,
-    productId,
-    { fileStream, fileName, title, priority = 1 }
-  ) {
-    const formData = new FormData();
-    formData.append('file', fileStream, fileName);
-
-    const metadata = {
-      title: typeof title === 'object' ? title : { en_US: title || fileName },
-      priority,
-    };
-    formData.append('metadata', JSON.stringify(metadata), {
-      contentType: 'application/json',
-    });
-
-    return await this._postMultipart(
-      config,
-      PATH.PRODUCT_ATTACHMENTS(productId),
-      formData,
-      'add-product-document-attachment-multipart',
-      'Failed to add product document attachment via multipart'
-    );
-  }
-
   async triggerReindex(config, className = null) {
     const url = className
       ? `/o/aica-reindex/reindex/${className}`
       : '/o/aica-reindex/reindex/all';
-    return await this._post(
+    return await this.httpCore._post(
       config,
       url,
       null,
@@ -3688,7 +2320,7 @@ class LiferayRestService {
     if (shippingAddressId) payload.defaultShippingAddressId = shippingAddressId;
     if (billingAddressId) payload.defaultBillingAddressId = billingAddressId;
 
-    return await this._patch(
+    return await this.httpCore._patch(
       config,
       PATH.ACCOUNT(accountId),
       payload,
@@ -3704,7 +2336,7 @@ class LiferayRestService {
       if (cached !== undefined && cached !== null) return cached;
     }
 
-    const classNameId = await this._post(
+    const classNameId = await this.httpCore._post(
       config,
       '/api/jsonws/classname/get-class-name-id',
       { value: className },
@@ -3778,7 +2410,7 @@ class LiferayRestService {
       serviceContext: '{}',
     };
 
-    const result = await this._post(
+    const result = await this.httpCore._post(
       config,
       '/api/jsonws/ddm.ddmstructure/add-structure',
       payload,
