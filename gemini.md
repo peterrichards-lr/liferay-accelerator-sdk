@@ -17,6 +17,7 @@
 - Implemented `getTaxonomyVocabularies` and `getTaxonomyCategories` on `ExtractionFacade`, bumped SDK to `0.3.9`, tagged release `v0.3.9`, and closed Issue #20.
 - Implemented `createWebContentStructure`, `getContentStructure`, and `getSiteContentStructures` on `LiferayService` and `ExtractionFacade`, bumped SDK to `0.3.10`, tagged release `v0.3.10`, and closed Issue #22.
 - Refactored SDK god objects (`LiferayRestService` and `LiferayService`) into domain-driven modules, cleared up import scoping issues, and removed orphaned agent skills. Bumped SDK version to `0.4.0` and tagged release `v0.4.0`.
+- Removed unused `jwk-to-pem` dependency to resolve `elliptic` CVE-2025-14505 security vulnerability, bumped SDK to `0.4.1` and tagged release `v0.4.1`.
 
 ## Current Goals
 
