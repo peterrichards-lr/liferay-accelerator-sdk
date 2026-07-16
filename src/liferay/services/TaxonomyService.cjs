@@ -1,5 +1,4 @@
-
-const { asItems, asCount } = require("../../utils/liferayUtils.cjs");
+const { asItems, asCount } = require('../../utils/liferayUtils.cjs');
 const { delay, fromI18n } = require('../../utils/misc.cjs');
 const { PATH } = require('../../utils/liferayPaths.cjs');
 class TaxonomyService {
