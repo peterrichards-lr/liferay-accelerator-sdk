@@ -11,7 +11,7 @@ class PersistenceService {
     this.logger = ctx?.logger;
 
     const rawPath = dbPath || ENV.PERSISTENCE_DB_PATH || './data/workflows.db';
-    const isMemory = rawPath === ':memory:';
+    const isMemory = rawPath === ':memory:' || process.env.NODE_ENV === 'test';
     const finalPath = isMemory
       ? ':memory:'
       : path.resolve(__dirname, '..', rawPath);
