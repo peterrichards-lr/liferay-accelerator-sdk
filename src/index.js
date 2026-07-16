@@ -50,5 +50,5 @@ module.exports = {
     constants,
   },
 
-  version: '0.3.9',
+  version: require('../package.json').version,
 };
