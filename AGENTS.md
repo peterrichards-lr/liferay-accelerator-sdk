@@ -1,40 +1,22 @@
-# GitHub Issue Sync Workflow Rules
+# Accelerator SDK Agent Skills Directory
 
-When planning or implementing new features, you must use the automated JSON-driven issue sync tool located at `scripts/gh-issue-sync.cjs` to synchronize your task checklist with the GitHub issue tracker.
+To prevent cognitive overload and ensure passive rules are not missed during execution, the SDK's agent rules are refactored into active, modular skill files located under `.agents/skills/`.
 
-## 1. Tool Setup & Location
+Please reference the specific skill file based on the context of your task:
 
-- Script: `scripts/gh-issue-sync.cjs` (executable Node.js script)
-- Sample Config: `scripts/issues.sample.json`
+## Table of Contents
 
-## 2. Issue Tracking Workflow
+| Skill Name                                                                 | Path                                                                                           | Trigger Condition / When to Load                               | Description                                                                           |
+| :------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------- | :------------------------------------------------------------- | :------------------------------------------------------------------------------------ |
+| **[github-issue-sync](file:///.agents/skills/github-issue-sync/SKILL.md)** | [.agents/skills/github-issue-sync/SKILL.md](file:///.agents/skills/github-issue-sync/SKILL.md) | When starting features, editing task JSONs, or closing issues. | Manages issue creation and status synchronization with the GitHub issue tracker.      |
+| **[unit-testing](file:///.agents/skills/unit-testing/SKILL.md)**           | [.agents/skills/unit-testing/SKILL.md](file:///.agents/skills/unit-testing/SKILL.md)           | When writing/refactoring logic or running verification steps.  | Governs test-driven development, Vitest coverage checking, and deployment hard-gates. |
 
-Before writing code for any feature or logic change:
+---
 
-1. **Plan & Draft**: Create a temporary JSON file (e.g., `scripts/feature-xyz-plan.json`) containing the Epic description and target sub-issues. Follow the schema defined in `scripts/issues.sample.json`.
-2. **Dry Run**: Preview the CLI commands that will run:
-   ```bash
-   node scripts/gh-issue-sync.cjs scripts/feature-xyz-plan.json --dry-run
-   ```
-3. **Apply & Link**: Generate the Epic and sub-issues on GitHub:
-   ```bash
-   node scripts/gh-issue-sync.cjs scripts/feature-xyz-plan.json
-   ```
-   _Note: The script automatically links all sub-issues to the parent Epic._
-
-## 3. Resolving and Closing Tasks
-
-As you complete individual sub-issues:
-
-1. Update the target JSON file, changing the sub-issue's `"completed"` property to `true`.
-2. Execute the sync utility again:
-   ```bash
-   node scripts/gh-issue-sync.cjs scripts/feature-xyz-plan.json
-   ```
-   _The utility will automatically detect the completed state, post a reference comment with the current git commit hash, and close the issue on GitHub._
+For general rules of engagement, refer to the global rules provided in the parent context.
 
 <!-- markdownlint-disable MD049 -->
 
 ---
 
-_Last Updated: 2026-07-08_ | _Last Reviewed: 2026-07-08_
+_Last Updated: 2026-07-19_ | _Last Reviewed: 2026-07-19_
