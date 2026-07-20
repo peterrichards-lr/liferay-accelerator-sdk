@@ -10,6 +10,7 @@ Please reference the specific skill file based on the context of your task:
 | :------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------- | :------------------------------------------------------------- | :------------------------------------------------------------------------------------ |
 | **[github-issue-sync](file:///.agents/skills/github-issue-sync/SKILL.md)** | [.agents/skills/github-issue-sync/SKILL.md](file:///.agents/skills/github-issue-sync/SKILL.md) | When starting features, editing task JSONs, or closing issues. | Manages issue creation and status synchronization with the GitHub issue tracker.      |
 | **[unit-testing](file:///.agents/skills/unit-testing/SKILL.md)**           | [.agents/skills/unit-testing/SKILL.md](file:///.agents/skills/unit-testing/SKILL.md)           | When writing/refactoring logic or running verification steps.  | Governs test-driven development, Vitest coverage checking, and deployment hard-gates. |
+| **[documentation](file:///.agents/skills/documentation/SKILL.md)**         | [.agents/skills/documentation/SKILL.md](file:///.agents/skills/documentation/SKILL.md)         | After implementing any code changes.                           | Details active documentation review, creation, and timestamp hygiene rules.           |
 
 ---
 
@@ -19,4 +20,4 @@ For general rules of engagement, refer to the global rules provided in the paren
 
 ---
 
-_Last Updated: 2026-07-19_ | _Last Reviewed: 2026-07-19_
+_Last Updated: 2026-07-20_ | _Last Reviewed: 2026-07-20_
