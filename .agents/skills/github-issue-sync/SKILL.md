@@ -40,7 +40,7 @@ As you complete individual sub-issues:
 
 ## 4. Technical Debt Tracking
 
-- **Detect & Record**: If you identify code changes that fall into any of the following 10 technical debt categories, you must raise a GitHub issue with the `tech debt` label:
+- **Detect & Record**: If you identify code changes that fall into the 10 technical debt categories, before ending your task, you MUST execute `run_command` to invoke `node scripts/gh-issue-sync.cjs` to raise a GitHub issue with the `tech debt` label, and END your turn to wait for the command output. You are FORBIDDEN from continuing until the issue is recorded.
   1. **Code Smells** (poor design patterns, unreadable logic)
   2. **Duplication** (identical/similar code blocks, helper repetition)
   3. **Over-Complexity** (monolithic functions, hard-to-maintain flows)
