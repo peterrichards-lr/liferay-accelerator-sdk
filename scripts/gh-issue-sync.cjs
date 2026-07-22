@@ -65,23 +65,30 @@ try {
 log(`=== Reusable GitHub Issue Sync ${dryRun ? '(DRY RUN)' : ''} ===`, 'info');
 log(`Referencing commit: ${commitHash}`, 'info');
 
-// Create Epic
-log(`\nCreating Epic: "${config.title}"...`, 'info');
-let epicNumber = '123';
+let epicNumber = config.epicId || '123';
 
-const epicLabels = (config.labels || []).map((l) => `--label "${l}"`).join(' ');
-const epicCommand =
-  `gh issue create --title "${config.title}" --body "${config.body}" ${epicLabels}`.trim();
-
-if (dryRun) {
-  log(`[DRY RUN] Would execute: ${epicCommand}`, 'success');
+if (config.epicId) {
+  log(`\nUsing existing Epic ID: #${config.epicId}`, 'info');
 } else {
-  const epicUrl = execSync(epicCommand, { encoding: 'utf8' }).trim();
-  epicNumber = epicUrl.split('/').pop();
-  log(
-    `Epic created successfully: Issue #${epicNumber} (${epicUrl})`,
-    'success'
-  );
+  // Create Epic
+  log(`\nCreating Epic: "${config.title}"...`, 'info');
+
+  const epicLabels = (config.labels || [])
+    .map((l) => `--label "${l}"`)
+    .join(' ');
+  const epicCommand =
+    `gh issue create --title "${config.title}" --body "${config.body}" ${epicLabels}`.trim();
+
+  if (dryRun) {
+    log(`[DRY RUN] Would execute: ${epicCommand}`, 'success');
+  } else {
+    const epicUrl = execSync(epicCommand, { encoding: 'utf8' }).trim();
+    epicNumber = epicUrl.split('/').pop();
+    log(
+      `Epic created successfully: Issue #${epicNumber} (${epicUrl})`,
+      'success'
+    );
+  }
 }
 
 // Create Sub-issues
