@@ -19,6 +19,7 @@
 - Refactored SDK god objects (`LiferayRestService` and `LiferayService`) into domain-driven modules, cleared up import scoping issues, and removed orphaned agent skills. Bumped SDK version to `0.4.0` and tagged release `v0.4.0`.
 - Completed SQLite Persistence async worker thread offloading and tagged release `v0.3.11`.
 - Modularized SDK's monolithic rules (`AGENTS.md`) into structured skill modules under `.agents/skills/` and tagged release `v0.4.2`.
+- Created Epic #51 and sub-issues #52 and #53 to address Agentic Workflow Gaps (Sequential Workflows and Multi-Agent Collaboration) in the SDK and Accelerators.
 
 ## Current Goals
 
@@ -36,4 +37,4 @@
 
 ---
 
-_Last Updated: 2026-07-20_ | _Last Reviewed: 2026-07-20_
+_Last Updated: 2026-07-22_ | _Last Reviewed: 2026-07-22_
