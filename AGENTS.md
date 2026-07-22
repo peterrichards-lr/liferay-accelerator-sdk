@@ -13,6 +13,7 @@ Please reference the specific skill file based on the context of your task:
 | **[documentation](file:///.agents/skills/documentation/SKILL.md)**                         | [.agents/skills/documentation/SKILL.md](file:///.agents/skills/documentation/SKILL.md)                         | After implementing any code changes.                           | Details active documentation review, creation, and timestamp hygiene rules.              |
 | **[coding-standards](file:///.agents/skills/coding-standards/SKILL.md)**                   | [.agents/skills/coding-standards/SKILL.md](file:///.agents/skills/coding-standards/SKILL.md)                   | When writing or refactoring microservice/SDK source code.      | Defines self-documenting code style, dry-run profiling, and native identifier practices. |
 | **[multi-agent-orchestration](file:///.agents/skills/multi-agent-orchestration/SKILL.md)** | [.agents/skills/multi-agent-orchestration/SKILL.md](file:///.agents/skills/multi-agent-orchestration/SKILL.md) | When delegating tasks or defining subagents.                   | Orchestrates parallel workflows and delegates to specialized subagents.                  |
+| **[tool-use-react](file:///.agents/skills/tool-use-react/SKILL.md)** | [.agents/skills/tool-use-react/SKILL.md](file:///.agents/skills/tool-use-react/SKILL.md) | When making tool calls, interacting with the terminal, or invoking GitHub APIs. | Enforces ReAct reasoning patterns and strict GitHub CLI usage boundaries. |
 
 ---
 
