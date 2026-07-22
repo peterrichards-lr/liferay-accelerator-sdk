@@ -73,7 +73,9 @@ if (config.epicId) {
   // Create Epic
   log(`\nCreating Epic: "${config.title}"...`, 'info');
 
-  const epicLabels = (config.labels || []).map((l) => `--label "${l}"`).join(' ');
+  const epicLabels = (config.labels || [])
+    .map((l) => `--label "${l}"`)
+    .join(' ');
   const epicCommand =
     `gh issue create --title "${config.title}" --body "${config.body}" ${epicLabels}`.trim();
 
