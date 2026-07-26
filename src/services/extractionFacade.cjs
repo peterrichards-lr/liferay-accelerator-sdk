@@ -39,6 +39,46 @@ class ExtractionFacade {
   }
 
   /**
+   * Fetch page specification for the specified site page.
+   * Requires LPS-178642 to be enabled on the target DXP instance.
+   */
+  async getPageSpecification(config, pageId, queryParams = {}) {
+    return await this.rest._get(
+      config,
+      `/o/headless-delivery/v1.0/site-pages/${pageId}/page-specification`,
+      'get-page-specification',
+      'Get Page Specification',
+      { params: queryParams }
+    );
+  }
+
+  /**
+   * Mutate a page element's configuration or content.
+   * Requires LPS-168340 to be enabled on the target DXP instance.
+   */
+  async updatePageElement(config, pageElementId, payload, queryParams = {}) {
+    // Note: this.rest._patch signature is (config, url, data, op, friendly, fullResponse)
+    // However, depending on the SDK core, some endpoints might require PUT. We use PATCH here as it's standard for partial updates.
+    // Ensure the payload structure matches the OData spec for PageElement.
+    const url = `/o/headless-delivery/v1.0/page-elements/${pageElementId}`;
+    
+    // Add query params to URL if they exist
+    let finalUrl = url;
+    if (Object.keys(queryParams).length > 0) {
+      const qs = new URLSearchParams(queryParams).toString();
+      finalUrl += `?${qs}`;
+    }
+
+    return await this.rest._patch(
+      config,
+      finalUrl,
+      payload,
+      'update-page-element',
+      'Update Page Element'
+    );
+  }
+
+  /**
    * Recursively extract page fragments (elements of type 'Fragment') from layout trees/page lists.
    */
   getPageFragments(layouts) {
