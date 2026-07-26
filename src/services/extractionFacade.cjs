@@ -61,7 +61,7 @@ class ExtractionFacade {
     // However, depending on the SDK core, some endpoints might require PUT. We use PATCH here as it's standard for partial updates.
     // Ensure the payload structure matches the OData spec for PageElement.
     const url = `/o/headless-delivery/v1.0/page-elements/${pageElementId}`;
-    
+
     // Add query params to URL if they exist
     let finalUrl = url;
     if (Object.keys(queryParams).length > 0) {
