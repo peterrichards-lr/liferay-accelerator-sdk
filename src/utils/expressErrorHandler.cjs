@@ -1,4 +1,4 @@
-const logger = require('./logger.cjs');
+const { logger } = require('./logger.cjs');
 
 class ErrorHandler {
   static createError(message, status = 500, details = null) {

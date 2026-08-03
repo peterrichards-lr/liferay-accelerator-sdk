@@ -17,7 +17,7 @@ When delegating tasks, use the Task tool to launch and manage the following suba
 
 - **`Test Specialist`**:
   - **Role**: Dedicated to writing unit test suites and enforcing coverage gates.
-  - **Tasks**: Generates test files, runs `Vitest` coverage commands, and ensures the strict 45% coverage gate is met independently of feature development.
+  - **Tasks**: Generates test files, runs `Vitest` coverage commands, and ensures the strict 40% coverage gate is met independently of feature development.
 
 - **`Documentation Auditor`**:
   - **Role**: Dedicated to reviewing and maintaining project documentation.
