@@ -79,8 +79,8 @@ class Logger {
 
     Object.keys(metaCopy).forEach((key) => {
       if (
-        key.toLowerCase() === 'correlationId' ||
-        key.toLowerCase() === 'userId' ||
+        key.toLowerCase() === 'correlationid' ||
+        key.toLowerCase() === 'userid' ||
         key.toLowerCase() === 'operation'
       ) {
         delete metaCopy[key];
