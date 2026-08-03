@@ -17,9 +17,18 @@ class PersistenceService {
       : path.resolve(__dirname, '..', rawPath);
 
     this.cache = new Cache();
+    this._initSettled = false;
     this.initPromise = new Promise((resolve, reject) => {
-      this.resolveInit = resolve;
-      this.rejectInit = reject;
+      this.resolveInit = (...args) => {
+        if (this._initSettled) return;
+        this._initSettled = true;
+        resolve(...args);
+      };
+      this.rejectInit = (...args) => {
+        if (this._initSettled) return;
+        this._initSettled = true;
+        reject(...args);
+      };
     });
     this.pendingRequests = new Map();
     // sessionId -> Promise (the current read-merge-write chain for that session's context).
@@ -52,6 +61,24 @@ class PersistenceService {
         this.logger?.error(
           `[PersistenceService] Worker thread error: ${err.message}`
         );
+
+        // If the worker crashes before init has resolved, initPromise would
+        // otherwise hang forever since nothing else ever settles it. Guard
+        // against double-settling so a later runtime error (after a
+        // successful init) doesn't incorrectly reject already-resolved
+        // downstream awaiters.
+        const wasInitCrash = !this._initSettled;
+        this.rejectInit(err);
+
+        // Any callers that were already queued behind this crashed worker's
+        // init (i.e. this is the init-time crash path) must also be failed
+        // fast instead of hanging forever alongside initPromise.
+        if (wasInitCrash) {
+          for (const pending of this.pendingRequests.values()) {
+            pending.reject(err);
+          }
+          this.pendingRequests.clear();
+        }
       });
 
       this.logger?.info(
