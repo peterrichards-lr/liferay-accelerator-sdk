@@ -75,8 +75,8 @@ class Logger {
 
     Object.keys(meta).forEach((key) => {
       if (
-        key.toLowerCase() === 'correlationId' ||
-        key.toLowerCase() === 'userId' ||
+        key.toLowerCase() === 'correlationid' ||
+        key.toLowerCase() === 'userid' ||
         key.toLowerCase() === 'operation'
       ) {
         delete meta[key];
