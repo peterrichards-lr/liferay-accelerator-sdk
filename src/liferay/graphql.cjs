@@ -45,6 +45,34 @@ class LiferayGraphQLService {
   }
 
   /**
+   * Escapes a string value for safe interpolation into a double-quoted
+   * GraphQL string literal within a raw query template. This is the same
+   * escaping approach used by _fetchCollection for its filter/search args,
+   * applied consistently to every call site that inlines a string value
+   * (ERCs, siteKeys, filters, etc.) instead of using GraphQL variables.
+   */
+  _escapeGraphQLString(value) {
+    const safe = typeof value === 'string' ? value : String(value ?? '');
+    return safe.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  /**
+   * Validates/coerces a value that is inlined unquoted into a GraphQL query
+   * (e.g. numeric IDs like countryId/warehouseId/productId) into a finite
+   * number. This prevents query-structure injection via non-numeric input,
+   * since unquoted numeric arguments can't be escaped like string literals.
+   */
+  _safeGraphQLInt(value, label = 'id') {
+    const num = Number(value);
+    if (!Number.isFinite(num)) {
+      throw new Error(
+        `Invalid ${label}: expected a finite number, got ${JSON.stringify(value)}`
+      );
+    }
+    return num;
+  }
+
+  /**
    * Universal fetcher for ERC-based lookups.
    * Consolidates all specific entity lookups into one manageable pattern.
    */
@@ -79,7 +107,8 @@ class LiferayGraphQLService {
 
     for (const chunk of chunks) {
       const queryParts = chunk.map((erc) => {
-        return `alias${globalIndex++}: ${method}(externalReferenceCode: "${erc}") { ${fieldSelection} }`;
+        const escapedErc = this._escapeGraphQLString(erc);
+        return `alias${globalIndex++}: ${method}(externalReferenceCode: "${escapedErc}") { ${fieldSelection} }`;
       });
 
       const query = `
@@ -129,16 +158,12 @@ class LiferayGraphQLService {
 
     // Safety: ensure filter is a string and properly escaped for the GraphQL query string
     const safeFilter = typeof filter === 'string' ? filter : '';
-    const escapedFilter = safeFilter
-      .replace(/\\/g, '\\\\')
-      .replace(/"/g, '\\"');
+    const escapedFilter = this._escapeGraphQLString(safeFilter);
     const filterArg = escapedFilter ? `, filter: "${escapedFilter}"` : '';
 
     // Search support
     const safeSearch = typeof search === 'string' ? search : '';
-    const escapedSearch = safeSearch
-      .replace(/\\/g, '\\\\')
-      .replace(/"/g, '\\"');
+    const escapedSearch = this._escapeGraphQLString(safeSearch);
     const searchArg = escapedSearch ? `, search: "${escapedSearch}"` : '';
 
     let allItems = [];
@@ -225,10 +250,11 @@ class LiferayGraphQLService {
 
   async getTaxonomyVocabularies(config, siteKey) {
     const client = await this._getClient(config);
+    const escapedSiteKey = this._escapeGraphQLString(siteKey);
     const query = `
       query {
         headlessAdminTaxonomy_v1_0 {
-          taxonomyVocabularies(siteKey: "${siteKey}", page: 1, pageSize: 200) {
+          taxonomyVocabularies(siteKey: "${escapedSiteKey}", page: 1, pageSize: 200) {
             items {
               id
               externalReferenceCode
@@ -273,10 +299,11 @@ class LiferayGraphQLService {
 
   async getTaxonomyCategories(config, vocabularyId) {
     const client = await this._getClient(config);
+    const safeVocabularyId = this._safeGraphQLInt(vocabularyId, 'vocabularyId');
     const query = `
       query {
         headlessAdminTaxonomy_v1_0 {
-          taxonomyVocabularyTaxonomyCategories(taxonomyVocabularyId: ${vocabularyId}, flatten: true, pageSize: 500) {
+          taxonomyVocabularyTaxonomyCategories(taxonomyVocabularyId: ${safeVocabularyId}, flatten: true, pageSize: 500) {
             items {
               id
               externalReferenceCode
@@ -339,10 +366,11 @@ class LiferayGraphQLService {
 
   async getLanguages(config, siteKey) {
     const client = await this._getClient(config);
+    const escapedSiteKey = this._escapeGraphQLString(siteKey);
     const query = `
       query {
         headlessDelivery_v1_0 {
-          languages(siteKey: "${siteKey}") {
+          languages(siteKey: "${escapedSiteKey}") {
             items {
               id
               name
@@ -369,10 +397,11 @@ class LiferayGraphQLService {
 
   async getSiteLanguages(config, siteKey) {
     const client = await this._getClient(config);
+    const escapedSiteKey = this._escapeGraphQLString(siteKey);
     const query = `
       query {
         headlessDelivery_v1_0 {
-          languages(siteKey: "${siteKey}") {
+          languages(siteKey: "${escapedSiteKey}") {
             items {
               id
               name
@@ -400,10 +429,11 @@ class LiferayGraphQLService {
 
   async getCountryRegions(config, countryId) {
     const client = await this._getClient(config);
+    const safeCountryId = this._safeGraphQLInt(countryId, 'countryId');
     const query = `
       query {
         headlessAdminAddress_v1_0 {
-          countryRegions(countryId: ${countryId}) {
+          countryRegions(countryId: ${safeCountryId}) {
             items {
               id
               name
@@ -552,17 +582,16 @@ class LiferayGraphQLService {
   async getWarehouseItems(config, warehouseId, filter, fields, opts) {
     const client = await this._getClient(config);
     const fieldSelection = fields.join(' ');
+    const safeWarehouseId = this._safeGraphQLInt(warehouseId, 'warehouseId');
     const safeFilter = typeof filter === 'string' ? filter : '';
-    const escapedFilter = safeFilter
-      .replace(/\\/g, '\\\\')
-      .replace(/"/g, '\\"');
+    const escapedFilter = this._escapeGraphQLString(safeFilter);
     const filterArg = escapedFilter ? `, filter: "${escapedFilter}"` : '';
     const { page = 1, pageSize = 200 } = opts || {};
 
     const query = `
       query {
         headlessCommerceAdminInventory_v1_0 {
-          warehouseIdWarehouseItems(id: ${warehouseId}, page: ${page}, pageSize: ${pageSize}${filterArg}) {
+          warehouseIdWarehouseItems(id: ${safeWarehouseId}, page: ${page}, pageSize: ${pageSize}${filterArg}) {
             items {
               ${fieldSelection}
             }
@@ -671,15 +700,16 @@ class LiferayGraphQLService {
 
     // Use Aliased Queries for 100% reliability fetching multiple IDs
     const queries = productIds
-      .map(
-        (id, index) => `
-      p${index}: product(id: ${id}) {
+      .map((id, index) => {
+        const safeId = this._safeGraphQLInt(id, 'productId');
+        return `
+      p${index}: product(id: ${safeId}) {
         productOptions {
           ${fieldSelection}
         }
       }
-    `
-      )
+    `;
+      })
       .join('\n');
 
     const query = `
@@ -716,15 +746,16 @@ class LiferayGraphQLService {
     const fieldSelection = fields.join('\n                ');
 
     const queries = productIds
-      .map(
-        (id, index) => `
-      p${index}: product(id: ${id}) {
+      .map((id, index) => {
+        const safeId = this._safeGraphQLInt(id, 'productId');
+        return `
+      p${index}: product(id: ${safeId}) {
         productSpecifications {
           ${fieldSelection}
         }
       }
-    `
-      )
+    `;
+      })
       .join('\n');
 
     const query = `

@@ -2257,8 +2257,20 @@ class LiferayRestService {
     );
   }
 
+  /**
+   * Escapes a string value for safe interpolation into a single-quoted
+   * OData filter literal (e.g. `key eq '...'`), per the OData convention of
+   * doubling embedded single quotes, so a quote in the value can't break out
+   * of the literal and alter the filter's structure.
+   */
+  _escapeODataString(value) {
+    const safe = typeof value === 'string' ? value : String(value ?? '');
+    return safe.replace(/'/g, "''");
+  }
+
   async getOptionCategoryByKey(config, key) {
     try {
+      const escapedKey = this._escapeODataString(key);
       const res = await this.httpCore._get(
         config,
         PATH.OPTION_CATEGORIES,
@@ -2268,7 +2280,7 @@ class LiferayRestService {
           params: {
             page: 1,
             pageSize: 1,
-            filter: `key eq '${key}'`,
+            filter: `key eq '${escapedKey}'`,
             fields: 'id,key,externalReferenceCode,title,description,priority',
           },
         }
