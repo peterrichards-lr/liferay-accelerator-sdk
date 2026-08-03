@@ -172,4 +172,85 @@ describe('PersistenceService', () => {
     expect(completed.some((s) => s.session_id === 'acc-1')).toBe(true);
     expect(completed.some((s) => s.session_id === 'del-1')).toBe(false);
   });
+
+  describe('worker crash before init', () => {
+    let crashedPersistence;
+
+    afterEach(async () => {
+      if (crashedPersistence) {
+        await crashedPersistence.close();
+        crashedPersistence = null;
+      }
+    });
+
+    it('rejects initPromise instead of hanging forever when the worker crashes before init succeeds', async () => {
+      crashedPersistence = new PersistenceService(null, ':memory:');
+      const crashError = new Error('native module load failure');
+
+      // Simulate the worker crashing (e.g. failing to load, syntax error,
+      // uncaught exception) before it ever sends the init success message.
+      crashedPersistence.worker.emit('error', crashError);
+
+      await expect(crashedPersistence.initPromise).rejects.toThrow(
+        'native module load failure'
+      );
+    });
+
+    it('rejects any requests already queued behind the crashed init instead of hanging', async () => {
+      crashedPersistence = new PersistenceService(null, ':memory:');
+      const crashError = new Error('worker crashed on startup');
+
+      const pendingReject = vi.fn();
+      crashedPersistence.pendingRequests.set('fake-request-id', {
+        resolve: vi.fn(),
+        reject: pendingReject,
+      });
+
+      crashedPersistence.worker.emit('error', crashError);
+
+      await expect(crashedPersistence.initPromise).rejects.toThrow(
+        'worker crashed on startup'
+      );
+      expect(pendingReject).toHaveBeenCalledWith(crashError);
+      expect(crashedPersistence.pendingRequests.size).toBe(0);
+    });
+
+    it('fails fast on operations like createSession instead of hanging when the worker crashes before init', async () => {
+      crashedPersistence = new PersistenceService(null, ':memory:');
+      const crashError = new Error('worker crashed before init');
+
+      crashedPersistence.worker.emit('error', crashError);
+
+      await expect(
+        crashedPersistence.createSession({
+          sessionId: 'test-session',
+          flowType: 'products',
+          status: 'STARTED',
+        })
+      ).rejects.toThrow('worker crashed before init');
+    });
+
+    it('does not reject initPromise or drain pending requests for a later runtime error after a successful init', async () => {
+      const persistenceOk = new PersistenceService(null, ':memory:');
+      await persistenceOk.initPromise;
+
+      const pendingReject = vi.fn();
+      persistenceOk.pendingRequests.set('in-flight', {
+        resolve: vi.fn(),
+        reject: pendingReject,
+      });
+
+      persistenceOk.worker.emit('error', new Error('unrelated runtime error'));
+
+      // initPromise was already resolved; the guard must make this a no-op.
+      await expect(persistenceOk.initPromise).resolves.toBeUndefined();
+      // Steady-state pending-request draining on later errors is out of
+      // scope for this fix (tracked separately) — the in-flight request
+      // registered above must be left untouched here.
+      expect(pendingReject).not.toHaveBeenCalled();
+      expect(persistenceOk.pendingRequests.size).toBe(1);
+
+      await persistenceOk.close();
+    });
+  });
 });

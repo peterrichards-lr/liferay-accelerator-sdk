@@ -363,7 +363,16 @@ function sanitizeValue(val, keyPath = []) {
   if (typeof val === 'object') {
     const out = Array.isArray(val) ? [] : {};
     for (const [k, v] of Object.entries(val)) {
-      out[k] = sanitizeValue(v, keyPath.concat(k));
+      // Use defineProperty instead of bracket assignment: a literal
+      // "__proto__" own key from `val` would otherwise be routed through
+      // Object.prototype's __proto__ accessor and silently reassign
+      // `out`'s prototype instead of becoming a normal own property.
+      Object.defineProperty(out, k, {
+        value: sanitizeValue(v, keyPath.concat(k)),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
     return out;
   }
