@@ -24,6 +24,9 @@ class CatalogAdapterFactory {
         { maxRetries: 1 }
       );
 
+      // PimSkuFirstAdapter is currently identical to LegacyProductFirstAdapter
+      // (see #78) — this branch only future-proofs adapter *identity* for #3,
+      // it does not yet change behavior for PIM-enabled instances.
       adapter = new PimSkuFirstAdapter(restService, legacyProfile);
     } catch (_e) {
       // Fallback silently to Legacy Product-First
