@@ -28,7 +28,7 @@ The AI agent **should**:
 - reason about control flow, concurrency, idempotency, and failure paths.
 - surface likely bugs or race conditions early.
 
-- **No Assumptions (Anti-Hallucination Rule)**: Before generating any technical statement, explanation, or conclusion about how systems (like edge nodes or routing logic) behave, you MUST first explicitly state your intent to verify the codebase, execute `grep_search`, `view_file`, or `run_command` to fetch the relevant source code or documentation, and then END your turn. You are FORBIDDEN from formulating your answer until the subsequent turn, after the required context is loaded.
+- **No Assumptions (Anti-Hallucination Rule)**: Before generating any technical statement, explanation, or conclusion about how systems (like edge nodes or routing logic) behave, you MUST first explicitly state your intent to verify the codebase, then use Grep, Read, or Bash to fetch the relevant source code or documentation before formulating your answer. You are FORBIDDEN from formulating your answer until the required context has been loaded.
 
 ## 3. Native Identifier Strategy
 
