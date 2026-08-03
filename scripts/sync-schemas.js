@@ -54,6 +54,10 @@ const APIS = [
     path: '/o/headless-commerce-admin-order/v1.0/openapi.json',
   },
   {
+    name: 'headless-commerce-admin-pricing-v1.0',
+    path: '/o/headless-commerce-admin-pricing/v1.0/openapi.json',
+  },
+  {
     name: 'headless-commerce-admin-pricing-v2.0',
     path: '/o/headless-commerce-admin-pricing/v2.0/openapi.json',
   },
@@ -62,8 +66,16 @@ const APIS = [
     path: '/o/headless-commerce-admin-inventory/v1.0/openapi.json',
   },
   {
+    name: 'headless-commerce-admin-channel-v1.0',
+    path: '/o/headless-commerce-admin-channel/v1.0/openapi.json',
+  },
+  {
     name: 'headless-admin-address-v1.0',
     path: '/o/headless-admin-address/v1.0/openapi.json',
+  },
+  {
+    name: 'headless-admin-site-v1.0',
+    path: '/o/headless-admin-site/v1.0/openapi.json',
   },
   {
     name: 'headless-delivery-v1.0',

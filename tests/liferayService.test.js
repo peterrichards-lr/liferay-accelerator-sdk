@@ -595,6 +595,70 @@ describe('LiferayService', () => {
     });
   });
 
+  describe('createWarehouseChannelsBatch', () => {
+    it('should link warehouse channels sequentially and log via ctx.logger without throwing', async () => {
+      const { http, HttpResponse } = require('msw');
+      const linkedPayloads = [];
+
+      server.use(
+        http.post(
+          '*/o/headless-commerce-admin-inventory/v1.0/warehouses/:warehouseId/warehouse-channels',
+          async ({ params, request }) => {
+            const data = await request.json();
+            linkedPayloads.push({ warehouseId: params.warehouseId, data });
+            return HttpResponse.json({ status: 'SUCCESS' });
+          }
+        )
+      );
+
+      const items = [
+        { warehouseId: 1, channelId: 10 },
+        { warehouseId: 2, channelId: 20 },
+      ];
+
+      const result = await liferayService.createWarehouseChannelsBatch(
+        config,
+        items
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.count).toBe(2);
+      expect(linkedPayloads).toHaveLength(2);
+      expect(linkedPayloads[0].warehouseId).toBe('1');
+      expect(linkedPayloads[0].data.channelId).toBe(10);
+      expect(linkedPayloads[1].warehouseId).toBe('2');
+      expect(linkedPayloads[1].data.channelId).toBe(20);
+
+      // Regression check for #73: must use ctx.logger, not the nonexistent this.logger
+      expect(mockCtx.logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Linking 2 warehouse channels')
+      );
+    });
+
+    it('should log via ctx.logger and rethrow when a link fails', async () => {
+      const { http, HttpResponse } = require('msw');
+
+      server.use(
+        http.post(
+          '*/o/headless-commerce-admin-inventory/v1.0/warehouses/:warehouseId/warehouse-channels',
+          () => {
+            return HttpResponse.json({ title: 'Bad request' }, { status: 400 });
+          }
+        )
+      );
+
+      const items = [{ warehouseId: 5, channelId: 50 }];
+
+      await expect(
+        liferayService.createWarehouseChannelsBatch(config, items)
+      ).rejects.toBeTruthy();
+
+      expect(mockCtx.logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to link warehouse 5 to channel 50')
+      );
+    });
+  });
+
   describe('CatalogAdapterFactory capabilities discovery', () => {
     it('should resolve to PimSkuFirstAdapter when PIM capability is detected', async () => {
       // Use a unique URL to avoid factory caching
@@ -630,6 +694,174 @@ describe('LiferayService', () => {
       const adapter = await liferayService.getCatalogAdapter(testConfig);
       const LegacyProductFirstAdapter = require('../src/liferay/adapters/LegacyProductFirstAdapter.cjs');
       expect(adapter).toBeInstanceOf(LegacyProductFirstAdapter);
+    });
+  });
+
+  describe('pageSize option threading (issue #84)', () => {
+    // Regression tests for the `_pageSize` (underscore) destructuring typo that
+    // silently ignored any custom `pageSize` passed in by callers. Each test
+    // asserts that the pageSize actually reaches the outbound HTTP request.
+
+    it('should thread a custom pageSize through to getAccountGroups requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get(
+          '*/o/headless-admin-user/v1.0/account-groups',
+          ({ request }) => {
+            const url = new URL(request.url);
+            capturedPageSize = url.searchParams.get('pageSize');
+            return HttpResponse.json({
+              items: [
+                {
+                  id: 15,
+                  externalReferenceCode: 'ACG-1',
+                  name: 'Test Account Group 1',
+                },
+              ],
+              totalCount: 1,
+            });
+          }
+        )
+      );
+
+      await liferayService.getAccountGroups(config, { pageSize: 50 });
+
+      expect(capturedPageSize).toBe('50');
+    });
+
+    it('should thread a custom pageSize through to getAccounts requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get('*/o/headless-admin-user/v1.0/accounts', ({ request }) => {
+          const url = new URL(request.url);
+          capturedPageSize = url.searchParams.get('pageSize');
+          return HttpResponse.json({
+            items: [
+              {
+                id: 10,
+                externalReferenceCode: 'ACC-1',
+                name: 'Test Account 1',
+              },
+            ],
+            totalCount: 1,
+          });
+        })
+      );
+
+      await liferayService.getAccounts(config, { pageSize: 33 });
+
+      expect(capturedPageSize).toBe('33');
+    });
+
+    it('should thread a custom pageSize through to getOrders requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-order/v1.0/orders',
+          ({ request }) => {
+            const url = new URL(request.url);
+            capturedPageSize = url.searchParams.get('pageSize');
+            return HttpResponse.json({
+              items: [{ id: 20, externalReferenceCode: 'ORD-1' }],
+              totalCount: 1,
+            });
+          }
+        )
+      );
+
+      await liferayService.getOrders(config, { pageSize: 77 });
+
+      expect(capturedPageSize).toBe('77');
+    });
+
+    it('should thread a custom pageSize through to getWarehouses requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-inventory/v1.0/warehouses',
+          ({ request }) => {
+            const url = new URL(request.url);
+            capturedPageSize = url.searchParams.get('pageSize');
+            return HttpResponse.json({
+              items: [
+                {
+                  id: 40,
+                  externalReferenceCode: 'WH-1',
+                  name: 'Test Warehouse 1',
+                },
+              ],
+              totalCount: 1,
+            });
+          }
+        )
+      );
+
+      await liferayService.getWarehouses(config, { pageSize: 12 });
+
+      expect(capturedPageSize).toBe('12');
+    });
+
+    it('should thread a custom pageSize through to getOptionCategories requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-catalog/v1.0/optionCategories',
+          ({ request }) => {
+            const url = new URL(request.url);
+            capturedPageSize = url.searchParams.get('pageSize');
+            return HttpResponse.json({
+              items: [{ id: 1, externalReferenceCode: 'OC-1' }],
+              totalCount: 1,
+            });
+          }
+        )
+      );
+
+      await liferayService.getOptionCategories(config, { pageSize: 64 });
+
+      expect(capturedPageSize).toBe('64');
+    });
+
+    it('should thread a custom pageSize through to getSpecifications requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-catalog/v1.0/specifications',
+          ({ request }) => {
+            const url = new URL(request.url);
+            capturedPageSize = url.searchParams.get('pageSize');
+            return HttpResponse.json({
+              items: [{ id: 2, externalReferenceCode: 'SPEC-1' }],
+              totalCount: 1,
+            });
+          }
+        )
+      );
+
+      await liferayService.getSpecifications(config, { pageSize: 15 });
+
+      expect(capturedPageSize).toBe('15');
+    });
+
+    it('should thread a custom pageSize through to getOptions requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-catalog/v1.0/options',
+          ({ request }) => {
+            const url = new URL(request.url);
+            capturedPageSize = url.searchParams.get('pageSize');
+            return HttpResponse.json({
+              items: [{ id: 3, externalReferenceCode: 'OPT-1' }],
+              totalCount: 1,
+            });
+          }
+        )
+      );
+
+      await liferayService.getOptions(config, { pageSize: 8 });
+
+      expect(capturedPageSize).toBe('8');
     });
   });
 
@@ -695,6 +927,128 @@ describe('LiferayService', () => {
       expect(pages).toHaveLength(2);
       expect(pages[0].items).toHaveLength(2);
       expect(pages[1].items).toHaveLength(0);
+    });
+  });
+
+  describe('Key-based lookups paginate past the first page (#74)', () => {
+    // Build a full page of 250 filler items plus a target on page 2 so we can
+    // assert the lookup doesn't silently truncate to page 1.
+    function buildPagedItems(targetKey) {
+      const page1 = Array.from({ length: 250 }, (_, i) => ({
+        id: i + 1,
+        key: `filler-key-${i + 1}`,
+      }));
+      const page2 = [{ id: 999, key: targetKey }];
+      return { page1, page2 };
+    }
+
+    it('getSpecificationByKey finds an item on page 2', async () => {
+      const { page1, page2 } = buildPagedItems('page-2-spec');
+      let calls = 0;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-catalog/v1.0/specifications',
+          ({ request }) => {
+            calls++;
+            const url = new URL(request.url);
+            const page = parseInt(url.searchParams.get('page') || '1', 10);
+            return HttpResponse.json({
+              items: page === 1 ? page1 : page2,
+            });
+          }
+        )
+      );
+
+      const result = await liferayService.rest.getSpecificationByKey(
+        config,
+        'page-2-spec'
+      );
+
+      expect(result).toEqual({ id: 999, key: 'page-2-spec' });
+      expect(calls).toBe(2);
+    });
+
+    it('getOptionByKey finds an item on page 2', async () => {
+      const { page1, page2 } = buildPagedItems('page-2-option');
+      let calls = 0;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-catalog/v1.0/options',
+          ({ request }) => {
+            calls++;
+            const url = new URL(request.url);
+            const page = parseInt(url.searchParams.get('page') || '1', 10);
+            return HttpResponse.json({
+              items: page === 1 ? page1 : page2,
+            });
+          }
+        )
+      );
+
+      const result = await liferayService.rest.getOptionByKey(
+        config,
+        'page-2-option'
+      );
+
+      expect(result).toEqual({ id: 999, key: 'page-2-option' });
+      expect(calls).toBe(2);
+    });
+
+    it('getSpecificationCategoryByKey finds an item on page 2', async () => {
+      const { page1, page2 } = buildPagedItems('page-2-category');
+      let calls = 0;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-catalog/v1.0/optionCategories',
+          ({ request }) => {
+            calls++;
+            const url = new URL(request.url);
+            const page = parseInt(url.searchParams.get('page') || '1', 10);
+            return HttpResponse.json({
+              items: page === 1 ? page1 : page2,
+            });
+          }
+        )
+      );
+
+      const result = await liferayService.rest.getSpecificationCategoryByKey(
+        config,
+        'page-2-category'
+      );
+
+      expect(result).toEqual({ id: 999, key: 'page-2-category' });
+      expect(calls).toBe(2);
+    });
+
+    it('getSpecificationByKey returns null and stops once the last (short) page is exhausted', async () => {
+      let calls = 0;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-catalog/v1.0/specifications',
+          ({ request }) => {
+            calls++;
+            const url = new URL(request.url);
+            const page = parseInt(url.searchParams.get('page') || '1', 10);
+            if (page === 1) {
+              return HttpResponse.json({
+                items: Array.from({ length: 250 }, (_, i) => ({
+                  id: i + 1,
+                  key: `filler-key-${i + 1}`,
+                })),
+              });
+            }
+            return HttpResponse.json({ items: [] });
+          }
+        )
+      );
+
+      const result = await liferayService.rest.getSpecificationByKey(
+        config,
+        'does-not-exist'
+      );
+
+      expect(result).toBeNull();
+      expect(calls).toBe(2);
     });
   });
 

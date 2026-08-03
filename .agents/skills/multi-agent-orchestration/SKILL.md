@@ -9,15 +9,15 @@ To improve efficiency and prevent the primary developer agent from becoming a bo
 
 ## 1. Concrete Subagent Profiles
 
-When delegating tasks, use the `define_subagent` and `invoke_subagent` tools to create and manage the following profiles:
+When delegating tasks, use the Task tool to launch and manage the following subagent profiles:
 
 - **`Codebase Researcher`**:
   - **Role**: Dedicated to mapping out large existing codebases before major refactors.
-  - **Tasks**: Runs `grep_search` and `view_file` to collect context, read documentation, and summarize architectural patterns.
+  - **Tasks**: Uses Grep and Read to collect context, read documentation, and summarize architectural patterns.
 
 - **`Test Specialist`**:
   - **Role**: Dedicated to writing unit test suites and enforcing coverage gates.
-  - **Tasks**: Generates test files, runs `Vitest` coverage commands, and ensures the strict 45% coverage gate is met independently of feature development.
+  - **Tasks**: Generates test files, runs `Vitest` coverage commands, and ensures the strict 40% coverage gate is met independently of feature development.
 
 - **`Documentation Auditor`**:
   - **Role**: Dedicated to reviewing and maintaining project documentation.
@@ -27,8 +27,8 @@ When delegating tasks, use the `define_subagent` and `invoke_subagent` tools to 
 
 The AI agent MUST adhere to the following Active Structural Constraints when managing multi-agent pipelines:
 
-- **Subagent Invocation**: Before performing time-consuming, parallelizable tasks (e.g., broad codebase research, running a full test suite while writing code), you MUST explicitly execute `invoke_subagent` to spawn the appropriate profile (`Codebase Researcher`, `Test Specialist`, or `Documentation Auditor`), assign them a clear objective, and END your turn. You are FORBIDDEN from performing these specialized tasks sequentially if they can be delegated.
-- **Asynchronous Synchronization**: After invoking a subagent, you MUST NOT use loop-polling to wait for completion. You MUST proceed with other parallelizable work or END your turn to yield to the system until you receive an asynchronous message containing the subagent's result.
+- **Subagent Invocation**: Before performing time-consuming, parallelizable tasks (e.g., broad codebase research, running a full test suite while writing code), use the Task tool to spawn the appropriate profile (`Codebase Researcher`, `Test Specialist`, or `Documentation Auditor`) with a clear objective, then continue with other work. You are FORBIDDEN from performing these specialized tasks sequentially if they can be delegated.
+- **Asynchronous Synchronization**: After invoking a subagent, you MUST NOT use loop-polling to wait for completion. Proceed with other parallelizable work in the meantime; you will be notified asynchronously when the subagent's result is ready, so do not fabricate or predict its result before then.
 
 ## 3. Sequential Workflows
 

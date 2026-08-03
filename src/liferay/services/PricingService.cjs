@@ -8,11 +8,7 @@ class PricingService {
 
   async getOrders(
     config,
-    {
-      pageSize: _pageSize = 200,
-      fields: _fields = 'id',
-      filter: providedFilter,
-    } = {}
+    { pageSize = 200, fields: _fields = 'id', filter: providedFilter } = {}
   ) {
     const exclusions = await this.liferay._getExclusions(config, 'order');
     const filters = [];
@@ -37,7 +33,9 @@ class PricingService {
               pageSize: size,
             },
           }
-        )
+        ),
+      undefined,
+      pageSize
     );
 
     // HARDENING: Perform all exclusions in JS memory
