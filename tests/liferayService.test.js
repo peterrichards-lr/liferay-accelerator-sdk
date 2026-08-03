@@ -633,6 +633,174 @@ describe('LiferayService', () => {
     });
   });
 
+  describe('pageSize option threading (issue #84)', () => {
+    // Regression tests for the `_pageSize` (underscore) destructuring typo that
+    // silently ignored any custom `pageSize` passed in by callers. Each test
+    // asserts that the pageSize actually reaches the outbound HTTP request.
+
+    it('should thread a custom pageSize through to getAccountGroups requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get(
+          '*/o/headless-admin-user/v1.0/account-groups',
+          ({ request }) => {
+            const url = new URL(request.url);
+            capturedPageSize = url.searchParams.get('pageSize');
+            return HttpResponse.json({
+              items: [
+                {
+                  id: 15,
+                  externalReferenceCode: 'ACG-1',
+                  name: 'Test Account Group 1',
+                },
+              ],
+              totalCount: 1,
+            });
+          }
+        )
+      );
+
+      await liferayService.getAccountGroups(config, { pageSize: 50 });
+
+      expect(capturedPageSize).toBe('50');
+    });
+
+    it('should thread a custom pageSize through to getAccounts requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get('*/o/headless-admin-user/v1.0/accounts', ({ request }) => {
+          const url = new URL(request.url);
+          capturedPageSize = url.searchParams.get('pageSize');
+          return HttpResponse.json({
+            items: [
+              {
+                id: 10,
+                externalReferenceCode: 'ACC-1',
+                name: 'Test Account 1',
+              },
+            ],
+            totalCount: 1,
+          });
+        })
+      );
+
+      await liferayService.getAccounts(config, { pageSize: 33 });
+
+      expect(capturedPageSize).toBe('33');
+    });
+
+    it('should thread a custom pageSize through to getOrders requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-order/v1.0/orders',
+          ({ request }) => {
+            const url = new URL(request.url);
+            capturedPageSize = url.searchParams.get('pageSize');
+            return HttpResponse.json({
+              items: [{ id: 20, externalReferenceCode: 'ORD-1' }],
+              totalCount: 1,
+            });
+          }
+        )
+      );
+
+      await liferayService.getOrders(config, { pageSize: 77 });
+
+      expect(capturedPageSize).toBe('77');
+    });
+
+    it('should thread a custom pageSize through to getWarehouses requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-inventory/v1.0/warehouses',
+          ({ request }) => {
+            const url = new URL(request.url);
+            capturedPageSize = url.searchParams.get('pageSize');
+            return HttpResponse.json({
+              items: [
+                {
+                  id: 40,
+                  externalReferenceCode: 'WH-1',
+                  name: 'Test Warehouse 1',
+                },
+              ],
+              totalCount: 1,
+            });
+          }
+        )
+      );
+
+      await liferayService.getWarehouses(config, { pageSize: 12 });
+
+      expect(capturedPageSize).toBe('12');
+    });
+
+    it('should thread a custom pageSize through to getOptionCategories requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-catalog/v1.0/optionCategories',
+          ({ request }) => {
+            const url = new URL(request.url);
+            capturedPageSize = url.searchParams.get('pageSize');
+            return HttpResponse.json({
+              items: [{ id: 1, externalReferenceCode: 'OC-1' }],
+              totalCount: 1,
+            });
+          }
+        )
+      );
+
+      await liferayService.getOptionCategories(config, { pageSize: 64 });
+
+      expect(capturedPageSize).toBe('64');
+    });
+
+    it('should thread a custom pageSize through to getSpecifications requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-catalog/v1.0/specifications',
+          ({ request }) => {
+            const url = new URL(request.url);
+            capturedPageSize = url.searchParams.get('pageSize');
+            return HttpResponse.json({
+              items: [{ id: 2, externalReferenceCode: 'SPEC-1' }],
+              totalCount: 1,
+            });
+          }
+        )
+      );
+
+      await liferayService.getSpecifications(config, { pageSize: 15 });
+
+      expect(capturedPageSize).toBe('15');
+    });
+
+    it('should thread a custom pageSize through to getOptions requests', async () => {
+      let capturedPageSize = null;
+      server.use(
+        http.get(
+          '*/o/headless-commerce-admin-catalog/v1.0/options',
+          ({ request }) => {
+            const url = new URL(request.url);
+            capturedPageSize = url.searchParams.get('pageSize');
+            return HttpResponse.json({
+              items: [{ id: 3, externalReferenceCode: 'OPT-1' }],
+              totalCount: 1,
+            });
+          }
+        )
+      );
+
+      await liferayService.getOptions(config, { pageSize: 8 });
+
+      expect(capturedPageSize).toBe('8');
+    });
+  });
+
   describe('iteratePages', () => {
     it('should iterate pages using a custom fetcher function', async () => {
       const fetcher = vi
