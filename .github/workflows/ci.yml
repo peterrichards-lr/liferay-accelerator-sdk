@@ -29,5 +29,5 @@ jobs:
       - name: Run Linting & Formatting Check
         run: yarn lint
 
-      - name: Run Unit Tests
-        run: yarn test
+      - name: Run Unit Tests With Coverage
+        run: yarn test -- --coverage
