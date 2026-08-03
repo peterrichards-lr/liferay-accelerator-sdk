@@ -79,7 +79,7 @@ class TaxonomyService {
 
   async getCountries(config) {
     const { cache } = this.liferay.ctx;
-    const cacheKey = 'LIFERAY_COUNTRIES';
+    const cacheKey = `LIFERAY_COUNTRIES_${config.liferayUrl || 'default'}`;
     let countries = cache.get(cacheKey);
     if (countries) {
       return countries;
@@ -98,7 +98,9 @@ class TaxonomyService {
 
   async getCountryRegions(config, countryId) {
     const { cache } = this.liferay.ctx;
-    const cacheKey = `LIFERAY_REGIONS_${countryId}`;
+    const cacheKey = `LIFERAY_REGIONS_${
+      config.liferayUrl || 'default'
+    }_${countryId}`;
     let regions = cache.get(cacheKey);
     if (regions) {
       return regions;

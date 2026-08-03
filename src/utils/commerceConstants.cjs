@@ -2,7 +2,7 @@
  * Liferay Commerce Constants and Constraints
  */
 
-const COMMERCE_CONSTRAINTS = Object.freeze({
+const SKU_COMMERCE_CONSTRAINTS = Object.freeze({
   // Field types allowed for options that contribute to SKUs (variants)
   SKU_CONTRIBUTOR_FIELD_TYPES: [
     'checkbox',
@@ -44,5 +44,5 @@ const COMMERCE_CONSTRAINTS = Object.freeze({
 });
 
 module.exports = {
-  COMMERCE_CONSTRAINTS,
+  SKU_COMMERCE_CONSTRAINTS,
 };
