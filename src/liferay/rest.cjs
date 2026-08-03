@@ -219,6 +219,49 @@ class LiferayRestService {
     }
   }
 
+  /**
+   * Look up a single item by its `key` field, paginating through the full
+   * result set instead of only inspecting the first page. Stops as soon as
+   * a match is found so we don't fetch unnecessary pages.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string} path The REST collection path to query.
+   * @param {string} op Operation name used for error reporting.
+   * @param {string} friendly Friendly operation name used for error reporting.
+   * @param {string} key The key to match (case-insensitive).
+   * @returns {Promise<object|null>} The matching item, or null if not found.
+   */
+  async _findByKeyAcrossPages(config, path, op, friendly, key) {
+    const pageSize = 250; // Fetch in large batches to prevent OData filter failures on different DXP versions
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore) {
+      const res = await this.httpCore._get(config, path, op, friendly, {
+        params: {
+          page,
+          pageSize,
+        },
+      });
+
+      const items = asItems(res);
+      const match = items.find(
+        (it) => String(it.key || '').toLowerCase() === String(key).toLowerCase()
+      );
+      if (match) {
+        return match;
+      }
+
+      if (items.length < pageSize || items.length === 0) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    }
+
+    return null;
+  }
+
   _normalizePermissionItems(items = []) {
     const map = new Map();
     for (const { roleName, actionIds } of items) {
@@ -1673,24 +1716,12 @@ class LiferayRestService {
 
   async getSpecificationCategoryByKey(config, key) {
     try {
-      const res = await this.httpCore._get(
+      return await this._findByKeyAcrossPages(
         config,
         PATH.SPECIFICATION_CATEGORIES,
         'specification-categories:list',
         'Find spec category by key',
-        {
-          params: {
-            page: 1,
-            pageSize: 250, // Fetch all to prevent OData filter failures on different DXP versions
-          },
-        }
-      );
-      const items = asItems(res);
-      return (
-        items.find(
-          (it) =>
-            String(it.key || '').toLowerCase() === String(key).toLowerCase()
-        ) || null
+        key
       );
     } catch (error) {
       throw new Error(
@@ -1795,24 +1826,12 @@ class LiferayRestService {
 
   async getSpecificationByKey(config, key) {
     try {
-      const res = await this.httpCore._get(
+      return await this._findByKeyAcrossPages(
         config,
         PATH.SPECIFICATIONS,
         'specifications:list',
         'Find specification by key',
-        {
-          params: {
-            page: 1,
-            pageSize: 250, // Fetch all to prevent OData filter failures on different DXP versions
-          },
-        }
-      );
-      const items = asItems(res);
-      return (
-        items.find(
-          (it) =>
-            String(it.key || '').toLowerCase() === String(key).toLowerCase()
-        ) || null
+        key
       );
     } catch (error) {
       throw new Error(`Failed to get specification by key: ${error.message}`, {
@@ -2078,24 +2097,12 @@ class LiferayRestService {
 
   async getOptionByKey(config, key) {
     try {
-      const res = await this.httpCore._get(
+      return await this._findByKeyAcrossPages(
         config,
         PATH.OPTIONS,
         'options:list',
         'Find option by key',
-        {
-          params: {
-            page: 1,
-            pageSize: 250, // Fetch all to prevent OData filter failures on different DXP versions
-          },
-        }
-      );
-      const items = asItems(res);
-      return (
-        items.find(
-          (it) =>
-            String(it.key || '').toLowerCase() === String(key).toLowerCase()
-        ) || null
+        key
       );
     } catch (error) {
       throw new Error(`Failed to get option by key: ${error.message}`, {
