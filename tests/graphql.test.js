@@ -229,6 +229,31 @@ describe('LiferayGraphQLService', () => {
 
       expect(mockCtx.logger.warn).toHaveBeenCalled();
     });
+
+    it('should escape double quotes in an ERC so the query structure cannot be altered', async () => {
+      graphqlResponseMock = (body) => {
+        // A raw, unescaped interpolation of `ERC"1` would have produced
+        // `externalReferenceCode: "ERC"1")` which breaks out of the string
+        // literal. The escaped form must keep the query well-formed.
+        expect(body.query).toContain(
+          'alias0: method(externalReferenceCode: "ERC\\"1") { id }'
+        );
+        expect(body.query).not.toContain('externalReferenceCode: "ERC"1")');
+        return HttpResponse.json({
+          data: { namespace: { alias0: { id: 1 } } },
+        });
+      };
+
+      const result = await graphqlService.fetchEntitiesByERC(
+        config,
+        'namespace',
+        'method',
+        ['ERC"1'],
+        ['id']
+      );
+
+      expect(result).toEqual([{ id: 1 }]);
+    });
   });
 
   describe('Unified Collection Fetcher (_fetchCollection)', () => {
@@ -425,6 +450,23 @@ describe('LiferayGraphQLService', () => {
       expect(result.items).toEqual([{ id: 'vocab-1', name: 'Vocab 1' }]);
     });
 
+    it('should escape double quotes in siteKey for taxonomy vocabularies', async () => {
+      graphqlResponseMock = (body) => {
+        expect(body.query).toContain(
+          'taxonomyVocabularies(siteKey: "site\\"1", page: 1, pageSize: 200)'
+        );
+        return HttpResponse.json({
+          data: {
+            headlessAdminTaxonomy_v1_0: {
+              taxonomyVocabularies: { items: [], totalCount: 0 },
+            },
+          },
+        });
+      };
+
+      await graphqlService.getTaxonomyVocabularies(config, 'site"1');
+    });
+
     it('should fetch languages by siteKey', async () => {
       graphqlResponseMock = (body) => {
         expect(body.query).toContain('languages(siteKey: "site-1")');
@@ -454,6 +496,19 @@ describe('LiferayGraphQLService', () => {
       await expect(
         graphqlService.getLanguages(config, 'site-1')
       ).rejects.toThrow('Access denied');
+    });
+
+    it('should escape double quotes in siteKey for getLanguages', async () => {
+      graphqlResponseMock = (body) => {
+        expect(body.query).toContain('languages(siteKey: "site\\"1")');
+        return HttpResponse.json({
+          data: {
+            headlessDelivery_v1_0: { languages: { items: [], totalCount: 0 } },
+          },
+        });
+      };
+
+      await graphqlService.getLanguages(config, 'site"1');
     });
 
     it('should fetch site languages by siteKey', async () => {
@@ -487,6 +542,19 @@ describe('LiferayGraphQLService', () => {
       ).rejects.toThrow('Access denied');
     });
 
+    it('should escape double quotes in siteKey for getSiteLanguages', async () => {
+      graphqlResponseMock = (body) => {
+        expect(body.query).toContain('languages(siteKey: "site\\"2")');
+        return HttpResponse.json({
+          data: {
+            headlessDelivery_v1_0: { languages: { items: [], totalCount: 0 } },
+          },
+        });
+      };
+
+      await graphqlService.getSiteLanguages(config, 'site"2');
+    });
+
     it('should fetch country regions by countryId', async () => {
       graphqlResponseMock = (body) => {
         expect(body.query).toContain('countryRegions(countryId: 5678)');
@@ -516,6 +584,19 @@ describe('LiferayGraphQLService', () => {
       await expect(
         graphqlService.getCountryRegions(config, 5678)
       ).rejects.toThrow('Access denied');
+    });
+
+    it('should reject a non-numeric countryId instead of interpolating it raw into the query', async () => {
+      let requestSent = false;
+      graphqlResponseMock = () => {
+        requestSent = true;
+        return HttpResponse.json({ data: {} });
+      };
+
+      await expect(
+        graphqlService.getCountryRegions(config, '1) { items { id } } evil: x')
+      ).rejects.toThrow(/Invalid countryId/);
+      expect(requestSent).toBe(false);
     });
 
     it('should fetch warehouse items', async () => {
@@ -554,6 +635,41 @@ describe('LiferayGraphQLService', () => {
       await expect(
         graphqlService.getWarehouseItems(config, 1111, null, ['sku'])
       ).rejects.toThrow('Access denied');
+    });
+
+    it('should escape double quotes in the warehouse items filter', async () => {
+      graphqlResponseMock = (body) => {
+        expect(body.query).toContain('filter: "sku eq \\"A\\"\\"B\\""');
+        return HttpResponse.json({
+          data: {
+            headlessCommerceAdminInventory_v1_0: {
+              warehouseIdWarehouseItems: { items: [], totalCount: 0 },
+            },
+          },
+        });
+      };
+
+      await graphqlService.getWarehouseItems(config, 1111, 'sku eq "A""B"', [
+        'sku',
+      ]);
+    });
+
+    it('should reject a non-numeric warehouseId instead of interpolating it raw into the query', async () => {
+      let requestSent = false;
+      graphqlResponseMock = () => {
+        requestSent = true;
+        return HttpResponse.json({ data: {} });
+      };
+
+      await expect(
+        graphqlService.getWarehouseItems(
+          config,
+          '1) { items { id } } evil: x',
+          null,
+          ['sku']
+        )
+      ).rejects.toThrow(/Invalid warehouseId/);
+      expect(requestSent).toBe(false);
     });
 
     it('should get options by product IDs', async () => {
@@ -601,6 +717,21 @@ describe('LiferayGraphQLService', () => {
       ).rejects.toThrow('Access denied');
     });
 
+    it('should reject a non-numeric product id instead of interpolating it raw into the query', async () => {
+      let requestSent = false;
+      graphqlResponseMock = () => {
+        requestSent = true;
+        return HttpResponse.json({ data: {} });
+      };
+
+      await expect(
+        graphqlService.getOptionsByProductIds(config, [
+          '101) { productOptions { id } } evil: product(id: 1',
+        ])
+      ).rejects.toThrow(/Invalid productId/);
+      expect(requestSent).toBe(false);
+    });
+
     it('should get specifications by product IDs', async () => {
       graphqlResponseMock = (body) => {
         expect(body.query).toContain('p0: product(id: 201)');
@@ -640,6 +771,37 @@ describe('LiferayGraphQLService', () => {
       await expect(
         graphqlService.getSpecificationsByProductIds(config, [201])
       ).rejects.toThrow('Access denied');
+    });
+
+    it('should reject a non-numeric product id for specifications instead of interpolating it raw', async () => {
+      let requestSent = false;
+      graphqlResponseMock = () => {
+        requestSent = true;
+        return HttpResponse.json({ data: {} });
+      };
+
+      await expect(
+        graphqlService.getSpecificationsByProductIds(config, [
+          '201) { productSpecifications { id } } evil: product(id: 1',
+        ])
+      ).rejects.toThrow(/Invalid productId/);
+      expect(requestSent).toBe(false);
+    });
+
+    it('should reject a non-numeric vocabularyId for taxonomy categories instead of interpolating it raw', async () => {
+      let requestSent = false;
+      graphqlResponseMock = () => {
+        requestSent = true;
+        return HttpResponse.json({ data: {} });
+      };
+
+      await expect(
+        graphqlService.getTaxonomyCategories(
+          config,
+          '1234) { items { id } } evil: x'
+        )
+      ).rejects.toThrow(/Invalid vocabularyId/);
+      expect(requestSent).toBe(false);
     });
   });
 

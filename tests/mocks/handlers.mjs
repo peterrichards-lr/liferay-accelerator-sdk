@@ -32,6 +32,15 @@ const handlers = [
     });
   }),
 
+  // Mock PIM Capability Probe (CatalogAdapterFactory). Defaults to "not
+  // available" (404, non-retryable) so unrelated tests resolve to the
+  // Legacy adapter quickly without hitting real DNS/network. Individual
+  // tests can override this with server.use(...) on a unique host to
+  // simulate PIM support or transient probe failures.
+  http.get('*/o/headless-pim/v1.0/openapi.json', () => {
+    return new HttpResponse(null, { status: 404 });
+  }),
+
   // Mock Products List
   http.get(
     '*/o/headless-commerce-admin-catalog/v1.0/products',

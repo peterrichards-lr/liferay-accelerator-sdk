@@ -4,14 +4,6 @@ class LiferayCatalogAdapter {
     this.paths = pathsProfile;
   }
 
-  async getProducts(_config, _params) {
-    throw new Error('Not Implemented');
-  }
-
-  async getProductsByERC(_config, _ercs, _fields) {
-    throw new Error('Not Implemented');
-  }
-
   async createProductsBatch(_config, _items, _opts) {
     throw new Error('Not Implemented');
   }
@@ -49,10 +41,6 @@ class LiferayCatalogAdapter {
   }
 
   async deleteProductSpecification(_config, _productId, _specId) {
-    throw new Error('Not Implemented');
-  }
-
-  async addProductSpecifications(_config, _productId, _specs) {
     throw new Error('Not Implemented');
   }
 }
