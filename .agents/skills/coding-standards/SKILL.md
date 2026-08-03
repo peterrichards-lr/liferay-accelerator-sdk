@@ -9,7 +9,7 @@ All code contributions must follow these clean coding standards:
 
 ## 1. Code Style & Self-Documentation
 
-- **No Comments**: All code must be **self-documenting** and contain **no comments**.
+- **Minimal Comments**: Default to **self-documenting** code with clear, well-named identifiers instead of comments. A comment is allowed only when it captures a non-obvious **why** — a hidden constraint, a workaround, or an invariant — that cannot be derived from reading the code; never one that merely restates **what** the code already shows.
 - **Zero Warning Mandate**: The codebase must be free of lint warnings and formatting errors.
 - **Workspace-wide Formatting**: When applying formatting fixes using Prettier, you MUST execute `prettier --write .` across the entire workspace root. You are FORBIDDEN from formatting files individually or at a directory level, as this causes PR checks to fail due to unformatted peripheral files.
 - **Intentional Omissions**: Use the **`_` (underscore)** prefix for any intentionally unused parameters, variables, or caught errors (e.g., `const { unused: _unused } = obj`, `catch (_err) {}`).
