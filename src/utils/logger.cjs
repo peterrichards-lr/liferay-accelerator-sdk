@@ -73,13 +73,17 @@ class Logger {
     const userId = meta.userId || null;
     const operation = meta.operation || null;
 
-    Object.keys(meta).forEach((key) => {
+    // Shallow-clone meta before deleting keys so the caller's object is
+    // never mutated by logging (see GH issue #83).
+    const metaCopy = { ...meta };
+
+    Object.keys(metaCopy).forEach((key) => {
       if (
         key.toLowerCase() === 'correlationid' ||
         key.toLowerCase() === 'userid' ||
         key.toLowerCase() === 'operation'
       ) {
-        delete meta[key];
+        delete metaCopy[key];
       }
     });
 
@@ -93,7 +97,7 @@ class Logger {
       environment: ENV.NODE_ENV,
       service: ENV.SERVICE_NAME,
       version: ENV.SERVICE_VERSION,
-      ...meta,
+      ...metaCopy,
     };
 
     Object.keys(logEntry).forEach((key) => {

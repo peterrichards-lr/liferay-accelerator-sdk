@@ -17,11 +17,24 @@ class PersistenceService {
       : path.resolve(__dirname, '..', rawPath);
 
     this.cache = new Cache();
+    this._initSettled = false;
     this.initPromise = new Promise((resolve, reject) => {
-      this.resolveInit = resolve;
-      this.rejectInit = reject;
+      this.resolveInit = (...args) => {
+        if (this._initSettled) return;
+        this._initSettled = true;
+        resolve(...args);
+      };
+      this.rejectInit = (...args) => {
+        if (this._initSettled) return;
+        this._initSettled = true;
+        reject(...args);
+      };
     });
     this.pendingRequests = new Map();
+    // sessionId -> Promise (the current read-merge-write chain for that session's context).
+    // Serializes updateSessionContext / updateSession's context-merge branch so concurrent
+    // callers can't both read the same pre-update context and clobber each other's writes.
+    this.contextLocks = new Map();
 
     try {
       const workerPath = path.resolve(__dirname, 'persistenceWorker.cjs');
@@ -45,8 +58,44 @@ class PersistenceService {
       });
 
       this.worker.on('error', (err) => {
-        this.logger?.error(
+        this.logger?.error?.(
           `[PersistenceService] Worker thread error: ${err.message}`
+        );
+
+        // If the worker crashes before init has resolved, initPromise would
+        // otherwise hang forever since nothing else ever settles it.
+        // rejectInit() is idempotent (guarded by _initSettled), so it's safe
+        // to call unconditionally here even on a later, post-init error.
+        this.rejectInit(err);
+
+        // STEADY-STATE HARDENING: any request already in flight when the
+        // worker dies would otherwise be orphaned forever (its resolve/
+        // reject pair never called, leaving the caller's await hanging).
+        // Reject everything still pending so callers fail fast instead.
+        // (Covers the init-crash case too: _postMessage always awaits
+        // initPromise before adding to pendingRequests, so a pre-init crash
+        // leaves this map empty and rejectInit() above is what unblocks
+        // those callers.)
+        this._rejectAllPending(
+          `Persistence worker thread error: ${err.message}`
+        );
+      });
+
+      this.worker.on('exit', (code) => {
+        // worker.terminate() (used by our own close()) always reports a
+        // non-zero exit code, so only log at error level for exits we
+        // didn't initiate ourselves - otherwise every normal shutdown would
+        // be logged as if the worker had crashed.
+        if (code !== 0 && !this._closing) {
+          this.logger?.error?.(
+            `[PersistenceService] Worker thread exited unexpectedly with code ${code}`
+          );
+        }
+        // STEADY-STATE HARDENING: drain any requests left in flight so their
+        // callers are notified instead of hanging indefinitely. A no-op if
+        // close() already drained them.
+        this._rejectAllPending(
+          `Persistence worker thread exited with code ${code}`
         );
       });
 
@@ -65,6 +114,26 @@ class PersistenceService {
       }
       throw err;
     }
+  }
+
+  /**
+   * STEADY-STATE HARDENING: rejects every request currently awaiting a
+   * response from the worker thread and clears the map. Used when the
+   * worker dies (or is deliberately shut down) after init has already
+   * completed, so in-flight callers are notified instead of hanging
+   * forever on a promise that will never resolve or reject otherwise.
+   *
+   * NOTE: this intentionally does not touch `initPromise`/`rejectInit` -
+   * the init-time crash path is handled separately (see #70).
+   */
+  _rejectAllPending(reason) {
+    if (this.pendingRequests.size === 0) return;
+
+    const error = reason instanceof Error ? reason : new Error(reason);
+    for (const { reject } of this.pendingRequests.values()) {
+      reject(error);
+    }
+    this.pendingRequests.clear();
   }
 
   async _postMessage(action, sql, params) {
@@ -303,59 +372,106 @@ class PersistenceService {
     return this.getSession(sessionId);
   }
 
+  /**
+   * Runs `fn` serialized per `sessionId`, chaining it onto whatever
+   * read-merge-write work is already queued for that session.
+   *
+   * Mirrors the sessionLocks chaining pattern in batchCallbackService.js:
+   * a Map from sessionId -> Promise represents the tail of the current
+   * processing chain. Each call attaches itself to that tail, then (once it
+   * is the last link) removes itself from the map so it doesn't leak.
+   *
+   * Unlike batchCallbackService's fire-and-forget usage, callers here need
+   * the result/error of `fn` itself, so the outer promise resolves/rejects
+   * based on `fn`, while the tracked chain promise always settles (so a
+   * failure never wedges subsequent callers for the same session).
+   */
+  _runWithContextLock(sessionId, fn) {
+    const existingLock = this.contextLocks.get(sessionId) || Promise.resolve();
+
+    let settle;
+    const resultPromise = new Promise((resolve) => {
+      settle = resolve;
+    });
+
+    const newLock = existingLock
+      .then(fn)
+      .then(
+        (value) => settle({ ok: true, value }),
+        (error) => settle({ ok: false, error })
+      )
+      .finally(() => {
+        // Cleanup: if this was the last link in the chain, remove the entry.
+        if (this.contextLocks.get(sessionId) === newLock) {
+          this.contextLocks.delete(sessionId);
+        }
+      });
+
+    this.contextLocks.set(sessionId, newLock);
+
+    return resultPromise.then(({ ok, value, error }) => {
+      if (!ok) throw error;
+      return value;
+    });
+  }
+
   async updateSessionContext(sessionId, newContext) {
-    const now = new Date().toISOString();
-    const session = await this.getSession(sessionId);
-    if (!session) return null;
+    return this._runWithContextLock(sessionId, async () => {
+      const now = new Date().toISOString();
+      const session = await this.getSession(sessionId);
+      if (!session) return null;
 
-    const mergedContext = { ...session.context, ...newContext };
+      const mergedContext = { ...session.context, ...newContext };
 
-    await this._run(
-      'UPDATE workflow_sessions SET context_json = ?, updated_at = ? WHERE session_id = ?',
-      JSON.stringify(mergedContext),
-      now,
-      sessionId
-    );
-    this.cache.del(sessionId);
-    return this.getSession(sessionId);
+      await this._run(
+        'UPDATE workflow_sessions SET context_json = ?, updated_at = ? WHERE session_id = ?',
+        JSON.stringify(mergedContext),
+        now,
+        sessionId
+      );
+      this.cache.del(sessionId);
+      return this.getSession(sessionId);
+    });
   }
 
   async updateSession(
     sessionId,
     { status, context, currentSteps, correlationId }
   ) {
-    const now = new Date().toISOString();
-    const sets = ['updated_at = ?'];
-    const params = [now];
+    return this._runWithContextLock(sessionId, async () => {
+      const now = new Date().toISOString();
+      const sets = ['updated_at = ?'];
+      const params = [now];
 
-    const currentSession = await this.getSession(sessionId);
-    if (!currentSession) return null;
+      const currentSession = await this.getSession(sessionId);
+      if (!currentSession) return null;
 
-    if (status) {
-      sets.push('status = ?');
-      params.push(status);
-    }
-    if (context) {
-      const mergedContext = { ...currentSession.context, ...context };
-      sets.push('context_json = ?');
-      params.push(JSON.stringify(mergedContext));
-    }
-    if (currentSteps) {
-      sets.push('current_steps_json = ?');
-      params.push(JSON.stringify(currentSteps));
-    }
-    if (correlationId) {
-      sets.push('correlation_id = ?');
-      params.push(correlationId);
-    }
+      if (status) {
+        sets.push('status = ?');
+        params.push(status);
+      }
+      if (context) {
+        const mergedContext = { ...currentSession.context, ...context };
+        sets.push('context_json = ?');
+        params.push(JSON.stringify(mergedContext));
+      }
+      if (currentSteps) {
+        sets.push('current_steps_json = ?');
+        params.push(JSON.stringify(currentSteps));
+      }
+      if (correlationId) {
+        sets.push('correlation_id = ?');
+        params.push(correlationId);
+      }
 
-    params.push(sessionId);
-    await this._run(
-      `UPDATE workflow_sessions SET ${sets.join(', ')} WHERE session_id = ?`,
-      ...params
-    );
-    this.cache.del(sessionId);
-    return this.getSession(sessionId);
+      params.push(sessionId);
+      await this._run(
+        `UPDATE workflow_sessions SET ${sets.join(', ')} WHERE session_id = ?`,
+        ...params
+      );
+      this.cache.del(sessionId);
+      return this.getSession(sessionId);
+    });
   }
 
   async verifyDependencyReady(sessionId, dependencyStepKey) {
@@ -651,6 +767,13 @@ class PersistenceService {
 
   async close() {
     if (this.worker) {
+      // Mark this as an intentional shutdown so the 'exit' listener doesn't
+      // log it as an unexpected crash (worker.terminate() always reports a
+      // non-zero exit code).
+      this._closing = true;
+      // Reject any requests still in flight before/while terminating so
+      // callers don't hang forever waiting on a worker that's going away.
+      this._rejectAllPending('Persistence worker is closing');
       await this.worker.terminate();
     }
   }

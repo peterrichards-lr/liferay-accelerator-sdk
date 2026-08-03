@@ -18,6 +18,7 @@ describe('BatchCallbackService', () => {
       constructor: { name: 'MockProductGenerator' },
       executeNextStep: vi.fn().mockResolvedValue(true),
       _normalizeEntityType: vi.fn().mockReturnValue('product'),
+      handleBatchCallback: vi.fn().mockResolvedValue(true),
     };
 
     mockPersistence = {
@@ -337,6 +338,90 @@ describe('BatchCallbackService', () => {
         })
       );
     });
+
+    it('should NOT overwrite a successfully persisted status as FAILED when non-critical follow-on work throws, and should still trigger session advancement', async () => {
+      const mockBatch = { session_id: 'sid-1', step_key: 'price-lists' };
+      const mockSession = {
+        session_id: 'sid-1',
+        flow_type: 'generate',
+        context: { config: {} },
+      };
+
+      mockPersistence.getBatch.mockResolvedValue(mockBatch);
+      mockPersistence.getSession.mockResolvedValue(mockSession);
+      service.registerGenerator('product', mockGenerator);
+
+      mockLiferay.getImportTask.mockResolvedValue({
+        executeStatus: 'COMPLETED',
+        processedItemsCount: 10,
+        totalItemsCount: 10,
+        failedItems: [],
+      });
+
+      // The critical DB write will succeed, but the non-critical generator
+      // hook that runs afterward blows up.
+      mockGenerator.handleBatchCallback.mockRejectedValue(
+        new Error('generator hook exploded')
+      );
+
+      const checkSpy = vi
+        .spyOn(service, '_checkSessionCompletion')
+        .mockResolvedValue(true);
+
+      await service.processCallbackInternal('BATCH-FOLLOWON-ERR', {
+        9001: 'COMPLETED',
+      });
+
+      // The critical write persisted COMPLETED...
+      expect(mockPersistence.updateBatch).toHaveBeenCalledWith(
+        'BATCH-FOLLOWON-ERR',
+        expect.objectContaining({ status: 'COMPLETED' })
+      );
+      // ...and must never be re-marked FAILED because of the later,
+      // non-critical failure.
+      expect(mockPersistence.updateBatch).not.toHaveBeenCalledWith(
+        'BATCH-FOLLOWON-ERR',
+        expect.objectContaining({ status: 'FAILED' })
+      );
+      // The orchestrator must still be woken up so the session doesn't hang
+      // waiting for a callback that will never arrive again.
+      expect(checkSpy).toHaveBeenCalledWith('sid-1', undefined);
+      // The follow-on failure itself is logged for visibility.
+      expect(mockCtx.logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('non-critical'),
+        expect.any(Object)
+      );
+    });
+
+    it('should mark batch FAILED and skip follow-on work when the critical DB write path throws', async () => {
+      const mockBatch = { session_id: 'sid-1', step_key: 'price-lists' };
+      const mockSession = {
+        session_id: 'sid-1',
+        flow_type: 'generate',
+        context: { config: {} },
+      };
+
+      mockPersistence.getBatch.mockResolvedValue(mockBatch);
+      mockPersistence.getSession.mockResolvedValue(mockSession);
+      service.registerGenerator('product', mockGenerator);
+
+      mockLiferay.getImportTask.mockRejectedValue(
+        new Error('Liferay unreachable')
+      );
+
+      const checkSpy = vi.spyOn(service, '_checkSessionCompletion');
+
+      await service.processCallbackInternal('BATCH-CRITICAL-ERR', {
+        9001: 'COMPLETED',
+      });
+
+      expect(mockPersistence.updateBatch).toHaveBeenCalledWith(
+        'BATCH-CRITICAL-ERR',
+        { status: 'FAILED' }
+      );
+      expect(mockGenerator.handleBatchCallback).not.toHaveBeenCalled();
+      expect(checkSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe('Session advancement & Promise lock chain', () => {
@@ -379,6 +464,38 @@ describe('BatchCallbackService', () => {
         expect.any(String)
       );
       expect(mockProgress.sessionFailed).toHaveBeenCalled();
+    });
+
+    it('should fail the session if an unexpected error occurs before the expected-failure try/catch (e.g. persistence.getSession throws)', async () => {
+      mockPersistence.getSession.mockRejectedValue(
+        new Error('DB connection lost')
+      );
+
+      await service._checkSessionCompletion('sid-db-err', 'cid-db-err');
+
+      // Previously this class of error was only logged and swallowed,
+      // leaving the session stuck in a non-terminal status forever.
+      expect(mockPersistence.tryFailSession).toHaveBeenCalledWith(
+        'sid-db-err',
+        'DB connection lost',
+        null,
+        expect.any(String)
+      );
+    });
+
+    it('should fail the session via the lock-chain catch if _executeCheckWithLock itself rejects unexpectedly', async () => {
+      vi.spyOn(service, '_executeCheckWithLock').mockRejectedValue(
+        new Error('unexpected chain crash')
+      );
+
+      await service._checkSessionCompletion('sid-chain-err', 'cid-chain-err');
+
+      expect(mockPersistence.tryFailSession).toHaveBeenCalledWith(
+        'sid-chain-err',
+        'unexpected chain crash',
+        null,
+        expect.any(String)
+      );
     });
   });
 });

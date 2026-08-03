@@ -31,7 +31,7 @@ class LiferayService {
   async getCatalogAdapter(...args) {
     return this.commerce.getCatalogAdapter(...args);
   }
-  async _collectAllItems(config, fetcherFn, maxItems = 5000) {
+  async _collectAllItems(config, fetcherFn, maxItems = 5000, pageSize = 200) {
     let allItems = [];
     for await (const pageRes of this.rest.iteratePages(
       config,
@@ -39,7 +39,7 @@ class LiferayService {
       null,
       null,
       {
-        pageSize: 200,
+        pageSize,
       }
     )) {
       const items = asItems(pageRes);

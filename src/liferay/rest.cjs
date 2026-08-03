@@ -17,7 +17,7 @@ const { ErrorHandler } = require('../utils/expressErrorHandler.cjs');
 const { parse } = require('csv-parse/sync');
 
 const { getBatchCacheTTLms } = require('../utils/ttl.cjs');
-const { COMMERCE_CONSTRAINTS } = require('../utils/commerceConstants.cjs');
+const { SKU_COMMERCE_CONSTRAINTS } = require('../utils/commerceConstants.cjs');
 const { asItems, asCount } = require('../utils/liferayUtils.cjs');
 
 const HttpCoreService = require('./rest/HttpCoreService.cjs');
@@ -217,6 +217,49 @@ class LiferayRestService {
         page++;
       }
     }
+  }
+
+  /**
+   * Look up a single item by its `key` field, paginating through the full
+   * result set instead of only inspecting the first page. Stops as soon as
+   * a match is found so we don't fetch unnecessary pages.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string} path The REST collection path to query.
+   * @param {string} op Operation name used for error reporting.
+   * @param {string} friendly Friendly operation name used for error reporting.
+   * @param {string} key The key to match (case-insensitive).
+   * @returns {Promise<object|null>} The matching item, or null if not found.
+   */
+  async _findByKeyAcrossPages(config, path, op, friendly, key) {
+    const pageSize = 250; // Fetch in large batches to prevent OData filter failures on different DXP versions
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore) {
+      const res = await this.httpCore._get(config, path, op, friendly, {
+        params: {
+          page,
+          pageSize,
+        },
+      });
+
+      const items = asItems(res);
+      const match = items.find(
+        (it) => String(it.key || '').toLowerCase() === String(key).toLowerCase()
+      );
+      if (match) {
+        return match;
+      }
+
+      if (items.length < pageSize || items.length === 0) {
+        hasMore = false;
+      } else {
+        page++;
+      }
+    }
+
+    return null;
   }
 
   _normalizePermissionItems(items = []) {
@@ -771,7 +814,8 @@ class LiferayRestService {
   }
 
   async createWarehouseChannelsBatch(config, itemsData, _opts = {}) {
-    this.logger.info(
+    const loggerToUse = this.ctx?.logger || logger;
+    loggerToUse.info(
       `Linking ${itemsData.length} warehouse channels sequentially for idempotency...`
     );
     const results = [];
@@ -784,7 +828,7 @@ class LiferayRestService {
         );
         results.push({ ...item, status: res.status || 'SUCCESS' });
       } catch (err) {
-        this.logger.error(
+        loggerToUse.error(
           `Failed to link warehouse ${item.warehouseId} to channel ${item.channelId}: ${err.message}`
         );
         throw err;
@@ -1673,24 +1717,12 @@ class LiferayRestService {
 
   async getSpecificationCategoryByKey(config, key) {
     try {
-      const res = await this.httpCore._get(
+      return await this._findByKeyAcrossPages(
         config,
         PATH.SPECIFICATION_CATEGORIES,
         'specification-categories:list',
         'Find spec category by key',
-        {
-          params: {
-            page: 1,
-            pageSize: 250, // Fetch all to prevent OData filter failures on different DXP versions
-          },
-        }
-      );
-      const items = asItems(res);
-      return (
-        items.find(
-          (it) =>
-            String(it.key || '').toLowerCase() === String(key).toLowerCase()
-        ) || null
+        key
       );
     } catch (error) {
       throw new Error(
@@ -1795,24 +1827,12 @@ class LiferayRestService {
 
   async getSpecificationByKey(config, key) {
     try {
-      const res = await this.httpCore._get(
+      return await this._findByKeyAcrossPages(
         config,
         PATH.SPECIFICATIONS,
         'specifications:list',
         'Find specification by key',
-        {
-          params: {
-            page: 1,
-            pageSize: 250, // Fetch all to prevent OData filter failures on different DXP versions
-          },
-        }
-      );
-      const items = asItems(res);
-      return (
-        items.find(
-          (it) =>
-            String(it.key || '').toLowerCase() === String(key).toLowerCase()
-        ) || null
+        key
       );
     } catch (error) {
       throw new Error(`Failed to get specification by key: ${error.message}`, {
@@ -1927,7 +1947,7 @@ class LiferayRestService {
     // Last-line-of-defense validation for Commerce constraints
     if (
       optionData.skuContributor &&
-      !COMMERCE_CONSTRAINTS.SKU_CONTRIBUTOR_FIELD_TYPES.includes(
+      !SKU_COMMERCE_CONSTRAINTS.SKU_CONTRIBUTOR_FIELD_TYPES.includes(
         optionData.fieldType
       )
     ) {
@@ -2078,24 +2098,12 @@ class LiferayRestService {
 
   async getOptionByKey(config, key) {
     try {
-      const res = await this.httpCore._get(
+      return await this._findByKeyAcrossPages(
         config,
         PATH.OPTIONS,
         'options:list',
         'Find option by key',
-        {
-          params: {
-            page: 1,
-            pageSize: 250, // Fetch all to prevent OData filter failures on different DXP versions
-          },
-        }
-      );
-      const items = asItems(res);
-      return (
-        items.find(
-          (it) =>
-            String(it.key || '').toLowerCase() === String(key).toLowerCase()
-        ) || null
+        key
       );
     } catch (error) {
       throw new Error(`Failed to get option by key: ${error.message}`, {
@@ -2249,8 +2257,20 @@ class LiferayRestService {
     );
   }
 
+  /**
+   * Escapes a string value for safe interpolation into a single-quoted
+   * OData filter literal (e.g. `key eq '...'`), per the OData convention of
+   * doubling embedded single quotes, so a quote in the value can't break out
+   * of the literal and alter the filter's structure.
+   */
+  _escapeODataString(value) {
+    const safe = typeof value === 'string' ? value : String(value ?? '');
+    return safe.replace(/'/g, "''");
+  }
+
   async getOptionCategoryByKey(config, key) {
     try {
+      const escapedKey = this._escapeODataString(key);
       const res = await this.httpCore._get(
         config,
         PATH.OPTION_CATEGORIES,
@@ -2260,7 +2280,7 @@ class LiferayRestService {
           params: {
             page: 1,
             pageSize: 1,
-            filter: `key eq '${key}'`,
+            filter: `key eq '${escapedKey}'`,
             fields: 'id,key,externalReferenceCode,title,description,priority',
           },
         }
