@@ -17,7 +17,7 @@ const { ErrorHandler } = require('../utils/expressErrorHandler.cjs');
 const { parse } = require('csv-parse/sync');
 
 const { getBatchCacheTTLms } = require('../utils/ttl.cjs');
-const { COMMERCE_CONSTRAINTS } = require('../utils/commerceConstants.cjs');
+const { SKU_COMMERCE_CONSTRAINTS } = require('../utils/commerceConstants.cjs');
 const { asItems, asCount } = require('../utils/liferayUtils.cjs');
 
 const HttpCoreService = require('./rest/HttpCoreService.cjs');
@@ -1927,7 +1927,7 @@ class LiferayRestService {
     // Last-line-of-defense validation for Commerce constraints
     if (
       optionData.skuContributor &&
-      !COMMERCE_CONSTRAINTS.SKU_CONTRIBUTOR_FIELD_TYPES.includes(
+      !SKU_COMMERCE_CONSTRAINTS.SKU_CONTRIBUTOR_FIELD_TYPES.includes(
         optionData.fieldType
       )
     ) {
