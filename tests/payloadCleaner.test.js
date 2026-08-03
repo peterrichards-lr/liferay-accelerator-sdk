@@ -79,4 +79,54 @@ describe('payload-cleaner', () => {
     expect(output.skuExternalReferenceCode).toBe('SKU-ERC-123');
     expect(output.sku).toEqual({ otherProp: 'keep' });
   });
+
+  it('should NOT strip addressId/priceListId values that merely fall within a mock account/product/SKU range', () => {
+    const input = {
+      addressId: 15000, // Within the "Mock Accounts" range, but addressId has no mock range
+      priceListId: 45000, // Within the "Mock SKUs/Variants" range, but priceListId has no mock range
+      defaultBillingAddressId: 35000, // Within the "Mock Products" range, but has no mock range
+      defaultShippingAddressId: 12000, // Within the "Mock Accounts" range, but has no mock range
+      name: 'Resolved Entity',
+    };
+    const output = deepCleanIds(input);
+    expect(output).toEqual({
+      addressId: 15000,
+      priceListId: 45000,
+      defaultBillingAddressId: 35000,
+      defaultShippingAddressId: 12000,
+      name: 'Resolved Entity',
+    });
+  });
+
+  it('should still treat 0/null/undefined as placeholders for addressId/priceListId even without a mock range', () => {
+    const input = {
+      addressId: 0,
+      priceListId: null,
+      defaultBillingAddressId: undefined,
+      name: 'Test',
+    };
+    const output = deepCleanIds(input);
+    expect(output).toEqual({ name: 'Test' });
+  });
+
+  it("should not mutate the caller's original input object when cleaning a nested sku.externalReferenceCode", () => {
+    const input = {
+      skuExternalReferenceCode: 'SKU-ERC-123',
+      sku: {
+        externalReferenceCode: 'SKU-ERC-123',
+        otherProp: 'keep',
+      },
+    };
+    const originalSkuRef = input.sku;
+
+    deepCleanIds(input);
+
+    // The original object passed in must remain untouched.
+    expect(input.sku.externalReferenceCode).toBe('SKU-ERC-123');
+    expect(originalSkuRef.externalReferenceCode).toBe('SKU-ERC-123');
+    expect(input.sku).toEqual({
+      externalReferenceCode: 'SKU-ERC-123',
+      otherProp: 'keep',
+    });
+  });
 });

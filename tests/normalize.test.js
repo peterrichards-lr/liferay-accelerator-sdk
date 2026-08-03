@@ -171,6 +171,49 @@ describe('utils/normalize', () => {
       const result2 = normalize.sanitizeValue(base64Blob);
       expect(result2).toContain('[BASE64]');
     });
+
+    it('should not let a literal __proto__ key hijack the clone prototype', () => {
+      const malicious = JSON.parse('{"__proto__": {"polluted": true}}');
+      const result = normalize.sanitizeValue(malicious);
+
+      // __proto__ must be a normal own, enumerable property on the clone,
+      // not have been used to reassign the clone's actual prototype.
+      expect(Object.keys(result)).toContain('__proto__');
+      expect(Object.prototype.hasOwnProperty.call(result, '__proto__')).toBe(
+        true
+      );
+      expect(result.__proto__.polluted).toBe(true);
+      // Use a computed key so this object literal creates a real own
+      // "__proto__" property instead of setting its actual prototype.
+      expect(JSON.parse(JSON.stringify(result))).toEqual({
+        ['__proto__']: { polluted: true },
+      });
+
+      // The real Object.prototype must remain untouched.
+      expect(Object.prototype.polluted).toBeUndefined();
+      expect({}.polluted).toBeUndefined();
+    });
+
+    it('should not let a nested literal __proto__ key hijack a nested clone prototype', () => {
+      const malicious = JSON.parse(
+        '{"safe": "ok", "nested": {"__proto__": {"polluted": true}}}'
+      );
+      const result = normalize.sanitizeValue(malicious);
+
+      expect(result.safe).toBe('ok');
+      expect(Object.keys(result.nested)).toContain('__proto__');
+      expect(
+        Object.prototype.hasOwnProperty.call(result.nested, '__proto__')
+      ).toBe(true);
+      expect(result.nested.__proto__.polluted).toBe(true);
+      expect(JSON.parse(JSON.stringify(result))).toEqual({
+        safe: 'ok',
+        nested: { ['__proto__']: { polluted: true } },
+      });
+
+      expect(Object.prototype.polluted).toBeUndefined();
+      expect({}.polluted).toBeUndefined();
+    });
   });
 
   describe('buildConfigAndOptions', () => {
