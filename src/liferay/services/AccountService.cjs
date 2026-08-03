@@ -9,7 +9,7 @@ class AccountService {
   async getAccountGroups(
     config,
     {
-      _pageSize = 200,
+      pageSize = 200,
       fields = 'id,externalReferenceCode,name',
       filter: providedFilter,
       search,
@@ -34,7 +34,9 @@ class AccountService {
               fields,
             },
           }
-        )
+        ),
+      undefined,
+      pageSize
     );
     if (providedFilter) {
       const idMatch = providedFilter.match(/id eq (\d+)/);
@@ -70,7 +72,7 @@ class AccountService {
     config,
     {
       channelId: _channelId,
-      _pageSize = 200,
+      pageSize = 200,
       fields = 'id,externalReferenceCode,name',
       filter: providedFilter,
       search,
@@ -95,7 +97,9 @@ class AccountService {
               fields,
             },
           }
-        )
+        ),
+      undefined,
+      pageSize
     );
 
     // Filter 1: Provided OData filter (Simulated in JS memory)
