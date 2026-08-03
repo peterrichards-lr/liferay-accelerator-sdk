@@ -814,7 +814,8 @@ class LiferayRestService {
   }
 
   async createWarehouseChannelsBatch(config, itemsData, _opts = {}) {
-    this.logger.info(
+    const loggerToUse = this.ctx?.logger || logger;
+    loggerToUse.info(
       `Linking ${itemsData.length} warehouse channels sequentially for idempotency...`
     );
     const results = [];
@@ -827,7 +828,7 @@ class LiferayRestService {
         );
         results.push({ ...item, status: res.status || 'SUCCESS' });
       } catch (err) {
-        this.logger.error(
+        loggerToUse.error(
           `Failed to link warehouse ${item.warehouseId} to channel ${item.channelId}: ${err.message}`
         );
         throw err;

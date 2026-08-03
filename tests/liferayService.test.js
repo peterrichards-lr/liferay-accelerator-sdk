@@ -595,6 +595,70 @@ describe('LiferayService', () => {
     });
   });
 
+  describe('createWarehouseChannelsBatch', () => {
+    it('should link warehouse channels sequentially and log via ctx.logger without throwing', async () => {
+      const { http, HttpResponse } = require('msw');
+      const linkedPayloads = [];
+
+      server.use(
+        http.post(
+          '*/o/headless-commerce-admin-inventory/v1.0/warehouses/:warehouseId/warehouse-channels',
+          async ({ params, request }) => {
+            const data = await request.json();
+            linkedPayloads.push({ warehouseId: params.warehouseId, data });
+            return HttpResponse.json({ status: 'SUCCESS' });
+          }
+        )
+      );
+
+      const items = [
+        { warehouseId: 1, channelId: 10 },
+        { warehouseId: 2, channelId: 20 },
+      ];
+
+      const result = await liferayService.createWarehouseChannelsBatch(
+        config,
+        items
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.count).toBe(2);
+      expect(linkedPayloads).toHaveLength(2);
+      expect(linkedPayloads[0].warehouseId).toBe('1');
+      expect(linkedPayloads[0].data.channelId).toBe(10);
+      expect(linkedPayloads[1].warehouseId).toBe('2');
+      expect(linkedPayloads[1].data.channelId).toBe(20);
+
+      // Regression check for #73: must use ctx.logger, not the nonexistent this.logger
+      expect(mockCtx.logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('Linking 2 warehouse channels')
+      );
+    });
+
+    it('should log via ctx.logger and rethrow when a link fails', async () => {
+      const { http, HttpResponse } = require('msw');
+
+      server.use(
+        http.post(
+          '*/o/headless-commerce-admin-inventory/v1.0/warehouses/:warehouseId/warehouse-channels',
+          () => {
+            return HttpResponse.json({ title: 'Bad request' }, { status: 400 });
+          }
+        )
+      );
+
+      const items = [{ warehouseId: 5, channelId: 50 }];
+
+      await expect(
+        liferayService.createWarehouseChannelsBatch(config, items)
+      ).rejects.toBeTruthy();
+
+      expect(mockCtx.logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to link warehouse 5 to channel 50')
+      );
+    });
+  });
+
   describe('CatalogAdapterFactory capabilities discovery', () => {
     it('should resolve to PimSkuFirstAdapter when PIM capability is detected', async () => {
       // Use a unique URL to avoid factory caching
