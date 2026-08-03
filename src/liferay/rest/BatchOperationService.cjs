@@ -19,20 +19,38 @@ class BatchOperationService {
 
   _cacheItemERCs(batchERC, batchId, itemERCs, sessionId = null) {
     if (!itemERCs || itemERCs.length === 0) return;
-    try {
-      const PersistenceService = require('../../services/persistenceService.cjs');
-      const persistence = PersistenceService.getInstance();
 
-      if (batchERC) {
-        persistence.cacheBatchItemERCs(batchERC, itemERCs, sessionId);
-      } else if (batchId) {
-        persistence.cacheBatchItemERCsById(batchId, itemERCs, sessionId);
-      }
-    } catch (err) {
-      const loggerToUse =
-        this.ctx?.logger || require('../../utils/logger.cjs').logger;
-      loggerToUse.error('Failed to cache item ERCs for batch:', err.message);
+    const { cache, logger, config: configService } = this.ctx || {};
+    if (!cache) {
+      const loggerToUse = logger || require('../../utils/logger.cjs').logger;
+      loggerToUse.warn(
+        'Cannot cache item ERCs for batch: ctx.cache is not configured.'
+      );
+      return;
     }
+
+    const ttl = getBatchCacheTTLms(configService);
+
+    if (batchERC) {
+      cache.set(`erc:${batchERC}:itemERCs`, itemERCs, ttl);
+    }
+    if (batchId) {
+      cache.set(`batch:${batchId}:itemERCs`, itemERCs, ttl);
+    }
+    if (sessionId && batchERC) {
+      cache.set(
+        `session:${sessionId}:itemERCsByBatch:${batchERC}`,
+        itemERCs,
+        ttl
+      );
+    }
+
+    logger?.trace?.('cache:itemERCs:stored', {
+      scopeERC: batchERC,
+      batchId: batchId || null,
+      sessionId: sessionId || null,
+      count: itemERCs.length,
+    });
   }
 
   _stringifySafe(obj) {
@@ -216,13 +234,6 @@ class BatchOperationService {
             getBatchCacheTTLms(configService)
           );
         }
-
-        logger?.trace?.('cache:itemERCs:stored', {
-          scopeERC: currentERC,
-          sessionId: sessionId || null,
-          batchId: data?.id || null,
-          count: itemERCs.length,
-        });
 
         logger.debug(`Batch ${entityName} creation initiated`, {
           operation: op,
