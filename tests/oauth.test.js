@@ -104,6 +104,30 @@ describe('OAuthService', () => {
       service.clearTokenCache();
       expect(service._getAccessTokenFromCache(key)).toBeNull();
     });
+
+    it('should not cache a token whose remaining life after skew is exactly zero', () => {
+      const service = new OAuthService(mockContext);
+      const key = 'test_key_zero_ttl';
+
+      // Default tokenSkewSec is 60; an expires_in of 60 leaves ttlMs === 0,
+      // which is falsy in JS. This must NOT fall back to the hardCap TTL.
+      service._addAccessTokenToCache(key, 'token-value', 60);
+
+      expect(mockCache.has(key)).toBe(false);
+      expect(service._getAccessTokenFromCache(key)).toBeNull();
+    });
+
+    it('should not cache a token that is already expired relative to skew', () => {
+      const service = new OAuthService(mockContext);
+      const key = 'test_key_negative_ttl';
+
+      // expires_in < tokenSkewSec (e.g. a misconfigured OAuth server or a
+      // very short-lived token) results in a negative ttlMs.
+      service._addAccessTokenToCache(key, 'token-value', 10);
+
+      expect(mockCache.has(key)).toBe(false);
+      expect(service._getAccessTokenFromCache(key)).toBeNull();
+    });
   });
 
   describe('Authorize URL Generation', () => {
