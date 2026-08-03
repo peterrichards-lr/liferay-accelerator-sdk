@@ -137,9 +137,16 @@ class OAuthService {
   _addAccessTokenToCache(cacheKey, token, expiresInSec = 3600) {
     const tokenCache = this.ctx.cache;
     const skewMs = this.settings.tokenSkewSec * 1000;
-    const ttlMs = Math.max(0, expiresInSec * 1000 - skewMs);
+    const ttlMs = expiresInSec * 1000 - skewMs;
+    if (ttlMs <= 0) {
+      // Token is already expired (or within the skew window) by the time we
+      // would cache it. Skip caching entirely rather than falling back to
+      // the hardCap TTL, which would serve an expired token as "valid" for
+      // up to an hour.
+      return;
+    }
     const hardCap = this.settings.tokenCacheTtlMs;
-    const finalTtl = Math.min(ttlMs || hardCap, hardCap);
+    const finalTtl = Math.min(ttlMs, hardCap);
     tokenCache.set(
       cacheKey,
       {
