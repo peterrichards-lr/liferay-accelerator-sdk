@@ -38,10 +38,24 @@ function deepCleanIds(obj) {
     'defaultShippingAddressId',
   ];
 
+  /**
+   * Placeholder-ID ranges only apply to the specific mock-data fields they
+   * were generated for. Fields like `addressId`/`priceListId` are resolved
+   * from real Liferay entities and have no reserved mock range, so a
+   * genuine ID that happens to fall in one of these bands must NOT be
+   * stripped.
+   */
+  const mockRangeFieldsMap = {
+    accountId: [[10000, 19999]], // Mock Accounts
+    productId: [[30000, 39999]], // Mock Products
+    skuId: [[40000, 59999]], // Mock SKUs/Variants
+  };
+
   for (const key of relationalIdFields) {
     if (!(key in cleaned)) continue;
 
     const value = cleaned[key];
+    const mockRanges = mockRangeFieldsMap[key] || [];
 
     // Check for "Non-Resolved" values
     const isPlaceholder =
@@ -49,9 +63,7 @@ function deepCleanIds(obj) {
       value === null ||
       value === undefined ||
       (typeof value === 'number' &&
-        ((value >= 10000 && value <= 19999) || // Mock Accounts
-          (value >= 30000 && value <= 39999) || // Mock Products
-          (value >= 40000 && value <= 59999))); // Mock SKUs/Variants
+        mockRanges.some(([min, max]) => value >= min && value <= max));
 
     if (isPlaceholder) {
       delete cleaned[key];
@@ -64,6 +76,10 @@ function deepCleanIds(obj) {
       if (typeof cleaned[key] === 'object' && cleaned[key] !== null) {
         // Special case: Remove externalReferenceCode from nested 'sku' objects in PriceEntry payloads
         if (key === 'sku' && 'skuExternalReferenceCode' in cleaned) {
+          // Clone before deleting so we never mutate the caller's original
+          // nested object (cleaned[key] still references the same object
+          // as obj[key] at this point, since only a shallow copy was made).
+          cleaned[key] = { ...cleaned[key] };
           delete cleaned[key].externalReferenceCode;
         }
 
