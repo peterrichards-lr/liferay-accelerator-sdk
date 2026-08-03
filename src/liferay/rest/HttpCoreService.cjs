@@ -82,6 +82,21 @@ class HttpCoreService {
             );
             // In development/test, we want to fail fast to catch schema drifts.
             throw err;
+          } else {
+            // HARDENING: a bug in the validator itself (or any other
+            // unexpected error) must not silently disable contract
+            // validation - log it and fail loudly instead of proceeding
+            // as if validation had passed.
+            this.ctx.logger.error(
+              `Unexpected error during outbound contract validation for ${url}`,
+              {
+                op,
+                schema: contract.schema,
+                error: err.message,
+                stack: err.stack,
+              }
+            );
+            throw err;
           }
         }
       }
@@ -186,6 +201,21 @@ class HttpCoreService {
                     op,
                     schema: contract.schema,
                     errors: err.errors,
+                  }
+                );
+                throw err;
+              } else {
+                // HARDENING: a bug in the validator itself (or any other
+                // unexpected error) must not silently disable contract
+                // validation - log it and fail loudly instead of proceeding
+                // as if validation had passed.
+                logger.error(
+                  `Unexpected error during inbound contract validation for ${url}`,
+                  {
+                    op,
+                    schema: contract.schema,
+                    error: err.message,
+                    stack: err.stack,
                   }
                 );
                 throw err;
@@ -455,8 +485,9 @@ class HttpCoreService {
   }
 
   async _downloadFile(config, url, destination) {
-    const writer = fs.createWriteStream(destination);
-
+    // Only create the write stream once the GET has succeeded, so a failed
+    // request (network error, retries exhausted, non-2xx) never leaves a
+    // dangling file descriptor or a partial/empty file on disk.
     const response = await this._get(
       config,
       url,
@@ -466,12 +497,23 @@ class HttpCoreService {
       true
     );
 
-    response.data.pipe(writer);
+    const writer = fs.createWriteStream(destination);
 
-    return new Promise((resolve, reject) => {
-      writer.on('finish', resolve);
-      writer.on('error', reject);
-    });
+    try {
+      response.data.pipe(writer);
+
+      await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+        response.data.on('error', reject);
+      });
+    } catch (err) {
+      // Ensure the file descriptor is closed and the partial file is
+      // removed if anything goes wrong while streaming the response body.
+      await new Promise((resolveClose) => writer.close(resolveClose));
+      await fs.promises.unlink(destination).catch(() => {});
+      throw err;
+    }
   }
 
   async createAxiosInstance(config) {

@@ -141,7 +141,7 @@ class CommerceService {
     config,
     {
       page: _page = 1,
-      pageSize: _pageSize = 200,
+      pageSize = 200,
       fields: _fields = 'id',
       filter: providedFilter,
       ercPrefix,
@@ -171,7 +171,9 @@ class CommerceService {
               pageSize: size,
             },
           }
-        )
+        ),
+      undefined,
+      pageSize
     );
     let items = allItems;
 
@@ -198,7 +200,7 @@ class CommerceService {
     config,
     {
       page: _page = 1,
-      pageSize: _pageSize = 200,
+      pageSize = 200,
       fields: _fields = 'id',
       filter: providedFilter,
       ercPrefix,
@@ -228,7 +230,9 @@ class CommerceService {
               pageSize: size,
             },
           }
-        )
+        ),
+      undefined,
+      pageSize
     );
     let items = allItems;
 
@@ -255,7 +259,7 @@ class CommerceService {
     config,
     {
       page: _page = 1,
-      pageSize: _pageSize = 200,
+      pageSize = 200,
       fields: _fields = 'id',
       filter: providedFilter,
       ercPrefix,
@@ -282,7 +286,9 @@ class CommerceService {
               pageSize: size,
             },
           }
-        )
+        ),
+      undefined,
+      pageSize
     );
     let items = allItems;
 
@@ -308,7 +314,7 @@ class CommerceService {
   async getWarehouses(
     config,
     {
-      pageSize: _pageSize = 200,
+      pageSize = 200,
       fields: _fields = 'id,externalReferenceCode,name',
       filter: providedFilter,
     } = {}
@@ -336,7 +342,9 @@ class CommerceService {
               pageSize: size,
             },
           }
-        )
+        ),
+      undefined,
+      pageSize
     );
 
     // HARDENING: Perform all exclusions in JS memory
