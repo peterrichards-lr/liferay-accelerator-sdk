@@ -31,6 +31,10 @@ class PersistenceService {
       };
     });
     this.pendingRequests = new Map();
+    // sessionId -> Promise (the current read-merge-write chain for that session's context).
+    // Serializes updateSessionContext / updateSession's context-merge branch so concurrent
+    // callers can't both read the same pre-update context and clobber each other's writes.
+    this.contextLocks = new Map();
 
     try {
       const workerPath = path.resolve(__dirname, 'persistenceWorker.cjs');
@@ -330,59 +334,106 @@ class PersistenceService {
     return this.getSession(sessionId);
   }
 
+  /**
+   * Runs `fn` serialized per `sessionId`, chaining it onto whatever
+   * read-merge-write work is already queued for that session.
+   *
+   * Mirrors the sessionLocks chaining pattern in batchCallbackService.js:
+   * a Map from sessionId -> Promise represents the tail of the current
+   * processing chain. Each call attaches itself to that tail, then (once it
+   * is the last link) removes itself from the map so it doesn't leak.
+   *
+   * Unlike batchCallbackService's fire-and-forget usage, callers here need
+   * the result/error of `fn` itself, so the outer promise resolves/rejects
+   * based on `fn`, while the tracked chain promise always settles (so a
+   * failure never wedges subsequent callers for the same session).
+   */
+  _runWithContextLock(sessionId, fn) {
+    const existingLock = this.contextLocks.get(sessionId) || Promise.resolve();
+
+    let settle;
+    const resultPromise = new Promise((resolve) => {
+      settle = resolve;
+    });
+
+    const newLock = existingLock
+      .then(fn)
+      .then(
+        (value) => settle({ ok: true, value }),
+        (error) => settle({ ok: false, error })
+      )
+      .finally(() => {
+        // Cleanup: if this was the last link in the chain, remove the entry.
+        if (this.contextLocks.get(sessionId) === newLock) {
+          this.contextLocks.delete(sessionId);
+        }
+      });
+
+    this.contextLocks.set(sessionId, newLock);
+
+    return resultPromise.then(({ ok, value, error }) => {
+      if (!ok) throw error;
+      return value;
+    });
+  }
+
   async updateSessionContext(sessionId, newContext) {
-    const now = new Date().toISOString();
-    const session = await this.getSession(sessionId);
-    if (!session) return null;
+    return this._runWithContextLock(sessionId, async () => {
+      const now = new Date().toISOString();
+      const session = await this.getSession(sessionId);
+      if (!session) return null;
 
-    const mergedContext = { ...session.context, ...newContext };
+      const mergedContext = { ...session.context, ...newContext };
 
-    await this._run(
-      'UPDATE workflow_sessions SET context_json = ?, updated_at = ? WHERE session_id = ?',
-      JSON.stringify(mergedContext),
-      now,
-      sessionId
-    );
-    this.cache.del(sessionId);
-    return this.getSession(sessionId);
+      await this._run(
+        'UPDATE workflow_sessions SET context_json = ?, updated_at = ? WHERE session_id = ?',
+        JSON.stringify(mergedContext),
+        now,
+        sessionId
+      );
+      this.cache.del(sessionId);
+      return this.getSession(sessionId);
+    });
   }
 
   async updateSession(
     sessionId,
     { status, context, currentSteps, correlationId }
   ) {
-    const now = new Date().toISOString();
-    const sets = ['updated_at = ?'];
-    const params = [now];
+    return this._runWithContextLock(sessionId, async () => {
+      const now = new Date().toISOString();
+      const sets = ['updated_at = ?'];
+      const params = [now];
 
-    const currentSession = await this.getSession(sessionId);
-    if (!currentSession) return null;
+      const currentSession = await this.getSession(sessionId);
+      if (!currentSession) return null;
 
-    if (status) {
-      sets.push('status = ?');
-      params.push(status);
-    }
-    if (context) {
-      const mergedContext = { ...currentSession.context, ...context };
-      sets.push('context_json = ?');
-      params.push(JSON.stringify(mergedContext));
-    }
-    if (currentSteps) {
-      sets.push('current_steps_json = ?');
-      params.push(JSON.stringify(currentSteps));
-    }
-    if (correlationId) {
-      sets.push('correlation_id = ?');
-      params.push(correlationId);
-    }
+      if (status) {
+        sets.push('status = ?');
+        params.push(status);
+      }
+      if (context) {
+        const mergedContext = { ...currentSession.context, ...context };
+        sets.push('context_json = ?');
+        params.push(JSON.stringify(mergedContext));
+      }
+      if (currentSteps) {
+        sets.push('current_steps_json = ?');
+        params.push(JSON.stringify(currentSteps));
+      }
+      if (correlationId) {
+        sets.push('correlation_id = ?');
+        params.push(correlationId);
+      }
 
-    params.push(sessionId);
-    await this._run(
-      `UPDATE workflow_sessions SET ${sets.join(', ')} WHERE session_id = ?`,
-      ...params
-    );
-    this.cache.del(sessionId);
-    return this.getSession(sessionId);
+      params.push(sessionId);
+      await this._run(
+        `UPDATE workflow_sessions SET ${sets.join(', ')} WHERE session_id = ?`,
+        ...params
+      );
+      this.cache.del(sessionId);
+      return this.getSession(sessionId);
+    });
   }
 
   async verifyDependencyReady(sessionId, dependencyStepKey) {

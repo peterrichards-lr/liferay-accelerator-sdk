@@ -149,6 +149,50 @@ describe('PersistenceService', () => {
     expect(events[0].details.key).toBe('value');
   });
 
+  it('should not lose data from concurrent updateSessionContext calls on the same session', async () => {
+    const sessionId = 'race-session';
+    await persistence.createSession({
+      sessionId,
+      flowType: 'products',
+      status: 'STARTED',
+      context: { base: true },
+    });
+
+    // Two concurrent context updates touching different keys. Without
+    // per-session serialization, both read the same pre-update context,
+    // merge in their own key, and the later write silently clobbers the
+    // earlier one's key.
+    await Promise.all([
+      persistence.updateSessionContext(sessionId, { keyA: 'a' }),
+      persistence.updateSessionContext(sessionId, { keyB: 'b' }),
+    ]);
+
+    const session = await persistence.getSession(sessionId);
+    expect(session.context.base).toBe(true);
+    expect(session.context.keyA).toBe('a');
+    expect(session.context.keyB).toBe('b');
+  });
+
+  it('should not lose data when updateSession and updateSessionContext race on the same session', async () => {
+    const sessionId = 'race-session-mixed';
+    await persistence.createSession({
+      sessionId,
+      flowType: 'products',
+      status: 'STARTED',
+      context: { base: true },
+    });
+
+    await Promise.all([
+      persistence.updateSessionContext(sessionId, { keyA: 'a' }),
+      persistence.updateSession(sessionId, { context: { keyB: 'b' } }),
+    ]);
+
+    const session = await persistence.getSession(sessionId);
+    expect(session.context.base).toBe(true);
+    expect(session.context.keyA).toBe('a');
+    expect(session.context.keyB).toBe('b');
+  });
+
   it('should filter completed sessions to exclude deletion flows', async () => {
     await persistence.createSession({
       sessionId: 'gen-1',
