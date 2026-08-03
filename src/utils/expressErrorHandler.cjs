@@ -1,44 +1,6 @@
 const logger = require('./logger.cjs');
 
 class ErrorHandler {
-  static handleError(error, req, res, _) {
-    logger.error('Error occurred:', error);
-
-    let status = 500;
-    let message = 'Internal server error';
-    let details = null;
-
-    if (error.response) {
-      status = error.response.status || 500;
-      message =
-        error.response.data?.title || error.response.statusText || message;
-      details = error.response.data;
-    } else if (error.message) {
-      message = error.message;
-      if (error.status) {
-        status = error.status;
-      }
-    }
-
-    // Default to logging all errors in the SDK
-    logger.error('Error details:', {
-      status,
-      message,
-      details,
-      url: req.url,
-      method: req.method,
-      timestamp: new Date().toISOString(),
-      stack: error.stack,
-    });
-
-    res.status(status).json({
-      success: false,
-      error: message,
-      details: details,
-      timestamp: new Date().toISOString(),
-    });
-  }
-
   static createError(message, status = 500, details = null) {
     const error = new Error(message);
     error.status = status;
