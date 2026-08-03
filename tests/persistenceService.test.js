@@ -149,6 +149,98 @@ describe('PersistenceService', () => {
     expect(events[0].details.key).toBe('value');
   });
 
+  describe('Steady-state worker failure draining (post-init)', () => {
+    // These tests exercise the worker's 'error'/'exit' handlers once the
+    // instance is already past init - awaiting initPromise first keeps
+    // rejectInit()'s unconditional call in those handlers a guaranteed
+    // no-op here, isolating the steady-state draining behavior under test.
+    beforeEach(async () => {
+      await persistence.initPromise;
+    });
+
+    it('should reject all pending requests via _rejectAllPending and clear the map', () => {
+      let rejectedWith1;
+      let rejectedWith2;
+      persistence.pendingRequests.set('req-1', {
+        resolve: vi.fn(),
+        reject: (err) => {
+          rejectedWith1 = err;
+        },
+      });
+      persistence.pendingRequests.set('req-2', {
+        resolve: vi.fn(),
+        reject: (err) => {
+          rejectedWith2 = err;
+        },
+      });
+
+      persistence._rejectAllPending('worker died');
+
+      expect(rejectedWith1).toBeInstanceOf(Error);
+      expect(rejectedWith1.message).toBe('worker died');
+      expect(rejectedWith2).toBeInstanceOf(Error);
+      expect(persistence.pendingRequests.size).toBe(0);
+    });
+
+    it('should reject in-flight requests when the worker emits an unexpected error event', async () => {
+      let capturedError;
+      persistence.pendingRequests.set('in-flight-id', {
+        resolve: vi.fn(),
+        reject: (err) => {
+          capturedError = err;
+        },
+      });
+
+      persistence.worker.emit('error', new Error('worker crashed'));
+
+      expect(capturedError).toBeInstanceOf(Error);
+      expect(persistence.pendingRequests.size).toBe(0);
+    });
+
+    it('should reject in-flight requests when the worker exits unexpectedly', async () => {
+      let capturedError;
+      persistence.pendingRequests.set('in-flight-id', {
+        resolve: vi.fn(),
+        reject: (err) => {
+          capturedError = err;
+        },
+      });
+
+      persistence.worker.emit('exit', 1);
+
+      expect(capturedError).toBeInstanceOf(Error);
+      expect(persistence.pendingRequests.size).toBe(0);
+    });
+
+    it('should reject any still-pending requests when close() is called', async () => {
+      let capturedError;
+      persistence.pendingRequests.set('closing-id', {
+        resolve: vi.fn(),
+        reject: (err) => {
+          capturedError = err;
+        },
+      });
+
+      await persistence.close();
+
+      expect(capturedError).toBeInstanceOf(Error);
+      expect(persistence.pendingRequests.size).toBe(0);
+    });
+
+    it('should leave a genuinely in-flight request hanging without the fix (regression guard)', async () => {
+      // This is a behavioral sanity check: a real in-flight request should
+      // actually get rejected (not just resolved as a no-op) when the
+      // worker errors out, proving the caller's await would have unblocked.
+      const pending = new Promise((resolve, reject) => {
+        persistence.pendingRequests.set('real-await', { resolve, reject });
+      });
+
+      persistence.worker.emit('error', new Error('boom'));
+
+      await expect(pending).rejects.toThrow('boom');
+    });
+  });
+
   it('should not lose data from concurrent updateSessionContext calls on the same session', async () => {
     const sessionId = 'race-session';
     await persistence.createSession({
@@ -255,7 +347,15 @@ describe('PersistenceService', () => {
       await expect(crashedPersistence.initPromise).rejects.toThrow(
         'worker crashed on startup'
       );
-      expect(pendingReject).toHaveBeenCalledWith(crashError);
+      // Draining now goes through the shared _rejectAllPending helper (used
+      // by the init-crash, steady-state error, exit, and close() paths
+      // alike), which wraps with a descriptive prefix rather than
+      // rethrowing the original error object as-is.
+      expect(pendingReject).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining(crashError.message),
+        })
+      );
       expect(crashedPersistence.pendingRequests.size).toBe(0);
     });
 
@@ -274,7 +374,7 @@ describe('PersistenceService', () => {
       ).rejects.toThrow('worker crashed before init');
     });
 
-    it('does not reject initPromise or drain pending requests for a later runtime error after a successful init', async () => {
+    it('does not re-reject an already-resolved initPromise for a later runtime error after a successful init, but still drains in-flight requests', async () => {
       const persistenceOk = new PersistenceService(null, ':memory:');
       await persistenceOk.initPromise;
 
@@ -286,13 +386,17 @@ describe('PersistenceService', () => {
 
       persistenceOk.worker.emit('error', new Error('unrelated runtime error'));
 
-      // initPromise was already resolved; the guard must make this a no-op.
+      // initPromise was already resolved; rejectInit()'s settled-guard must
+      // make this call a no-op rather than rejecting an already-resolved
+      // promise's downstream awaiters.
       await expect(persistenceOk.initPromise).resolves.toBeUndefined();
-      // Steady-state pending-request draining on later errors is out of
-      // scope for this fix (tracked separately) — the in-flight request
-      // registered above must be left untouched here.
-      expect(pendingReject).not.toHaveBeenCalled();
-      expect(persistenceOk.pendingRequests.size).toBe(1);
+      // Steady-state draining (see the sibling describe block above) now
+      // covers any post-init worker error, so the in-flight request must
+      // still be rejected and cleared - this is the intended combined
+      // behavior of #70 (initPromise settling) and #71 (pendingRequests
+      // draining), not a gap.
+      expect(pendingReject).toHaveBeenCalled();
+      expect(persistenceOk.pendingRequests.size).toBe(0);
 
       await persistenceOk.close();
     });

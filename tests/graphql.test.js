@@ -185,7 +185,7 @@ describe('LiferayGraphQLService', () => {
       expect(result).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }]);
     });
 
-    it('should log warnings and continue on partial GraphQL errors', async () => {
+    it('should throw and log a warning on partial GraphQL errors instead of silently returning partial data', async () => {
       graphqlResponseMock = () => {
         return HttpResponse.json({
           data: {
@@ -197,15 +197,18 @@ describe('LiferayGraphQLService', () => {
         });
       };
 
-      const result = await graphqlService.fetchEntitiesByERC(
-        config,
-        'namespace',
-        'method',
-        ['ERC-1'],
-        ['id']
+      await expect(
+        graphqlService.fetchEntitiesByERC(
+          config,
+          'namespace',
+          'method',
+          ['ERC-1'],
+          ['id']
+        )
+      ).rejects.toThrow(
+        'GraphQL Errors in method: Some partial GraphQL warning'
       );
 
-      expect(result).toEqual([{ id: 1 }]);
       expect(mockCtx.logger.warn).toHaveBeenCalled();
     });
 

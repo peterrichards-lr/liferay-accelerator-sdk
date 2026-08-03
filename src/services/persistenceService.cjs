@@ -58,27 +58,45 @@ class PersistenceService {
       });
 
       this.worker.on('error', (err) => {
-        this.logger?.error(
+        this.logger?.error?.(
           `[PersistenceService] Worker thread error: ${err.message}`
         );
 
         // If the worker crashes before init has resolved, initPromise would
-        // otherwise hang forever since nothing else ever settles it. Guard
-        // against double-settling so a later runtime error (after a
-        // successful init) doesn't incorrectly reject already-resolved
-        // downstream awaiters.
-        const wasInitCrash = !this._initSettled;
+        // otherwise hang forever since nothing else ever settles it.
+        // rejectInit() is idempotent (guarded by _initSettled), so it's safe
+        // to call unconditionally here even on a later, post-init error.
         this.rejectInit(err);
 
-        // Any callers that were already queued behind this crashed worker's
-        // init (i.e. this is the init-time crash path) must also be failed
-        // fast instead of hanging forever alongside initPromise.
-        if (wasInitCrash) {
-          for (const pending of this.pendingRequests.values()) {
-            pending.reject(err);
-          }
-          this.pendingRequests.clear();
+        // STEADY-STATE HARDENING: any request already in flight when the
+        // worker dies would otherwise be orphaned forever (its resolve/
+        // reject pair never called, leaving the caller's await hanging).
+        // Reject everything still pending so callers fail fast instead.
+        // (Covers the init-crash case too: _postMessage always awaits
+        // initPromise before adding to pendingRequests, so a pre-init crash
+        // leaves this map empty and rejectInit() above is what unblocks
+        // those callers.)
+        this._rejectAllPending(
+          `Persistence worker thread error: ${err.message}`
+        );
+      });
+
+      this.worker.on('exit', (code) => {
+        // worker.terminate() (used by our own close()) always reports a
+        // non-zero exit code, so only log at error level for exits we
+        // didn't initiate ourselves - otherwise every normal shutdown would
+        // be logged as if the worker had crashed.
+        if (code !== 0 && !this._closing) {
+          this.logger?.error?.(
+            `[PersistenceService] Worker thread exited unexpectedly with code ${code}`
+          );
         }
+        // STEADY-STATE HARDENING: drain any requests left in flight so their
+        // callers are notified instead of hanging indefinitely. A no-op if
+        // close() already drained them.
+        this._rejectAllPending(
+          `Persistence worker thread exited with code ${code}`
+        );
       });
 
       this.logger?.info(
@@ -96,6 +114,26 @@ class PersistenceService {
       }
       throw err;
     }
+  }
+
+  /**
+   * STEADY-STATE HARDENING: rejects every request currently awaiting a
+   * response from the worker thread and clears the map. Used when the
+   * worker dies (or is deliberately shut down) after init has already
+   * completed, so in-flight callers are notified instead of hanging
+   * forever on a promise that will never resolve or reject otherwise.
+   *
+   * NOTE: this intentionally does not touch `initPromise`/`rejectInit` -
+   * the init-time crash path is handled separately (see #70).
+   */
+  _rejectAllPending(reason) {
+    if (this.pendingRequests.size === 0) return;
+
+    const error = reason instanceof Error ? reason : new Error(reason);
+    for (const { reject } of this.pendingRequests.values()) {
+      reject(error);
+    }
+    this.pendingRequests.clear();
   }
 
   async _postMessage(action, sql, params) {
@@ -729,6 +767,13 @@ class PersistenceService {
 
   async close() {
     if (this.worker) {
+      // Mark this as an intentional shutdown so the 'exit' listener doesn't
+      // log it as an unexpected crash (worker.terminate() always reports a
+      // non-zero exit code).
+      this._closing = true;
+      // Reject any requests still in flight before/while terminating so
+      // callers don't hang forever waiting on a worker that's going away.
+      this._rejectAllPending('Persistence worker is closing');
       await this.worker.terminate();
     }
   }
