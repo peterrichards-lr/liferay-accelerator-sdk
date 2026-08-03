@@ -82,6 +82,21 @@ class HttpCoreService {
             );
             // In development/test, we want to fail fast to catch schema drifts.
             throw err;
+          } else {
+            // HARDENING: a bug in the validator itself (or any other
+            // unexpected error) must not silently disable contract
+            // validation - log it and fail loudly instead of proceeding
+            // as if validation had passed.
+            this.ctx.logger.error(
+              `Unexpected error during outbound contract validation for ${url}`,
+              {
+                op,
+                schema: contract.schema,
+                error: err.message,
+                stack: err.stack,
+              }
+            );
+            throw err;
           }
         }
       }
@@ -186,6 +201,21 @@ class HttpCoreService {
                     op,
                     schema: contract.schema,
                     errors: err.errors,
+                  }
+                );
+                throw err;
+              } else {
+                // HARDENING: a bug in the validator itself (or any other
+                // unexpected error) must not silently disable contract
+                // validation - log it and fail loudly instead of proceeding
+                // as if validation had passed.
+                logger.error(
+                  `Unexpected error during inbound contract validation for ${url}`,
+                  {
+                    op,
+                    schema: contract.schema,
+                    error: err.message,
+                    stack: err.stack,
                   }
                 );
                 throw err;

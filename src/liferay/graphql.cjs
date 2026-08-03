@@ -97,6 +97,12 @@ class LiferayGraphQLService {
             errorCount: response.data.errors.length,
             firstError: response.data.errors[0].message,
           });
+          // HARDENING: match _fetchCollection's behavior - a GraphQL error
+          // means the response can't be trusted as complete, so surface it
+          // instead of silently returning partial data as if fully successful.
+          throw new Error(
+            `GraphQL Errors in ${method}: ${response.data.errors[0].message}`
+          );
         }
         // Merge successful aliases from this chunk
         if (response.data.data && response.data.data[namespace]) {

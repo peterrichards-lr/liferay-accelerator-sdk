@@ -155,12 +155,28 @@ class BatchCallbackService {
       .then(async () => {
         await this._executeCheckWithLock(sessionId, correlationId);
       })
-      .catch((err) => {
-        // Errors in the chain shouldn't kill the service
+      .catch(async (err) => {
+        // Errors in the chain shouldn't kill the service, but they must not
+        // leave the session silently stuck in a non-terminal status forever
+        // either. Fail the session so anything awaiting completion unblocks.
         this.ctx.logger.error(
           `Error in session lock chain for ${sessionId}: ${err.message}`,
-          { sessionId }
+          { sessionId, error: err.message, stack: err.stack }
         );
+
+        try {
+          await this.ctx.persistence.tryFailSession(
+            sessionId,
+            err.message,
+            null,
+            err.stack
+          );
+        } catch (failErr) {
+          this.ctx.logger.error(
+            `Failed to mark session ${sessionId} as FAILED after lock chain error: ${failErr.message}`,
+            { sessionId }
+          );
+        }
       })
       .finally(() => {
         // Cleanup: if this was the last link in the chain, remove the entry from the map
@@ -256,8 +272,27 @@ class BatchCallbackService {
     } catch (err) {
       logger.error(
         `Fatal error in _executeCheckWithLock for ${sessionId}: ${err.message}`,
-        { sessionId }
+        { sessionId, error: err.message, stack: err.stack }
       );
+
+      // HARDENING: An unexpected error here (e.g. persistence.getSession
+      // throwing a real DB error before the inner expected-failure try/catch)
+      // must not leave the session stuck in a non-terminal status forever.
+      // Fail the session so the orchestrator (and anything awaiting
+      // completion) is unblocked instead of hanging indefinitely.
+      try {
+        await persistence.tryFailSession(
+          sessionId,
+          err.message,
+          null,
+          err.stack
+        );
+      } catch (failErr) {
+        logger.error(
+          `Failed to mark session ${sessionId} as FAILED after fatal error: ${failErr.message}`,
+          { sessionId }
+        );
+      }
     }
   }
 
@@ -358,16 +393,20 @@ class BatchCallbackService {
       return;
     }
 
+    // Hoisted so they remain accessible to the non-critical follow-on work
+    // below, which runs in its own try/catch after the critical DB write.
+    let data, errorCount, processedCount, totalCount, finalStatus;
+
     try {
       // 2. Retrieve final state from Liferay REST API
       const importTask = await liferay.getImportTask(config, batchId);
-      const data = importTask?.data || importTask;
+      data = importTask?.data || importTask;
 
       // 3. Update Batch State
-      const errorCount = data.failedItems?.length || 0;
-      const processedCount = data.processedItemsCount || 0;
-      const totalCount = data.totalItemsCount || 0;
-      let finalStatus = (data.executeStatus || payload[batchId]).toUpperCase();
+      errorCount = data.failedItems?.length || 0;
+      processedCount = data.processedItemsCount || 0;
+      totalCount = data.totalItemsCount || 0;
+      finalStatus = (data.executeStatus || payload[batchId]).toUpperCase();
 
       // --- HARDENING: Strict Error Detection ---
 
@@ -493,7 +532,30 @@ class BatchCallbackService {
         errorMessage: data.errorMessage,
         downstreamBatchId: batchId,
       });
+    } catch (error) {
+      // CRITICAL PATH: nothing has been persisted yet for this callback, so
+      // it's correct to mark the batch FAILED here.
+      logger.error('Error processing batch callback', {
+        batchERC,
+        error: error.message,
+      });
+      await persistence.updateBatch(batchERC, { status: 'FAILED' });
+      progress.batchFailed({
+        sessionId: session.session_id,
+        batchERC,
+        batchId,
+        error,
+        correlationId: effectiveCorrelationId,
+      });
+      return;
+    }
 
+    // NON-CRITICAL FOLLOW-ON WORK: the batch state above was already
+    // persisted successfully. Failures here (progress broadcasts, the
+    // generator hook) must be logged but must NOT overwrite that correct
+    // state as FAILED - doing so would silently discard a successful DB
+    // write and desync the persisted state from reality.
+    try {
       // 4. Delegate Step-Specific Logic (Verification, etc.)
       if (generator && finalStatus === 'COMPLETED') {
         await generator.handleBatchCallback(session.session_id, batchERC);
@@ -561,26 +623,27 @@ class BatchCallbackService {
           correlationId: effectiveCorrelationId,
         });
       }
-
-      // 6. Trigger Advancement
-      await this._checkSessionCompletion(
-        session.session_id,
-        effectiveCorrelationId
+    } catch (followOnError) {
+      logger.error(
+        'Error in non-critical batch callback follow-on work (broadcasts/generator hook); batch state was already persisted successfully',
+        {
+          batchERC,
+          batchId,
+          sessionId: session.session_id,
+          error: followOnError.message,
+          stack: followOnError.stack,
+        }
       );
-    } catch (error) {
-      logger.error('Error processing batch callback', {
-        batchERC,
-        error: error.message,
-      });
-      await persistence.updateBatch(batchERC, { status: 'FAILED' });
-      progress.batchFailed({
-        sessionId: session.session_id,
-        batchERC,
-        batchId,
-        error,
-        correlationId: effectiveCorrelationId,
-      });
     }
+
+    // 6. Trigger Advancement - always run once the critical DB write has
+    // succeeded, regardless of whether the non-critical follow-on work above
+    // failed. Otherwise the orchestrator is left waiting on a callback
+    // Liferay will never send again.
+    await this._checkSessionCompletion(
+      session.session_id,
+      effectiveCorrelationId
+    );
   }
 }
 

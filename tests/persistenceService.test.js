@@ -149,6 +149,90 @@ describe('PersistenceService', () => {
     expect(events[0].details.key).toBe('value');
   });
 
+  describe('Steady-state worker failure draining (post-init)', () => {
+    it('should reject all pending requests via _rejectAllPending and clear the map', () => {
+      let rejectedWith1;
+      let rejectedWith2;
+      persistence.pendingRequests.set('req-1', {
+        resolve: vi.fn(),
+        reject: (err) => {
+          rejectedWith1 = err;
+        },
+      });
+      persistence.pendingRequests.set('req-2', {
+        resolve: vi.fn(),
+        reject: (err) => {
+          rejectedWith2 = err;
+        },
+      });
+
+      persistence._rejectAllPending('worker died');
+
+      expect(rejectedWith1).toBeInstanceOf(Error);
+      expect(rejectedWith1.message).toBe('worker died');
+      expect(rejectedWith2).toBeInstanceOf(Error);
+      expect(persistence.pendingRequests.size).toBe(0);
+    });
+
+    it('should reject in-flight requests when the worker emits an unexpected error event', async () => {
+      let capturedError;
+      persistence.pendingRequests.set('in-flight-id', {
+        resolve: vi.fn(),
+        reject: (err) => {
+          capturedError = err;
+        },
+      });
+
+      persistence.worker.emit('error', new Error('worker crashed'));
+
+      expect(capturedError).toBeInstanceOf(Error);
+      expect(persistence.pendingRequests.size).toBe(0);
+    });
+
+    it('should reject in-flight requests when the worker exits unexpectedly', async () => {
+      let capturedError;
+      persistence.pendingRequests.set('in-flight-id', {
+        resolve: vi.fn(),
+        reject: (err) => {
+          capturedError = err;
+        },
+      });
+
+      persistence.worker.emit('exit', 1);
+
+      expect(capturedError).toBeInstanceOf(Error);
+      expect(persistence.pendingRequests.size).toBe(0);
+    });
+
+    it('should reject any still-pending requests when close() is called', async () => {
+      let capturedError;
+      persistence.pendingRequests.set('closing-id', {
+        resolve: vi.fn(),
+        reject: (err) => {
+          capturedError = err;
+        },
+      });
+
+      await persistence.close();
+
+      expect(capturedError).toBeInstanceOf(Error);
+      expect(persistence.pendingRequests.size).toBe(0);
+    });
+
+    it('should leave a genuinely in-flight request hanging without the fix (regression guard)', async () => {
+      // This is a behavioral sanity check: a real in-flight request should
+      // actually get rejected (not just resolved as a no-op) when the
+      // worker errors out, proving the caller's await would have unblocked.
+      const pending = new Promise((resolve, reject) => {
+        persistence.pendingRequests.set('real-await', { resolve, reject });
+      });
+
+      persistence.worker.emit('error', new Error('boom'));
+
+      await expect(pending).rejects.toThrow('boom');
+    });
+  });
+
   it('should filter completed sessions to exclude deletion flows', async () => {
     await persistence.createSession({
       sessionId: 'gen-1',
