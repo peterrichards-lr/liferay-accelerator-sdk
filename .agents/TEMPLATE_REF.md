@@ -21,4 +21,5 @@ Before writing a new agent rule here, check whether `ai-agent-template` already 
 Update the "Last checked" date and the drift list above whenever this comparison is repeated.
 
 ---
-*Last Updated: 2026-08-05* | *Last Reviewed: 2026-08-05*
+
+_Last Updated: 2026-08-05_ | _Last Reviewed: 2026-08-05_
