@@ -5,3 +5,7 @@ coverage/
 .DS_Store
 *.log
 src/data/*.db*
+
+# This project uses yarn (yarn.lock is the committed lockfile) -- an
+# npm-generated lockfile here is a stray artifact, not project state.
+package-lock.json
