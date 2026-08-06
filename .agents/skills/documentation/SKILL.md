@@ -11,8 +11,8 @@ To prevent documentation decay and ensure system configuration and architectural
 
 After implementing any code change and before declaring a task finished, you MUST use Grep or Glob to identify relevant documentation, then use Read to read the identified files and analyze their contents. You are FORBIDDEN from reporting task completion until this context is loaded and timestamp footers are updated.
 
-- **If no changes are needed**: The agent must still update the `*Last Reviewed: YYYY-MM-DD*` footer timestamp in the reviewed document to the current date.
-- **If updates are required**: The agent must update the documentation content and change both `*Last Updated: YYYY-MM-DD*` and `*Last Reviewed: YYYY-MM-DD*` footer timestamps to the current date.
+- **If no changes are needed**: The agent must still update the `_Last Reviewed: YYYY-MM-DD_` footer timestamp in the reviewed document to the current date.
+- **If updates are required**: The agent must update the documentation content and change both `_Last Updated: YYYY-MM-DD_` and `_Last Reviewed: YYYY-MM-DD_` footer timestamps to the current date.
 - **Scope**: A single code change may require updates to more than one document.
 
 ## 2. Missing Documentation
@@ -36,4 +36,4 @@ _Last Updated: YYYY-MM-DD_ | _Last Reviewed: YYYY-MM-DD_
 
 ---
 
-_Last Updated: 2026-07-20_ | _Last Reviewed: 2026-07-20_
+_Last Updated: 2026-08-03_ | _Last Reviewed: 2026-08-03_

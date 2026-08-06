@@ -16,6 +16,12 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check documentation footer bump policy
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/check-footer-bump.py "origin/${{ github.base_ref }}" "HEAD"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
