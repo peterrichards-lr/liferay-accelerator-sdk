@@ -6,9 +6,11 @@ from pathlib import Path
 from datetime import datetime
 
 IGNORE_DIRS = {'.git', 'node_modules', '.venv', '.smoke_venv', 'coverage'}
-# Regex to match the required footer block and extract Last Updated and Last Reviewed dates
+# Regex to match the required footer block and extract Last Updated and Last Reviewed dates.
+# The footer uses Markdown underscore emphasis (`_..._`), not asterisks, to match this
+# repo's Prettier formatting convention (see .agents/skills/documentation/SKILL.md).
 FOOTER_REGEX = re.compile(
-    r"\*Last Updated:\s*([\d\-]+)\*\s*\|\s*\*Last Reviewed:\s*([\d\-]+)\*"
+    r"_Last Updated:\s*([\d\-]+)_\s*\|\s*_Last Reviewed:\s*([\d\-]+)_"
 )
 
 def should_ignore(path: Path) -> bool:
