@@ -17,6 +17,7 @@ const BaseGenerator = require('./workflow/baseGenerator.cjs');
 const PersistenceService = require('./services/persistenceService.cjs');
 const BatchCallbackService = require('./services/batchCallbackService.cjs');
 const BatchProcessorService = require('./services/batchProcessorService.cjs');
+const SchemaCorrelationService = require('./services/schemaCorrelationService.cjs');
 
 // Utils
 const liferayPaths = require('./utils/liferayPaths.cjs');
@@ -41,6 +42,7 @@ module.exports = {
   PersistenceService,
   BatchCallbackService,
   BatchProcessorService,
+  SchemaCorrelationService,
 
   // Expose key utilities
   utils: {
