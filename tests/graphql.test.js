@@ -637,21 +637,19 @@ describe('LiferayGraphQLService', () => {
       ).rejects.toThrow('Access denied');
     });
 
-    it('should escape double quotes in the warehouse items filter', async () => {
-      graphqlResponseMock = (body) => {
-        expect(body.query).toContain('filter: "sku eq \\"A\\"\\"B\\""');
-        return HttpResponse.json({
-          data: {
-            headlessCommerceAdminInventory_v1_0: {
-              warehouseIdWarehouseItems: { items: [], totalCount: 0 },
-            },
-          },
-        });
+    it('should reject a warehouse items filter instead of emitting a schema-invalid query', async () => {
+      let requestSent = false;
+      graphqlResponseMock = () => {
+        requestSent = true;
+        return HttpResponse.json({ data: {} });
       };
 
-      await graphqlService.getWarehouseItems(config, 1111, 'sku eq "A""B"', [
-        'sku',
-      ]);
+      // warehouseIdWarehouseItems has no filter argument in the Liferay schema,
+      // so a filtered lookup must fail locally and be routed through REST.
+      await expect(
+        graphqlService.getWarehouseItems(config, 1111, 'sku eq "A""B"', ['sku'])
+      ).rejects.toThrow(/does not support filtering/);
+      expect(requestSent).toBe(false);
     });
 
     it('should reject a non-numeric warehouseId instead of interpolating it raw into the query', async () => {
@@ -875,7 +873,7 @@ describe('LiferayGraphQLService', () => {
       ]);
       expect(spy).toHaveBeenCalledWith(
         config,
-        'headlessAdminAddress_v1_0',
+        'headlessAdminUser_v1_0',
         'postalAddressByExternalReferenceCode',
         ['ERC-AD'],
         ['id', 'externalReferenceCode']

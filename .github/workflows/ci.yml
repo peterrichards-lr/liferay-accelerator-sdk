@@ -35,5 +35,8 @@ jobs:
       - name: Run Linting & Formatting Check
         run: yarn lint
 
+      - name: Validate GraphQL Queries Against Liferay Schema
+        run: yarn validate:graphql
+
       - name: Run Unit Tests With Coverage
         run: yarn test -- --coverage

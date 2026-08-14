@@ -382,22 +382,30 @@ class CommerceService {
     const combinedFilter = filters.length > 0 ? filters.join(' and ') : null;
     for (const warehouse of warehouses.items) {
       try {
-        const res = await this.liferay.graphql.getWarehouseItems(
-          config,
-          warehouse.id,
-          combinedFilter,
-          Array.from(requestedFields),
-          {
-            page: 1,
-            pageSize,
-          }
-        );
+        // The GraphQL warehouseIdWarehouseItems query exposes no filter
+        // argument, so filtered lookups have to go through REST.
+        const res = combinedFilter
+          ? await this.liferay.rest.getWarehouseItems(config, warehouse.id, {
+              filter: combinedFilter,
+              page: 1,
+              pageSize,
+            })
+          : await this.liferay.graphql.getWarehouseItems(
+              config,
+              warehouse.id,
+              null,
+              Array.from(requestedFields),
+              {
+                page: 1,
+                pageSize,
+              }
+            );
         let items = asItems(res);
         allItems.push(...items);
         totalCount += res.totalCount || items.length;
       } catch (err) {
         this.liferay.ctx.logger.warn(
-          `Failed to list warehouse items via GraphQL for ${warehouse.id}`,
+          `Failed to list warehouse items for ${warehouse.id}`,
           {
             error: err.message,
           }
