@@ -13,12 +13,20 @@ To maintain high code quality and prevent regression, the following testing rule
   ```bash
   yarn test
   ```
-  This runs all 289 unit tests via Vitest. Ensure all tests pass.
+  This runs the full Vitest suite. Ensure all tests pass.
 - **Coverage check**:
   ```bash
   vitest run --coverage
   ```
   Ensure any new files or logic have adequate test coverage.
+- **GraphQL schema drift check**:
+  ```bash
+  yarn validate:graphql
+  ```
+  Validates every query `LiferayGraphQLService` can emit against
+  `api-schemas/liferay_schema.graphql`. Adding a query method also requires an
+  entry in `QUERY_SPECS` (`scripts/validate-graphql-queries.cjs`), otherwise
+  `tests/graphqlSchemaValidation.test.js` fails.
 
 ## 2. Test-Driven Alignment & Gates
 
@@ -30,4 +38,4 @@ To maintain high code quality and prevent regression, the following testing rule
 
 ---
 
-_Last Updated: 2026-07-19_ | _Last Reviewed: 2026-07-19_
+_Last Updated: 2026-08-14_ | _Last Reviewed: 2026-08-14_

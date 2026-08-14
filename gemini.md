@@ -21,6 +21,7 @@
 - Modularized SDK's monolithic rules (`AGENTS.md`) into structured skill modules under `.agents/skills/` and tagged release `v0.4.2`.
 - Created Epic #51 and sub-issues #52 and #53 to address Agentic Workflow Gaps (Sequential Workflows and Multi-Agent Collaboration) in the SDK and Accelerators.
 - Extended `ExtractionFacade` with Headless Page Experience APIs (`getPageSpecification`, `updatePageElement`) in support of AICA Epic #418 (Issue #420). Merged via PR #69.
+- Added static GraphQL schema-drift validation (`yarn validate:graphql`, wired into CI) and fixed the three drifted queries it surfaced (Issue #123).
 
 ## Current Goals
 
@@ -34,4 +35,4 @@
 
 ---
 
-_Last Updated: 2026-07-26_ | _Last Reviewed: 2026-07-26_
+_Last Updated: 2026-08-14_ | _Last Reviewed: 2026-08-14_
