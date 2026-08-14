@@ -1,9 +1,36 @@
+const SchemaCorrelationService = require('./schemaCorrelationService.cjs');
+
 class BatchCallbackService {
   constructor(ctx) {
     this.ctx = ctx;
     this.generators = {}; // Registry for BaseGenerator instances
     this.sessionLocks = new Map(); // sessionId -> Promise (the current processing chain)
     this.sessionDirtyFlags = new Set();
+    this.schemaCorrelator = new SchemaCorrelationService(ctx);
+  }
+
+  /**
+   * Correlates Liferay's failed item report with the submitted payload and the
+   * SDK's own ContractValidator assessment, so a batch failure explains itself
+   * ("Liferay error vs local assessment vs failed payload item") instead of
+   * leaving the developer to reconstruct it by hand.
+   *
+   * Purely diagnostic: never allowed to disturb callback processing.
+   */
+  async buildSchemaCorrelationReport(options) {
+    try {
+      const report = await this.schemaCorrelator.correlate(options);
+      return {
+        report,
+        formatted: this.schemaCorrelator.formatReport(report),
+      };
+    } catch (error) {
+      this.ctx.logger.warn(
+        `Could not build schema correlation report for batch ${options?.batchId}: ${error.message}`,
+        { batchId: options?.batchId, error: error.message }
+      );
+      return null;
+    }
   }
 
   /**
@@ -464,6 +491,34 @@ class BatchCallbackService {
               sessionId,
             });
 
+            const entityType = generator
+              ? generator._normalizeEntityType(dbBatch.step_key)
+              : dbBatch.step_key;
+
+            // SCHEMA CORRELATION: pair each Liferay rejection with the payload
+            // item that caused it and with our local contract assessment.
+            const correlation = await this.buildSchemaCorrelationReport({
+              config,
+              batchId,
+              batchERC,
+              stepKey: dbBatch.step_key,
+              entityType,
+              failureReport,
+            });
+
+            if (correlation) {
+              logger.error(
+                `Schema Correlation Report for failed batch ${batchId}\n${correlation.formatted}`,
+                {
+                  batchId,
+                  batchERC,
+                  sessionId,
+                  summary: correlation.report.summary,
+                  contract: correlation.report.contract,
+                }
+              );
+            }
+
             // CRITICAL: Log full raw content if error is unknown to help schema mapping
             if (errorMessage.toLowerCase().includes('unknown error')) {
               logger.error('Full failed item content for investigation:', {
@@ -478,11 +533,10 @@ class BatchCallbackService {
               sessionId: session.session_id,
               batchERC,
               batchId,
-              entityType: generator
-                ? generator._normalizeEntityType(dbBatch.step_key)
-                : dbBatch.step_key,
+              entityType,
               operation: session.flow_type,
               failedItems: failureReport,
+              schemaCorrelation: correlation ? correlation.report : null,
               correlationId: effectiveCorrelationId,
             });
 
@@ -498,6 +552,14 @@ class BatchCallbackService {
                 errorCount,
                 totalCount,
                 failedItems: failureReport.slice(0, 50), // Cap details to prevent DB bloat
+                schemaCorrelation: correlation
+                  ? {
+                      contract: correlation.report.contract,
+                      payloadSource: correlation.report.payloadSource,
+                      summary: correlation.report.summary,
+                      report: correlation.formatted,
+                    }
+                  : null,
               },
             });
           } else {

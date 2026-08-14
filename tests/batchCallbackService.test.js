@@ -393,6 +393,108 @@ describe('BatchCallbackService', () => {
       );
     });
 
+    it('should attach a Schema Correlation Report to the broadcast, the audit event and the log', async () => {
+      const mockBatch = { session_id: 'sid-1', step_key: 'create-products' };
+      const mockSession = {
+        session_id: 'sid-1',
+        flow_type: 'generate',
+        context: { config: { liferayUrl: 'http://localhost:8080' } },
+      };
+
+      mockPersistence.getBatch.mockResolvedValue(mockBatch);
+      mockPersistence.getSession.mockResolvedValue(mockSession);
+      mockGenerator._normalizeEntityType.mockReturnValue('products');
+      service.registerGenerator('product', mockGenerator);
+
+      mockLiferay.getImportTask.mockResolvedValue({
+        executeStatus: 'COMPLETED',
+        processedItemsCount: 1,
+        totalItemsCount: 2,
+        failedItems: [{ error: 'Invalid product' }],
+      });
+      mockLiferay.getImportTaskFailedItemReport.mockResolvedValue([
+        { externalReferenceCode: 'ERC-BAD', errorMessage: 'Invalid product' },
+      ]);
+      mockLiferay.getImportTaskSubmittedContent = vi
+        .fn()
+        .mockResolvedValue([
+          { externalReferenceCode: 'ERC-BAD', productType: 42 },
+        ]);
+
+      const ContractValidator = require('../src/services/contractValidator.cjs');
+      mockCtx.contractValidator = new ContractValidator(mockCtx);
+
+      await service.processCallbackInternal('BATCH-CORRELATE', {
+        9001: 'COMPLETED',
+      });
+
+      const broadcast = mockProgress.emitBatchItemsFailed.mock.calls[0][0];
+      expect(broadcast.schemaCorrelation.contract).toEqual({
+        spec: 'headless-commerce-admin-catalog-v1.0-openapi.json',
+        schema: 'Product',
+      });
+      expect(broadcast.schemaCorrelation.summary).toMatchObject({
+        failedItemCount: 1,
+        correlatedCount: 1,
+        locallyPreventableCount: 1,
+      });
+      expect(broadcast.schemaCorrelation.entries[0].verdict).toBe(
+        'LOCALLY_PREVENTABLE'
+      );
+
+      const auditEvent = mockPersistence.logWorkflowEvent.mock.calls[0][0];
+      expect(auditEvent.details.schemaCorrelation.report).toContain(
+        'Schema Correlation Report'
+      );
+
+      expect(mockCtx.logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Schema Correlation Report'),
+        expect.objectContaining({ batchERC: 'BATCH-CORRELATE' })
+      );
+    });
+
+    it('should still process the callback when the schema correlation report cannot be built', async () => {
+      const mockBatch = { session_id: 'sid-1', step_key: 'create-products' };
+      const mockSession = {
+        session_id: 'sid-1',
+        flow_type: 'generate',
+        context: { config: {} },
+      };
+
+      mockPersistence.getBatch.mockResolvedValue(mockBatch);
+      mockPersistence.getSession.mockResolvedValue(mockSession);
+      service.registerGenerator('product', mockGenerator);
+
+      mockLiferay.getImportTask.mockResolvedValue({
+        executeStatus: 'COMPLETED',
+        processedItemsCount: 1,
+        totalItemsCount: 2,
+        failedItems: [{ error: 'Invalid product' }],
+      });
+      mockLiferay.getImportTaskFailedItemReport.mockResolvedValue([
+        { errorMessage: 'Invalid product' },
+      ]);
+
+      vi.spyOn(service.schemaCorrelator, 'correlate').mockRejectedValue(
+        new Error('correlator exploded')
+      );
+
+      await service.processCallbackInternal('BATCH-CORRELATE-ERR', {
+        9001: 'COMPLETED',
+      });
+
+      expect(mockPersistence.updateBatch).toHaveBeenCalledWith(
+        'BATCH-CORRELATE-ERR',
+        expect.objectContaining({ status: 'FAILED' })
+      );
+      const broadcast = mockProgress.emitBatchItemsFailed.mock.calls[0][0];
+      expect(broadcast.schemaCorrelation).toBeNull();
+      expect(mockCtx.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Could not build schema correlation report'),
+        expect.any(Object)
+      );
+    });
+
     it('should mark batch FAILED and skip follow-on work when the critical DB write path throws', async () => {
       const mockBatch = { session_id: 'sid-1', step_key: 'price-lists' };
       const mockSession = {
