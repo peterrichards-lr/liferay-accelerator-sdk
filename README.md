@@ -8,6 +8,7 @@ Hardened Liferay DXP Integration SDK for Batch, Workflow, and API orchestration.
 - **Runtime Auto-Discovery**: Probes target DXP capabilities dynamically at boot to select the correct adapter.
 - **Contract Enforcement**: Validates inbound and outbound payloads against Liferay DXP OpenAPI specifications.
 - **GraphQL Schema Drift Detection**: Statically validates every query the SDK can emit against `api-schemas/liferay_schema.graphql` in CI.
+- **Schema Correlation Reporting**: Explains batch import failures by pairing each Liferay error with the payload item that caused it and the SDK's own contract assessment.
 - **Transient Error Resilience**: Configurable retry thresholds and soft-status error mapping.
 
 ## Setup
@@ -44,6 +45,27 @@ unsupported arguments therefore fail in CI rather than at runtime.
 Add an entry to `QUERY_SPECS` in that script whenever a new query method is
 added to `src/liferay/graphql.cjs` - `tests/graphqlSchemaValidation.test.js`
 fails if a public query method is left uncovered.
+
+## Batch Failure Diagnostics
+
+When a Liferay batch import reports failed items, `BatchCallbackService` builds
+a **Schema Correlation Report** via `SchemaCorrelationService`. Each failed item
+is presented as:
+
+- **Liferay Error** - the message from `getImportTaskFailedItemReport`.
+- **ContractValidator Local Assessment** - the same payload item re-validated
+  against the authoritative OpenAPI contract.
+- **Failed Payload Item** - the submitted item, matched by external reference
+  code, embedded report content or reported index.
+
+Each entry is given a verdict: `LOCALLY_PREVENTABLE` (the SDK's own contract
+rejects the item too), `SERVER_SIDE_ONLY` (the payload is contract-valid, so the
+rejection is a data/business/permission problem) or `UNDIAGNOSED` (no payload
+match or no contract mapped for the entity).
+
+The report is logged, broadcast with `emitBatchItemsFailed` and persisted with
+the workflow failure event. Correlation is purely diagnostic - a failure to
+build it never affects callback processing.
 
 <!-- markdownlint-disable MD049 -->
 
