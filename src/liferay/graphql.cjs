@@ -513,11 +513,15 @@ class LiferayGraphQLService {
   }
 
   async getOrders(config, filter, fields, opts, search = null) {
-    // Simplify orders discovery fields
+    // Simplify orders discovery fields.
+    // NOTE: 'orderNumber' is not a field on the Liferay GraphQL Order type
+    // (see api-schemas/liferay_schema.graphql), so requesting it by default
+    // made every unqualified getOrders call fail. 'orderStatus' gives the same
+    // at-a-glance context without inventing a field the schema does not expose.
     const discoveryFields = fields || [
       'id',
       'externalReferenceCode',
-      'orderNumber',
+      'orderStatus',
     ];
     return this._fetchCollection(
       config,
@@ -586,18 +590,27 @@ class LiferayGraphQLService {
   }
 
   async getWarehouseItems(config, warehouseId, filter, fields, opts) {
+    const safeWarehouseId = this._safeGraphQLInt(warehouseId, 'warehouseId');
+
+    // HARDENING: warehouseIdWarehouseItems only accepts id/page/pageSize - it
+    // has no filter argument, so inlining one produced a query the schema
+    // rejects. Fail fast with an actionable message instead of emitting an
+    // invalid query, and route filtered lookups through REST.
+    if (typeof filter === 'string' && filter.trim() !== '') {
+      throw new Error(
+        'GraphQL warehouseIdWarehouseItems does not support filtering. ' +
+          'Use LiferayRestService#getWarehouseItems for filtered warehouse item lookups.'
+      );
+    }
+
     const client = await this._getClient(config);
     const fieldSelection = fields.join(' ');
-    const safeWarehouseId = this._safeGraphQLInt(warehouseId, 'warehouseId');
-    const safeFilter = typeof filter === 'string' ? filter : '';
-    const escapedFilter = this._escapeGraphQLString(safeFilter);
-    const filterArg = escapedFilter ? `, filter: "${escapedFilter}"` : '';
     const { page = 1, pageSize = 200 } = opts || {};
 
     const query = `
       query {
         headlessCommerceAdminInventory_v1_0 {
-          warehouseIdWarehouseItems(id: ${safeWarehouseId}, page: ${page}, pageSize: ${pageSize}${filterArg}) {
+          warehouseIdWarehouseItems(id: ${safeWarehouseId}, page: ${page}, pageSize: ${pageSize}) {
             items {
               ${fieldSelection}
             }
@@ -685,9 +698,11 @@ class LiferayGraphQLService {
     ercs,
     fields = ['id', 'externalReferenceCode']
   ) {
+    // Postal addresses are exposed by the Headless Admin User namespace, not
+    // Headless Admin Address (which only serves countries and regions).
     return this.fetchEntitiesByERC(
       config,
-      'headlessAdminAddress_v1_0',
+      'headlessAdminUser_v1_0',
       'postalAddressByExternalReferenceCode',
       ercs,
       fields

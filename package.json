@@ -27,6 +27,7 @@
     "@vitest/coverage-v8": "^4.1.9",
     "eslint": "10.6.0",
     "globals": "15.15.0",
+    "graphql": "^16.13.2",
     "msw": "^2.14.6",
     "prettier": "3.9.1",
     "vitest": "4.1.9"
@@ -41,6 +42,7 @@
     "test": "vitest run",
     "eslint": "eslint .",
     "lint": "eslint . && prettier --check .",
+    "validate:graphql": "node scripts/validate-graphql-queries.cjs",
     "sync": "node scripts/sync-schemas.js",
     "generate": "node scripts/generate-client.js"
   }
