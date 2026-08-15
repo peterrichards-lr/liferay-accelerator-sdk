@@ -96,6 +96,31 @@ class ContractValidator {
   }
 
   /**
+   * True when a loaded spec is a hand-written placeholder rather than a synced
+   * Liferay API description.
+   *
+   * A synced spec always describes its endpoints: the smallest one in
+   * api-schemas declares 13 paths. A document with none was written by hand to
+   * satisfy a schema lookup, so its schemas assert almost nothing and a passing
+   * validation against them carries no information. Callers that report an
+   * assessment to a human need to say so rather than claim the payload is
+   * contract-clean.
+   *
+   * Keyed off the document instead of a property-count heuristic so it
+   * self-corrects the moment the real spec is synced, and so it never
+   * mislabels legitimately small schemas (Facet, MultipartBody, the various
+   * *RequestBody types) that appear throughout the real specs.
+   *
+   * @param {string} specFileName e.g. 'headless-commerce-admin-order-v1.0-openapi.json'
+   * @returns {boolean}
+   */
+  isPlaceholderSpec(specFileName) {
+    const spec = this.schemas[specFileName];
+    if (!spec) return false;
+    return Object.keys(spec.paths || {}).length === 0;
+  }
+
+  /**
    * Validates data against a specific Liferay API schema.
    * @param {string} specFileName e.g. 'headless-commerce-admin-catalog-v1.0-openapi.json'
    * @param {string} schemaName e.g. 'Product'

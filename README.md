@@ -61,7 +61,14 @@ is presented as:
 Each entry is given a verdict: `LOCALLY_PREVENTABLE` (the SDK's own contract
 rejects the item too), `SERVER_SIDE_ONLY` (the payload is contract-valid, so the
 rejection is a data/business/permission problem) or `UNDIAGNOSED` (no payload
-match or no contract mapped for the entity).
+match, no contract mapped for the entity, or the mapped spec is a placeholder).
+
+A spec that declares no paths is treated as a placeholder rather than a synced
+Liferay API description - its schemas assert too little for a passing validation
+to mean anything, so the report says it could not assess the item instead of
+claiming the payload is contract-clean. `headless-commerce-admin-order-v1.0`
+is currently in that state; re-syncing it with `yarn sync` restores full
+assessment for orders automatically.
 
 The report is logged, broadcast with `emitBatchItemsFailed` and persisted with
 the workflow failure event. Correlation is purely diagnostic - a failure to
@@ -71,4 +78,4 @@ build it never affects callback processing.
 
 ---
 
-_Last Updated: 2026-08-14_ | _Last Reviewed: 2026-08-14_
+_Last Updated: 2026-08-15_ | _Last Reviewed: 2026-08-15_

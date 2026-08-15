@@ -210,6 +210,46 @@ describe('SchemaCorrelationService', () => {
       expect(assessment.reason).toMatch(/could not be correlated/);
     });
 
+    it('refuses to assess against a placeholder spec instead of reporting a false pass', () => {
+      const contract = findContractByEntityType('orders');
+      expect(contract).toMatchObject({
+        spec: 'headless-commerce-admin-order-v1.0-openapi.json',
+        schema: 'Order',
+      });
+
+      // This payload satisfies the placeholder Order schema, so validating
+      // against it would report PASSED and blame Liferay for the failure.
+      const assessment = service.assessLocally(contract, {
+        externalReferenceCode: 'ORD-1',
+        nonsenseFieldLiferayWouldReject: true,
+      });
+
+      expect(assessment.status).toBe(LOCAL_ASSESSMENT.SKIPPED);
+      expect(assessment.reason).toMatch(/placeholder spec/);
+      expect(assessment.reason).toMatch(/sync-schemas/);
+      expect(service._verdictFor(assessment)).toBe(VERDICT.UNDIAGNOSED);
+    });
+
+    it('assesses normally once a spec declares paths', () => {
+      // Guards the self-correcting property: the skip is keyed off the
+      // document, so syncing a real order spec re-enables assessment.
+      const syncedValidator = {
+        isPlaceholderSpec: () => false,
+        validate: () => true,
+      };
+      const withSyncedSpec = new SchemaCorrelationService({
+        logger: createLogger(),
+        contractValidator: syncedValidator,
+      });
+
+      const assessment = withSyncedSpec.assessLocally(
+        findContractByEntityType('orders'),
+        { externalReferenceCode: 'ORD-1' }
+      );
+
+      expect(assessment.status).toBe(LOCAL_ASSESSMENT.PASSED);
+    });
+
     it('skips when no ContractValidator is registered on the context', () => {
       const bare = new SchemaCorrelationService({ logger: createLogger() });
       const assessment = bare.assessLocally(
@@ -353,6 +393,29 @@ describe('SchemaCorrelationService', () => {
         analyzedCount: 2,
         truncated: true,
       });
+    });
+
+    it('reports failed order items as undiagnosed rather than server-side', async () => {
+      const report = await service.correlate({
+        config: {},
+        batchId: '9008',
+        stepKey: 'create-orders',
+        entityType: 'orders',
+        failureReport: [
+          { externalReferenceCode: 'ORD-1', errorMessage: 'Invalid order' },
+        ],
+        submittedItems: [
+          { externalReferenceCode: 'ORD-1', accountId: 'not-a-number' },
+        ],
+      });
+
+      expect(report.summary).toMatchObject({
+        correlatedCount: 1,
+        serverSideOnlyCount: 0,
+        undiagnosedCount: 1,
+      });
+      expect(report.entries[0].verdict).toBe(VERDICT.UNDIAGNOSED);
+      expect(service.formatReport(report)).toContain('placeholder spec');
     });
 
     it('honours an explicit contract override', async () => {

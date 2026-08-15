@@ -1,0 +1,43 @@
+{
+  "title": "[SDK Readiness] Close the production-readiness gaps found in the v0.6.0 review",
+  "body": "Findings from a readiness review carried out after the v0.6.0 release (issues #123 and #124).\n\nThe SDK is sound for its current use as an internal accelerator dependency: 521 tests pass, CI gates lint, GraphQL schema validation and coverage, and the well-exercised core (graphql.cjs 98 percent, contractValidator 93 percent, batchCallbackService 86 percent, extractionFacade 89 percent, schemaCorrelationService 95 percent) is genuinely well covered.\n\nThe gaps below are what stands between that and treating the SDK as a stable, published library. The evidence that motivated this epic: the GraphQL validation gate added in #123 immediately found three shipped queries that could never have succeeded against a live DXP. Those had been released. The same class of defect is most likely to survive wherever coverage is thin and no static gate exists.\n\nSub-issues are ordered roughly by risk-to-effort.",
+  "labels": ["enhancement"],
+  "issues": [
+    {
+      "title": "Sub-Issue #1: Order OpenAPI spec is a stub, making order contract checks and correlation verdicts vacuous",
+      "body": "## Problem\n\napi-schemas/headless-commerce-admin-order-v1.0-openapi.json defines the Order schema with only two properties, id and externalReferenceCode, and declares no required fields. Every other spec in api-schemas carries the full entity definition.\n\nA schema of that shape cannot reject any realistic payload, so:\n\n- ContractValidator.validate against Order passes for essentially any object.\n- SchemaCorrelationService (added in #124) maps the order entity type to that schema, so every failed order item is reported as SERVER_SIDE_ONLY, whose stated meaning is that the payload satisfies the Liferay contract and the rejection must therefore be a data, business or permission problem.\n\nThat verdict is actively misleading for orders. A developer reading the Schema Correlation Report is told the payload was checked and found sound when in practice nothing was checked.\n\n## Proposed action\n\nEither sync the real order spec via scripts/sync-schemas.js, or detect a non-authoritative contract at assessment time and report UNDIAGNOSED with an explicit reason instead of a false pass. A dynamic check is preferable to a hardcoded exclusion so that the behaviour self-corrects once a full spec is synced.\n\nAdd regression coverage so a stub schema can never again be presented as a meaningful assessment.",
+      "completed": false,
+      "labels": ["bug"]
+    },
+    {
+      "title": "Sub-Issue #2: No static validation for REST paths, the largest unguarded surface",
+      "body": "## Problem\n\nIssue #123 added static validation for GraphQL queries and immediately found three latent bugs (getOrders requesting a non-existent orderNumber field, getPostalAddressesByERC using the wrong namespace, getWarehouseItems passing an unsupported filter argument). There is no equivalent gate for the REST surface, which is far larger.\n\nREST paths are assembled in src/utils/liferayPaths.cjs and the profile modules, then consumed across rest.cjs and the domain services. Nothing checks those paths, methods or payload shapes against the OpenAPI specs already sitting in api-schemas until a request is made against a live DXP.\n\n## Proposed action\n\nBuild the REST analogue of scripts/validate-graphql-queries.cjs: enumerate the paths the SDK can emit and assert each one resolves to a real path and method in the corresponding OpenAPI document, failing CI on drift. The same harvest-then-validate approach used for GraphQL should apply, since paths are also composed at call time.\n\nExpected to surface latent defects on first run, exactly as the GraphQL gate did.",
+      "completed": false,
+      "labels": ["enhancement", "tech debt"]
+    },
+    {
+      "title": "Sub-Issue #3: Outbound contract validation is disabled outside development and test",
+      "body": "## Problem\n\nThe runtime contract checks in src/liferay/rest/HttpCoreService.cjs and src/liferay/rest/BatchOperationService.cjs are gated on NODE_ENV being development or test. In production the safety net is off, which is where malformed payloads actually cost time and data.\n\nThis is a deliberate performance trade, but it is currently all or nothing and undocumented outside the source.\n\n## Proposed action\n\nMake validation independently configurable, for example an env flag that enables it regardless of NODE_ENV, ideally with sampling (validate the first N items of a batch, or a percentage of requests) so the cost stays bounded.\n\nMeasure the overhead first so the default can be chosen on evidence rather than assumption. Document the resulting flag in the README.",
+      "completed": false,
+      "labels": ["enhancement"]
+    },
+    {
+      "title": "Sub-Issue #4: Thin test coverage on the REST, adapter and workflow paths",
+      "body": "## Problem\n\nOverall coverage is 57 percent statements against a 40 percent gate, but it is very unevenly distributed. From the v0.6.0 coverage run:\n\n- src/liferay/rest.cjs 24 percent\n- src/liferay/index.cjs 18 percent\n- src/liferay/adapters/LegacyProductFirstAdapter.cjs 17 percent\n- src/liferay/adapters/LiferayCatalogAdapter.cjs 23 percent\n- src/workflow/baseGenerator.cjs 26 percent\n- src/utils/profiles/legacyProfile.cjs 25 percent\n\nThese are the paths a consumer actually drives, and they are the least exercised. Every test in the suite runs against msw mocks, so nothing in CI has ever talked to a real instance.\n\n## Proposed action\n\nRaise coverage on the modules above, prioritising the adapters and the legacy profile, since adapter selection silently changes which API paths are used. Consider a small opt-in integration suite that can be pointed at a real DXP with credentials supplied out of band, run outside the normal CI gate.\n\nRaising the coverage threshold should follow the work rather than lead it.",
+      "completed": false,
+      "labels": ["tech debt"]
+    },
+    {
+      "title": "Sub-Issue #5: Package is not distribution-ready",
+      "body": "## Problem\n\npackage.json declares name, version, description, main, bin, license, dependencies and scripts, but none of the fields that control what is actually distributed:\n\n- no files allowlist, so a consumer installing from git receives the entire tree, including run.log, issue_url.txt, src/logs and coverage output\n- no engines, so the supported Node range is implicit (CI uses Node 20)\n- no repository or publishConfig\n- main points into src rather than a build output\n\nThe SDK is also pre-1.0, so semver communicates nothing to consumers, while v0.6.0 did change two runtime behaviours.\n\n## Proposed action\n\nAdd files, engines and repository. Decide whether the package is published to a registry or consumed from git, and state that in the README so consumers know what they are pinning. Consider whether the tracked log and scratch files belong in the repository at all.",
+      "completed": false,
+      "labels": ["tech debt"]
+    },
+    {
+      "title": "Sub-Issue #6: gh-issue-sync.cjs interpolates issue bodies into a shell command",
+      "body": "## Problem\n\nscripts/gh-issue-sync.cjs builds its gh invocations by string concatenation and runs them through execSync, for example:\n\n    gh issue create --title <interpolated> --body <interpolated>\n\nBecause the body is interpolated inside a double-quoted shell string, any body containing a backtick, a dollar sign or a double quote is either mangled or executed. A backtick pair in an issue body becomes command substitution and runs on the machine invoking the script.\n\nThis is why issue bodies raised through the tool have to avoid ordinary Markdown code formatting, which degrades every issue the repo files through its own tooling.\n\n## Proposed action\n\nReplace the string concatenation with execFileSync and an argument array, or write the body to a temporary file and pass --body-file. Both remove the quoting hazard entirely and allow normal Markdown, including backticks, in issue bodies.\n\nWorth doing before the tool is used again, since the failure mode is silent corruption of the issue text in the benign case and arbitrary command execution in the worst.",
+      "completed": false,
+      "labels": ["bug", "tech debt"]
+    }
+  ]
+}
