@@ -45,7 +45,6 @@ const BASE = {
   CATALOGS: `${API_ROOT.CATALOG}/catalogs`,
   CHANNELS: `${API_ROOT.CHANNEL}/channels`,
   CURRENCIES: `${API_ROOT.CATALOG}/currencies`,
-  LANGUAGES: `${API_ROOT.USER}/languages`,
   ME: `${API_ROOT.USER}/my-user-account`,
   OPTION_CATEGORIES: `${API_ROOT.CATALOG}/optionCategories`,
   OPTIONS: `${API_ROOT.CATALOG}/options`,
@@ -103,7 +102,7 @@ const PATH = {
     }`,
 
   PRODUCTS: BASE.PRODUCTS,
-  PRODUCT: (id) => `${BASE.CATALOG_API}/product/${id}`,
+  PRODUCT: (id) => `${BASE.PRODUCTS}/${id}`,
   PRICE_LISTS: BASE.PRICE_LISTS,
   PRICE_LIST: (priceListId) => `${BASE.PRICE_LISTS}/${priceListId}`,
   PRICE_LISTS_BATCH: (callbackURL) =>
@@ -193,8 +192,11 @@ const PATH = {
   OPTION_VALUE: (optionValueId) =>
     `${BASE.CATALOG_API}/optionValues/${optionValueId}`,
   OPTION_VALUES: (optionId) => `${BASE.OPTIONS}/${optionId}/optionValues`,
-  OPTION_VALUE_BY_ERC: (optionId, erc) =>
-    byERC(`${BASE.OPTIONS}/${optionId}/optionValues`, erc, VARIANT.options),
+  // Option values are addressed by ERC on the collection, not beneath a
+  // specific option: the catalog API serves
+  // /optionValues/by-externalReferenceCode/{erc}, and has no nested variant.
+  OPTION_VALUE_BY_ERC: (erc) =>
+    byERC(`${BASE.CATALOG_API}/optionValues`, erc, VARIANT.options),
 
   OPTION_CATEGORIES: BASE.OPTION_CATEGORIES,
   OPTION_CATEGORY: (optionCategoryId) =>
@@ -271,10 +273,6 @@ const PATH = {
 
   DOCUMENT_FOLDERS: (siteId) =>
     `${BASE.DELIVERY}/sites/${siteId}/document-folders`,
-  DOCUMENT_FOLDER_BY_ERC: (siteId, erc) =>
-    `${
-      BASE.DELIVERY
-    }/sites/${siteId}/document-folders/by-externalReferenceCode/${enc(erc)}`,
   SITE_LANGUAGES: (siteGroupId) =>
     `${BASE.DELIVERY}/sites/${siteGroupId}/languages`,
   SITE_DOCUMENTS: (siteId) => `${BASE.DELIVERY}/sites/${siteId}/documents`,

@@ -7,7 +7,7 @@ Hardened Liferay DXP Integration SDK for Batch, Workflow, and API orchestration.
 - **Dynamic Catalog Adapters**: Decouples API paths between legacy Commerce (Product-first) and standalone Liferay PIM (SKU-first tree) models.
 - **Runtime Auto-Discovery**: Probes target DXP capabilities dynamically at boot to select the correct adapter.
 - **Contract Enforcement**: Validates inbound and outbound payloads against Liferay DXP OpenAPI specifications.
-- **GraphQL Schema Drift Detection**: Statically validates every query the SDK can emit against `api-schemas/liferay_schema.graphql` in CI.
+- **API Drift Detection**: Statically validates every GraphQL query and REST path the SDK can emit against the Liferay schema and OpenAPI specs in CI.
 - **Schema Correlation Reporting**: Explains batch import failures by pairing each Liferay error with the payload item that caused it and the SDK's own contract assessment.
 - **Transient Error Resilience**: Configurable retry thresholds and soft-status error mapping.
 
@@ -45,6 +45,29 @@ unsupported arguments therefore fail in CI rather than at runtime.
 Add an entry to `QUERY_SPECS` in that script whenever a new query method is
 added to `src/liferay/graphql.cjs` - `tests/graphqlSchemaValidation.test.js`
 fails if a public query method is left uncovered.
+
+## REST Path Validation
+
+```bash
+yarn validate:rest
+```
+
+The same treatment for the REST surface. `scripts/validate-rest-paths.cjs`
+invokes every entry in the path profile
+(`src/utils/profiles/legacyProfile.cjs`, which also backs the catalog adapters)
+with sentinel arguments, then matches each emitted path segment-wise against the
+path templates declared by the OpenAPI documents in `api-schemas/`.
+
+Paths fall into four buckets, all reported:
+
+- **verified** - the path exists in a spec, with its supported methods listed
+- **prefixes** - API roots and collection bases that longer paths are built
+  from, which are not endpoints in their own right
+- **unverifiable** - Liferay Objects (`/o/c`), the API explorer, the unsynced
+  taxonomy API, and anything served by a placeholder spec
+- **failures** - paths that exist in no spec, which fail the build
+
+`yarn validate` runs both gates.
 
 ## Batch Failure Diagnostics
 
