@@ -22,10 +22,18 @@ Before writing code for any feature or logic change:
    node scripts/gh-issue-sync.cjs scripts/feature-xyz-plan.json --dry-run
    ```
 3. **Apply & Link**: Generate the Epic and sub-issues on GitHub:
+
    ```bash
    node scripts/gh-issue-sync.cjs scripts/feature-xyz-plan.json
    ```
-   _Note: The script automatically links all sub-issues to the parent Epic._
+
+   _Note: The script appends a `(Belongs to Epic #N)` reference to each
+   sub-issue body. It does not create GitHub sub-issue links, so add a task-list
+   checklist to the Epic body if you want them navigable._
+
+   Issue titles and bodies may contain full Markdown, including backticks,
+   quotes and `$`: `gh` is invoked with an argument array rather than a shell
+   command string (issue #135).
 
 ## 3. Resolving and Closing Tasks
 
@@ -57,4 +65,4 @@ As you complete individual sub-issues:
 
 ---
 
-_Last Updated: 2026-07-20_ | _Last Reviewed: 2026-07-20_
+_Last Updated: 2026-08-15_ | _Last Reviewed: 2026-08-15_
