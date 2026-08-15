@@ -2127,7 +2127,7 @@ class LiferayRestService {
     try {
       return await this.httpCore._get(
         config,
-        PATH.OPTION_VALUE_BY_ERC(optionId, externalReferenceCode),
+        PATH.OPTION_VALUE_BY_ERC(externalReferenceCode),
         'get-option-value-by-erc'
       );
     } catch (error) {
@@ -2177,7 +2177,7 @@ class LiferayRestService {
     externalReferenceCode,
     payload
   ) {
-    const url = PATH.OPTION_VALUE_BY_ERC(optionId, externalReferenceCode);
+    const url = PATH.OPTION_VALUE_BY_ERC(externalReferenceCode);
     return this.httpCore._patch(
       config,
       url,

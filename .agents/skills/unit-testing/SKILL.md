@@ -19,14 +19,17 @@ To maintain high code quality and prevent regression, the following testing rule
   vitest run --coverage
   ```
   Ensure any new files or logic have adequate test coverage.
-- **GraphQL schema drift check**:
+- **API drift checks**:
   ```bash
-  yarn validate:graphql
+  yarn validate
   ```
-  Validates every query `LiferayGraphQLService` can emit against
-  `api-schemas/liferay_schema.graphql`. Adding a query method also requires an
-  entry in `QUERY_SPECS` (`scripts/validate-graphql-queries.cjs`), otherwise
-  `tests/graphqlSchemaValidation.test.js` fails.
+  Runs both static gates. `yarn validate:graphql` checks every query
+  `LiferayGraphQLService` can emit against `api-schemas/liferay_schema.graphql`;
+  adding a query method also requires an entry in `QUERY_SPECS`
+  (`scripts/validate-graphql-queries.cjs`), otherwise
+  `tests/graphqlSchemaValidation.test.js` fails. `yarn validate:rest` checks
+  every path in the profile table against the OpenAPI documents in
+  `api-schemas/`.
 
 ## 2. Test-Driven Alignment & Gates
 
@@ -38,4 +41,4 @@ To maintain high code quality and prevent regression, the following testing rule
 
 ---
 
-_Last Updated: 2026-08-14_ | _Last Reviewed: 2026-08-14_
+_Last Updated: 2026-08-15_ | _Last Reviewed: 2026-08-15_

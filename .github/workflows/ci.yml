@@ -38,5 +38,8 @@ jobs:
       - name: Validate GraphQL Queries Against Liferay Schema
         run: yarn validate:graphql
 
+      - name: Validate REST Paths Against Liferay OpenAPI Specs
+        run: yarn validate:rest
+
       - name: Run Unit Tests With Coverage
         run: yarn test -- --coverage
