@@ -198,6 +198,27 @@ describe('SDK Inbound Response Contract Validation', () => {
       }).toThrow(/Schema not found/);
     });
 
+    it('should identify a placeholder spec that declares no paths', () => {
+      // The order spec is hand-written: 1 schema, 0 paths. Every synced spec
+      // describes its endpoints, the smallest declaring 13 paths.
+      expect(
+        validator.isPlaceholderSpec(
+          'headless-commerce-admin-order-v1.0-openapi.json'
+        )
+      ).toBe(true);
+    });
+
+    it('should not treat synced specs or unknown specs as placeholders', () => {
+      for (const spec of [
+        'headless-commerce-admin-catalog-v1.0-openapi.json',
+        'headless-admin-user-v1.0-openapi.json',
+        'headless-batch-engine-v1.0-openapi.json',
+      ]) {
+        expect(validator.isPlaceholderSpec(spec)).toBe(false);
+      }
+      expect(validator.isPlaceholderSpec('not-a-loaded-spec.json')).toBe(false);
+    });
+
     it('should throw error when validateArray is called with a non-array input', () => {
       expect(() => {
         validator.validateArray(

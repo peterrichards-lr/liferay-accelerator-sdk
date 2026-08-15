@@ -187,6 +187,21 @@ class SchemaCorrelationService {
       };
     }
 
+    // A placeholder spec's schemas assert almost nothing, so validating against
+    // one would report PASSED - and this report tells a human that means the
+    // payload is contract-clean and the fault lies server-side. Say we could
+    // not assess it instead of asserting something we did not check.
+    if (
+      typeof validator.isPlaceholderSpec === 'function' &&
+      validator.isPlaceholderSpec(contract.spec)
+    ) {
+      return {
+        status: LOCAL_ASSESSMENT.SKIPPED,
+        errors: [],
+        reason: `${contract.spec} is a placeholder spec (it declares no paths), so it cannot meaningfully assess ${contract.schema} payloads - re-sync it with scripts/sync-schemas.js`,
+      };
+    }
+
     try {
       validator.validate(contract.spec, contract.schema, payloadItem);
       return { status: LOCAL_ASSESSMENT.PASSED, errors: [] };
