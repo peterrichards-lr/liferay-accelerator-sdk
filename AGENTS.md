@@ -19,10 +19,30 @@ Please reference the specific skill file based on the context of your task:
 
 ---
 
+## Current Work State
+
+Active, in-flight task state and intra-task scratchpad context are maintained
+locally in `.agent-state.md` (gitignored).
+
+- **On Session Startup**: If `.agent-state.md` exists, read it to discover active
+  objectives and resume in-flight work without lost context across AI provider
+  switches.
+- **During Execution**: Update `.agent-state.md` when making progress,
+  encountering blockers, or pausing a workflow.
+- **On Feature Completion**: Clear or reset `.agent-state.md` once all objectives
+  and verification steps are met.
+
+This file (`AGENTS.md`) is the single source of truth for agent rules, for every
+provider. Do not duplicate context into provider-specific discovery files.
+Committed narrative history belongs in `gemini.md`; `.agent-state.md` carries
+only what is in flight.
+
+---
+
 For general rules of engagement, refer to the global rules provided in the parent context.
 
 <!-- markdownlint-disable MD049 -->
 
 ---
 
-_Last Updated: 2026-07-20_ | _Last Reviewed: 2026-08-14_
+_Last Updated: 2026-08-17_ | _Last Reviewed: 2026-08-17_

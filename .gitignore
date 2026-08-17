@@ -9,3 +9,7 @@ src/data/*.db*
 # This project uses yarn (yarn.lock is the committed lockfile) -- an
 # npm-generated lockfile here is a stray artifact, not project state.
 package-lock.json
+
+# Ephemeral agent scratchpad: in-flight state across AI provider switches.
+# Committed narrative history belongs in gemini.md instead.
+.agent-state.md
