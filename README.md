@@ -17,6 +17,33 @@ Hardened Liferay DXP Integration SDK for Batch, Workflow, and API orchestration.
 yarn install
 ```
 
+Requires Node `20.x` or `>=22` (`better-sqlite3` supports both but not 21.x).
+
+## Consuming the SDK
+
+The SDK is consumed as a git dependency pinned to a release tag:
+
+```json
+{
+  "dependencies": {
+    "@liferay/accelerator-sdk": "github:peterrichards-lr/liferay-accelerator-sdk#v0.6.0"
+  }
+}
+```
+
+Pin the tag rather than a branch. The SDK is pre-1.0, so a minor bump can change
+runtime behaviour - `v0.6.0`, for example, changed `getOrders`' default field
+selection and made `getWarehouseItems` reject a filter argument.
+
+The `files` allowlist in `package.json` bounds what a published tarball
+contains: `src` (minus `src/logs`), `bin`, and `api-schemas/*.json`, which
+`ContractValidator` reads at runtime. That comes to 69 files.
+
+> **Pack with npm, not yarn.** `npm pack` honours `files` exactly. `yarn pack`
+> in yarn 1.22 ignores both `files` and `.npmignore` - measured at 285 files and
+> 12 MB, including coverage output, the test suite, and whatever logs happen to
+> sit in `src/logs` on the packing machine.
+
 ## Testing
 
 ```bash
@@ -101,4 +128,4 @@ build it never affects callback processing.
 
 ---
 
-_Last Updated: 2026-08-15_ | _Last Reviewed: 2026-08-15_
+_Last Updated: 2026-08-17_ | _Last Reviewed: 2026-08-17_
