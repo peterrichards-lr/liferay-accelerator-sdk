@@ -4,6 +4,8 @@ const require = createRequire(import.meta.url);
 
 const {
   ARG_OVERRIDES,
+  KNOWN_UNVERIFIED_INLINE,
+  harvestInlinePaths,
   harvestPaths,
   isTemplatePrefix,
   loadSpecTemplates,
@@ -103,6 +105,60 @@ describe('REST path validation', () => {
     expect(unverifiable.some((entry) => entry.name === 'ORDERS_BATCH')).toBe(
       true
     );
+  });
+
+  describe('inline paths outside the path profile', () => {
+    it('harvests the API paths written inline in src', () => {
+      const inline = harvestInlinePaths();
+
+      expect(inline.length).toBeGreaterThan(10);
+      // Each is reported with a file:line so it can be found and fixed.
+      for (const entry of inline) {
+        expect(entry.name).toMatch(/\.(cjs|js):\d+$/);
+        expect(entry.path.startsWith('/o/')).toBe(true);
+        // Interpolations are replaced, so nothing unresolved reaches matching.
+        expect(entry.path).not.toContain('${');
+      }
+    });
+
+    it('validates them alongside the profile paths', () => {
+      const { inline, inlineMatched, inlineUnverified } = run();
+
+      expect(inline.length).toBe(
+        inlineMatched.length + inlineUnverified.length
+      );
+      expect(inlineMatched.length).toBeGreaterThan(0);
+    });
+
+    it('tolerates only the paths explicitly listed as unverified', () => {
+      const { inlineUnverified } = run();
+
+      // Anything unverified is either a listed exception or served by an API
+      // with no synced spec - never an unexplained mismatch.
+      for (const entry of inlineUnverified) {
+        expect(entry.reason).toBeTruthy();
+        if (entry.known) {
+          expect(Object.keys(KNOWN_UNVERIFIED_INLINE)).toContain(
+            entry.concrete
+          );
+        }
+      }
+    });
+
+    it('keeps the known-unverified list honest', () => {
+      const { failures, inlineMatched } = run();
+
+      // An entry that starts matching a spec must be removed, so the list
+      // cannot outlive the mismatch it documents.
+      const stale = inlineMatched.filter((entry) =>
+        Object.prototype.hasOwnProperty.call(
+          KNOWN_UNVERIFIED_INLINE,
+          entry.concrete
+        )
+      );
+      expect(stale).toEqual([]);
+      expect(failures).toEqual([]);
+    });
   });
 
   it('fails a path that does not exist in any spec', () => {

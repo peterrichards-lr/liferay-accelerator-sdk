@@ -85,6 +85,13 @@ invokes every entry in the path profile
 with sentinel arguments, then matches each emitted path segment-wise against the
 path templates declared by the OpenAPI documents in `api-schemas/`.
 
+Paths written inline in the source rather than taken from the profile are
+harvested too, with `${...}` interpolations replaced by a sentinel segment - they
+would otherwise bypass this gate entirely. Where no synced spec describes an
+inline path, it must be listed in `KNOWN_UNVERIFIED_INLINE` with a reason; a new
+unmatched inline path fails the build, and a listed one that starts matching must
+be removed.
+
 Paths fall into four buckets, all reported:
 
 - **verified** - the path exists in a spec, with its supported methods listed
