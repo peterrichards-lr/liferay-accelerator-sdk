@@ -471,7 +471,14 @@ class BaseGenerator extends BaseWorkflowService {
               );
               failedSubStep =
                 failedSteps.length > 0
-                  ? ` (Failed sub-steps: ${failedSteps.map((s) => s.name || 'unnamed').join(', ')})`
+                  ? ` (Failed sub-steps: ${failedSteps
+                      // Sub-steps may be declared as bare strings, as
+                      // getStepState allows; reading .name off one yields
+                      // undefined and reported every failure as 'unnamed'.
+                      .map(
+                        (s) => (typeof s === 'string' ? s : s.name) || 'unnamed'
+                      )
+                      .join(', ')})`
                   : '';
             }
 
