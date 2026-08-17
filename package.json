@@ -2,7 +2,20 @@
   "name": "@liferay/accelerator-sdk",
   "version": "0.6.0",
   "description": "Hardened Liferay Accelerator SDK for Batch, Workflow, and API orchestration.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/peterrichards-lr/liferay-accelerator-sdk.git"
+  },
   "main": "src/index.js",
+  "files": [
+    "src",
+    "!src/logs",
+    "bin",
+    "api-schemas/*.json"
+  ],
+  "engines": {
+    "node": "20.x || >=22"
+  },
   "bin": {
     "liferay-ldk-mcp": "bin/mcp-server.cjs"
   },
