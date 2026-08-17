@@ -1,3 +1,12 @@
+/**
+ * Statuses tolerated per operation, rather than surfaced as errors.
+ *
+ * Keys must match an op label a call site actually passes. Ops ending in
+ * `:list` are also produced dynamically (`${entityName}:list` in
+ * src/liferay/index.cjs). An entry naming an op nothing emits is dead
+ * configuration - it looks like 404 tolerance while providing none - so
+ * tests/rest.test.js asserts every key is reachable.
+ */
 const SOFT_STATUS_BY_OP = {
   'accounts:list': [404],
   'products:list': [404],
@@ -7,8 +16,6 @@ const SOFT_STATUS_BY_OP = {
   'pricelists:list': [404],
   'get-price-list-by-erc': [404],
   'get-account-by-erc': [404],
-  'get-product-by-erc': [404],
-  'get-warehouse-by-erc': [404],
   'get-sku-by-erc': [404],
   'specifications:list': [404],
   'optionCategories:list': [404],
