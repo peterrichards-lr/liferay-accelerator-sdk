@@ -3,6 +3,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 
 const childProcess = require('child_process');
+const { readFileSync } = require('fs');
 const {
   describe: describeArgs,
   gh,
@@ -10,9 +11,15 @@ const {
 } = require('../scripts/gh-issue-sync.cjs');
 
 /**
- * The tool used to build its gh invocations by string concatenation and run
- * them through a shell, so an issue body containing backticks was executed
- * rather than posted (issue #135).
+ * The tool used to build its gh invocations by string concatenation and run them
+ * through a shell, so an issue body containing backticks was executed rather
+ * than posted (issue #135).
+ *
+ * SAFETY: no test here may pass mutating arguments to gh(). An early version of
+ * this file did, relying on a spy to intercept the call - the spy did not take
+ * effect, the real `gh issue create` ran, and it filed issue #138 against this
+ * repository. Interception is now belt; the brace is that the only arguments
+ * ever handed to gh() are read-only, so a failed spy costs nothing.
  */
 describe('gh-issue-sync argument handling', () => {
   let execFileSync;
@@ -45,13 +52,28 @@ describe('gh-issue-sync argument handling', () => {
       'plus a ${template} and a backslash \\ for good measure',
     ].join('\n');
 
-    gh(ghIssueCreateArgs('Title with "quotes"', body, ['bug']));
+    // Asserted on the argument array rather than by invoking gh: building the
+    // args is where the shell-quoting bug lived, and this way the test cannot
+    // reach the network even if interception fails.
+    const args = ghIssueCreateArgs('Title with "quotes"', body, ['bug']);
 
-    const [, args] = execFileSync.mock.calls[0];
-    // The body reaches gh byte for byte, and is one argv entry, not several.
+    // The body survives byte for byte as exactly one argv entry, not several.
     expect(args).toContain(body);
     expect(args.filter((arg) => arg === body)).toHaveLength(1);
     expect(args).toContain('Title with "quotes"');
+    expect(args.filter((arg) => arg === 'Title with "quotes"')).toHaveLength(1);
+  });
+
+  it('never hands mutating arguments to gh from this suite', () => {
+    // Guards the safety note above: gh() reaches a real CLI if a spy fails, so
+    // every call site in this file must be read-only.
+    const source = readFileSync(new URL(import.meta.url), 'utf8');
+    const ghCalls = source.match(/\bgh\(\[[^\]]*\]/g) || [];
+
+    expect(ghCalls.length).toBeGreaterThan(0);
+    for (const call of ghCalls) {
+      expect(call).not.toMatch(/'(create|close|comment|edit|delete|merge)'/);
+    }
   });
 
   it('emits one --label flag per label and none when there are no labels', () => {
