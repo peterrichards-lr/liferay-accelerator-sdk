@@ -161,6 +161,15 @@ const ENV = {
   LIFERAY_MAX_DELETION_ERRORS: num('LIFERAY_MAX_DELETION_ERRORS', 3, 1),
   LIFERAY_MAX_BATCH_ERRORS: num('LIFERAY_MAX_BATCH_ERRORS', 3, 1),
 
+  // Runtime contract validation: 'auto' (development/test), 'on', 'off'.
+  // See src/utils/contractValidationPolicy.cjs for the measured cost.
+  LIFERAY_CONTRACT_VALIDATION: str('LIFERAY_CONTRACT_VALIDATION', 'auto'),
+  LIFERAY_CONTRACT_VALIDATION_SAMPLE: num(
+    'LIFERAY_CONTRACT_VALIDATION_SAMPLE',
+    NaN,
+    0
+  ),
+
   // Generation configuration
   BATCH_SIZE: num('BATCH_SIZE', 10, 1),
   IMAGE_HEIGHT: num('IMAGE_HEIGHT', 512, 128),

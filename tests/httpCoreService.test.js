@@ -8,6 +8,7 @@ const path = require('path');
 const { Readable } = require('stream');
 
 const HttpCoreService = require('../src/liferay/rest/HttpCoreService.cjs');
+const { ENV } = require('../src/utils/constants.cjs');
 const { logger } = require('../src/utils/logger.cjs');
 
 function makeCtx(overrides = {}) {
@@ -369,6 +370,79 @@ describe('HttpCoreService - Contract Validation Error Handling', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe('validation policy gating', () => {
+    let originalEnv;
+
+    beforeEach(() => {
+      originalEnv = {
+        nodeEnv: ENV.NODE_ENV,
+        validation: ENV.LIFERAY_CONTRACT_VALIDATION,
+      };
+    });
+
+    afterEach(() => {
+      ENV.NODE_ENV = originalEnv.nodeEnv;
+      ENV.LIFERAY_CONTRACT_VALIDATION = originalEnv.validation;
+    });
+
+    const priceList = {
+      externalReferenceCode: 'PL-1',
+      name: 'PL 1',
+      currencyCode: 'USD',
+      type: 'price-list',
+      catalogId: 10,
+    };
+
+    const post = () =>
+      httpCore._request(config, {
+        method: 'POST',
+        url: '/o/headless-commerce-admin-pricing/v2.0/price-lists',
+        data: priceList,
+        op: 'create-price-list',
+      });
+
+    beforeEach(() => {
+      server.use(
+        http.post('*/o/headless-commerce-admin-pricing/v2.0/price-lists', () =>
+          HttpResponse.json({ id: 1 })
+        )
+      );
+    });
+
+    it('validates outbound payloads in production when validation is switched on', async () => {
+      // The point of #132: the safety net was unavailable in production, which
+      // is where a malformed payload actually costs a failed batch.
+      ENV.NODE_ENV = 'production';
+      ENV.LIFERAY_CONTRACT_VALIDATION = 'on';
+
+      await post();
+
+      expect(mockContractValidator.validate).toHaveBeenCalledWith(
+        'headless-commerce-admin-pricing-v2.0-openapi.json',
+        'PriceList',
+        priceList
+      );
+    });
+
+    it('skips validation in development when switched off', async () => {
+      ENV.NODE_ENV = 'development';
+      ENV.LIFERAY_CONTRACT_VALIDATION = 'off';
+
+      await post();
+
+      expect(mockContractValidator.validate).not.toHaveBeenCalled();
+    });
+
+    it('leaves the historical development behaviour intact by default', async () => {
+      ENV.NODE_ENV = 'development';
+      ENV.LIFERAY_CONTRACT_VALIDATION = 'auto';
+
+      await post();
+
+      expect(mockContractValidator.validate).toHaveBeenCalled();
+    });
   });
 
   it('rethrows and logs when outbound validation throws a non-ContractViolationError', async () => {

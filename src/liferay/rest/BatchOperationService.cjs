@@ -2,6 +2,10 @@ const { ERC_PREFIX, ENV } = require('../../utils/constants.cjs');
 const { createERC, delay } = require('../../utils/misc.cjs');
 const { sanitizedERC } = require('../../utils/normalize.cjs');
 const { findContract } = require('../../utils/contractMappings.cjs');
+const {
+  batchSampleSize,
+  shouldValidateOutbound,
+} = require('../../utils/contractValidationPolicy.cjs');
 const { getBatchCacheTTLms } = require('../../utils/ttl.cjs');
 const { ErrorHandler } = require('../../utils/expressErrorHandler.cjs');
 const { asItems, asCount } = require('../../utils/liferayUtils.cjs');
@@ -140,15 +144,20 @@ class BatchOperationService {
       processedItems &&
       processedItems.length > 0 &&
       this.ctx.contractValidator &&
-      (ENV.NODE_ENV === 'development' || ENV.NODE_ENV === 'test')
+      shouldValidateOutbound()
     ) {
       const sampleUrl =
         typeof path === 'function' ? path('http://sample') : path;
       const contract = findContract(sampleUrl, 'POST');
       if (contract && contract.isBatch) {
         try {
-          // Validate first 3 items to avoid excessive overhead while still catching patterns
-          const sample = processedItems.slice(0, 3);
+          // A sample is enough to catch a systematic payload-shape error.
+          // The count is policy: 3 under 'auto', every item when validation is
+          // explicitly enabled, or LIFERAY_CONTRACT_VALIDATION_SAMPLE.
+          const sample = processedItems.slice(
+            0,
+            batchSampleSize(processedItems.length)
+          );
           for (const item of sample) {
             this.ctx.contractValidator.validate(
               contract.spec,

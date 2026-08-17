@@ -6,7 +6,7 @@ Hardened Liferay DXP Integration SDK for Batch, Workflow, and API orchestration.
 
 - **Dynamic Catalog Adapters**: Decouples API paths between legacy Commerce (Product-first) and standalone Liferay PIM (SKU-first tree) models.
 - **Runtime Auto-Discovery**: Probes target DXP capabilities dynamically at boot to select the correct adapter.
-- **Contract Enforcement**: Validates inbound and outbound payloads against Liferay DXP OpenAPI specifications.
+- **Contract Enforcement**: Validates inbound and outbound payloads against Liferay DXP OpenAPI specifications, in any environment via `LIFERAY_CONTRACT_VALIDATION`.
 - **API Drift Detection**: Statically validates every GraphQL query and REST path the SDK can emit against the Liferay schema and OpenAPI specs in CI.
 - **Schema Correlation Reporting**: Explains batch import failures by pairing each Liferay error with the payload item that caused it and the SDK's own contract assessment.
 - **Transient Error Resilience**: Configurable retry thresholds and soft-status error mapping.
@@ -95,6 +95,37 @@ Paths fall into four buckets, all reported:
 - **failures** - paths that exist in no spec, which fail the build
 
 `yarn validate` runs both gates.
+
+## Contract Validation
+
+Outbound payloads, batch items and inbound responses can be validated against
+the Liferay OpenAPI specs at runtime. Historically this was hard-gated on
+`NODE_ENV`, so the safety net was unavailable in production - where a malformed
+payload actually costs a failed batch and a diagnosis.
+
+| `LIFERAY_CONTRACT_VALIDATION` | Behaviour                                                           |
+| :---------------------------- | :------------------------------------------------------------------ |
+| `auto` (default)              | outbound in `development` and `test`, inbound in `development` only |
+| `on`                          | always validate, whatever `NODE_ENV` says                           |
+| `off`                         | never validate                                                      |
+
+Batch submissions validate a sample of leading items: 3 under `auto`, every item
+under `on`, or `LIFERAY_CONTRACT_VALIDATION_SAMPLE` items (`0` means all).
+
+The gate was assumed to be expensive. Measured against the catalog `Product`
+schema with a realistic 22-field payload:
+
+|                                                          |        Cost |
+| :------------------------------------------------------- | ----------: |
+| validate one item                                        |  **1.1 us** |
+| validate all 200 items of a batch                        | **0.22 ms** |
+| load and preprocess all 11 specs (constructor, one-time) |      210 ms |
+| AJV compiling one schema (first use, one-time)           |       40 ms |
+
+Per-item validation is therefore free next to the 20-200 ms HTTP round trip that
+follows it, which is why `on` validates every batch item rather than sampling.
+The one-time costs are paid by any caller that constructs a `ContractValidator`
+at all, whatever this setting says.
 
 ## Batch Failure Diagnostics
 
