@@ -7,6 +7,10 @@ const { logger } = require('../../utils/logger.cjs');
 const { PATH, CUSTOM_OBJECTS } = require('../../utils/liferayPaths.cjs');
 const { ERC_PREFIX, ENV } = require('../../utils/constants.cjs');
 const { findContract } = require('../../utils/contractMappings.cjs');
+const {
+  shouldValidateInbound,
+  shouldValidateOutbound,
+} = require('../../utils/contractValidationPolicy.cjs');
 const { delay, createERC } = require('../../utils/misc.cjs');
 const { ErrorHandler } = require('../../utils/expressErrorHandler.cjs');
 const { SOFT_STATUS_BY_OP } = require('./config.cjs');
@@ -53,7 +57,7 @@ class HttpCoreService {
     } = {}
   ) {
     // RUNTIME CONTRACT VALIDATION
-    if (data && (ENV.NODE_ENV === 'development' || ENV.NODE_ENV === 'test')) {
+    if (data && shouldValidateOutbound()) {
       const contract = findContract(url, method);
       if (contract && !contract.isBatch && this.ctx.contractValidator) {
         try {
@@ -163,11 +167,10 @@ class HttpCoreService {
         });
 
         // INBOUND RESPONSE CONTRACT VALIDATION
-        const shouldValidateInbound =
-          config.validateInboundResponse ||
-          (ENV.NODE_ENV === 'development' && !process.env.VITEST);
+        const validateInbound =
+          config.validateInboundResponse || shouldValidateInbound();
 
-        if (res.data && shouldValidateInbound) {
+        if (res.data && validateInbound) {
           const contract = findContract(url, method);
           if (contract && contract.isInbound && this.ctx.contractValidator) {
             try {
