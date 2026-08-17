@@ -25,6 +25,7 @@ const path = require('path');
 const { PATH } = require('../src/utils/liferayPaths.cjs');
 
 const SCHEMA_DIR = path.join(__dirname, '..', 'api-schemas');
+const SRC_DIR = path.join(__dirname, '..', 'src');
 
 /** Stands in for any interpolated id or external reference code. */
 const SENTINEL = '12345';
@@ -39,10 +40,48 @@ const ROOTS_WITHOUT_SPECS = {
   '/o/c': 'Liferay Objects paths are instance-defined, not described by a spec',
   '/o/api': 'the API explorer is not itself a described API',
   '/o/oauth2': 'the OAuth2 token endpoint is not described by a headless spec',
+  '/o/headless-pim':
+    'probed for existence by CatalogAdapterFactory; the PIM spec is unreleased (issue #3)',
+  '/o/aica-reindex':
+    'an accelerator-specific module, not a Liferay headless API',
+  '/o/object-admin': 'no object-admin spec is synced into api-schemas',
+  '/o/headless-form': 'no headless-form spec is synced into api-schemas',
+  '/o/workflow-admin': 'no workflow-admin spec is synced into api-schemas',
 };
 
 /** PATH members that are lookup tables rather than emittable paths. */
 const NON_PATH_MEMBERS = new Set(['VARIANT', 'CUSTOM_OBJECTS']);
+
+/**
+ * Inline path literals that no synced spec describes.
+ *
+ * The path profile is not the only place paths come from: some services build a
+ * URL inline. Those bypassed this gate entirely until inline harvesting was
+ * added, and switching it on surfaced these five, all Page Experience calls in
+ * ExtractionFacade. They are listed rather than fixed because a mismatch here
+ * has two possible causes - the SDK is wrong, or api-schemas predates the
+ * endpoint - and telling them apart needs a live DXP or a re-sync. Tracked
+ * separately; see the issue referenced in each entry.
+ *
+ * The list is a ratchet, not an amnesty: any *new* unmatched inline path fails
+ * the build, and an entry that starts matching must be removed.
+ */
+const KNOWN_UNVERIFIED_INLINE = {
+  '/o/headless-delivery/v1.0/site-pages/12345/page-elements':
+    'headless-delivery declares no page-element paths; its site-pages are nested under /sites/{siteId}',
+  '/o/headless-delivery/v1.0/site-pages/12345/page-specification':
+    'the synced specs expose page-specifications (plural) under headless-admin-site, nested beneath /sites/{siteERC}',
+  '/o/headless-delivery/v1.0/page-elements/12345':
+    'headless-delivery declares no page-element paths',
+  '/o/headless-delivery/v1.0/sites/12345/asset-lists':
+    'headless-delivery declares no asset-list paths',
+  '/o/headless-admin-site/v1.0/site-pages/12345/widget-page-preferences':
+    'headless-admin-site declares no widget-page-preferences paths; its site-pages are nested under /sites/{siteERC}',
+};
+
+/** Directories under src/ that hold no hand-written paths worth checking. */
+const SKIPPED_SOURCES =
+  /(^|\/)(logs|generated)(\/|$)|GeneratedLiferayClient|utils\/profiles/;
 
 /**
  * Arguments for entries whose parameters are not interchangeable single path
@@ -211,7 +250,46 @@ function harvestPaths(table = PATH) {
   return harvested;
 }
 
-function run({ schemaDir = SCHEMA_DIR, table = PATH } = {}) {
+/** Every .cjs/.js file under src/ that could hold a hand-written path. */
+function sourceFiles(dir = SRC_DIR, collected = []) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (SKIPPED_SOURCES.test(full)) continue;
+    if (entry.isDirectory()) sourceFiles(full, collected);
+    else if (/\.(cjs|js)$/.test(entry.name)) collected.push(full);
+  }
+  return collected;
+}
+
+/**
+ * Harvests API paths written inline in the source rather than taken from the
+ * path profile. Interpolations become the sentinel segment, so
+ * `/sites/${siteId}/pages` is checked as `/sites/12345/pages`.
+ *
+ * @returns {Array<{name: string, path: string}>}
+ */
+function harvestInlinePaths(srcDir = SRC_DIR) {
+  const harvested = [];
+  const literal = /['`](\/o\/[^'`\n]*)['`]/g;
+
+  for (const file of sourceFiles(srcDir)) {
+    const source = fs.readFileSync(file, 'utf8');
+    let match;
+    while ((match = literal.exec(source)) !== null) {
+      const withSentinels = match[1].replace(/\$\{[^}]*\}/g, SENTINEL);
+      if (withSentinels.includes('${')) continue;
+      const line = source.slice(0, match.index).split('\n').length;
+      harvested.push({
+        name: `${path.relative(path.dirname(srcDir), file)}:${line}`,
+        path: withSentinels,
+      });
+    }
+  }
+
+  return harvested;
+}
+
+function run({ schemaDir = SCHEMA_DIR, table = PATH, srcDir = SRC_DIR } = {}) {
   const { templates, placeholderRoots } = loadSpecTemplates(schemaDir);
   const harvested = harvestPaths(table);
 
@@ -254,6 +332,60 @@ function run({ schemaDir = SCHEMA_DIR, table = PATH } = {}) {
     });
   }
 
+  // Inline literals are classified the same way, except that a known-unverified
+  // path is tolerated (with its reason) while any new one fails.
+  const inline = harvestInlinePaths(srcDir);
+  const inlineMatched = [];
+  const inlineUnverified = [];
+  const staleAllowlist = [];
+
+  for (const entry of inline) {
+    const concrete = normalizePath(entry.path);
+    const known = Object.prototype.hasOwnProperty.call(
+      KNOWN_UNVERIFIED_INLINE,
+      concrete
+    );
+
+    if (findTemplate(concrete, templates)) {
+      inlineMatched.push({ ...entry, concrete });
+      // The list must not outlive the mismatch it documents.
+      if (known) {
+        staleAllowlist.push({
+          ...entry,
+          concrete,
+          reason:
+            'listed in KNOWN_UNVERIFIED_INLINE but now matches a spec - remove the entry',
+        });
+      }
+      continue;
+    }
+
+    const reason = unverifiableReason(concrete, placeholderRoots);
+    if (reason) {
+      inlineUnverified.push({ ...entry, concrete, reason });
+      continue;
+    }
+
+    if (known) {
+      inlineUnverified.push({
+        ...entry,
+        concrete,
+        reason: KNOWN_UNVERIFIED_INLINE[concrete],
+        known: true,
+      });
+      continue;
+    }
+
+    failures.push({
+      ...entry,
+      concrete,
+      reason:
+        'inline path exists in no OpenAPI document. Fix it, or add it to KNOWN_UNVERIFIED_INLINE with the reason',
+    });
+  }
+
+  failures.push(...staleAllowlist);
+
   return {
     templates,
     placeholderRoots,
@@ -262,15 +394,28 @@ function run({ schemaDir = SCHEMA_DIR, table = PATH } = {}) {
     prefixes,
     unverifiable,
     failures,
+    inline,
+    inlineMatched,
+    inlineUnverified,
   };
 }
 
 function main() {
-  const { templates, harvested, matched, prefixes, unverifiable, failures } =
-    run();
+  const {
+    templates,
+    harvested,
+    matched,
+    prefixes,
+    unverifiable,
+    failures,
+    inlineMatched,
+    inlineUnverified,
+  } = run();
 
+  const total =
+    harvested.length + inlineMatched.length + inlineUnverified.length;
   console.log(
-    `Validating ${harvested.length} SDK REST paths against ${templates.length} path templates in api-schemas/\n`
+    `Validating ${total} SDK REST paths (${harvested.length} from the path profile, ${total - harvested.length} inline) against ${templates.length} path templates in api-schemas/\n`
   );
 
   for (const entry of matched) {
@@ -285,6 +430,16 @@ function main() {
         .map((entry) => entry.name)
         .join(', ')}`
     );
+  }
+
+  if (inlineMatched.length > 0 || inlineUnverified.length > 0) {
+    console.log(
+      `\n  Inline paths (${inlineMatched.length + inlineUnverified.length} outside the path profile): ${inlineMatched.length} verified, ${inlineUnverified.length} unverified`
+    );
+    for (const entry of inlineUnverified) {
+      console.log(`    ${entry.name}: ${entry.concrete}`);
+      console.log(`      ${entry.reason}`);
+    }
   }
 
   if (unverifiable.length > 0) {
@@ -302,7 +457,7 @@ function main() {
       console.log(`      ${entry.reason}`);
     }
     console.error(
-      `\n${failures.length} of ${harvested.length} SDK REST paths do not exist in the authoritative specs.`
+      `\n${failures.length} of ${total} SDK REST paths do not exist in the authoritative specs.`
     );
     console.error(
       'Fix the path (or re-sync api-schemas if the API legitimately changed).'
@@ -312,7 +467,7 @@ function main() {
   }
 
   console.log(
-    `\nAll ${matched.length} verifiable REST paths exist in the Liferay OpenAPI specs (${prefixes.length} prefixes, ${unverifiable.length} unverifiable).`
+    `\nAll ${matched.length + inlineMatched.length} verifiable REST paths exist in the Liferay OpenAPI specs (${prefixes.length} prefixes, ${unverifiable.length + inlineUnverified.length} unverifiable).`
   );
 }
 
@@ -322,7 +477,9 @@ if (require.main === module) {
 
 module.exports = {
   ARG_OVERRIDES,
+  KNOWN_UNVERIFIED_INLINE,
   ROOTS_WITHOUT_SPECS,
+  harvestInlinePaths,
   SENTINEL,
   harvestPaths,
   isTemplatePrefix,
