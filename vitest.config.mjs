@@ -23,9 +23,12 @@ export default defineConfig({
         '**/GeneratedLiferayClient.cjs',
         '**/src/liferay/generated/**',
       ],
+      // Raised from 40 once #133 lifted the adapters to 99% and the path
+      // profile to 96%. Set a few points below the measured 61.7/62.4 so a
+      // small refactor does not fail the build, but a real regression does.
       thresholds: {
-        statements: 40,
-        lines: 40,
+        statements: 55,
+        lines: 55,
       },
     },
   },

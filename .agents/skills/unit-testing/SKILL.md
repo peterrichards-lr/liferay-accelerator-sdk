@@ -18,7 +18,8 @@ To maintain high code quality and prevent regression, the following testing rule
   ```bash
   vitest run --coverage
   ```
-  Ensure any new files or logic have adequate test coverage.
+  Ensure any new files or logic have adequate test coverage. The gate is 55%
+  statements and lines (`vitest.config.mjs`); the suite currently sits at ~62%.
 - **API drift checks**:
   ```bash
   yarn validate
@@ -41,4 +42,4 @@ To maintain high code quality and prevent regression, the following testing rule
 
 ---
 
-_Last Updated: 2026-08-15_ | _Last Reviewed: 2026-08-15_
+_Last Updated: 2026-08-17_ | _Last Reviewed: 2026-08-17_
