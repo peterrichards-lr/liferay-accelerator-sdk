@@ -1,10 +1,25 @@
-# Accelerator SDK Agent Skills Directory
+# Accelerator SDK - Canonical Agent Context
 
-To prevent cognitive overload and ensure passive rules are not missed during execution, the SDK's agent rules are refactored into active, modular skill files located under `.agents/skills/`.
+This file is the single source of truth for agent rules in this repository, for
+every AI provider. It is a router: it holds no rules of its own beyond the
+pointers below.
 
-Please reference the specific skill file based on the context of your task:
+Provider discovery files (`gemini.md`, `CLAUDE.md`) exist only so each tool finds
+this file, and redirect straight back here. Do not duplicate context into them.
 
-## Table of Contents
+## 1. Project Identity
+
+- **Repository**: `liferay-accelerator-sdk` - hardened SDK for Liferay Batch,
+  Workflow and API orchestration, consumed as a git dependency pinned to a tag.
+- **Toolchain**: Node `20.x || >=22`, yarn 1.x. `yarn test`, `yarn lint`,
+  `yarn validate` (GraphQL and REST drift gates) must all pass before a PR.
+- **Publishing**: pack and publish with **npm**, never `yarn pack` - see the
+  README, and `package.json`'s `files` allowlist.
+
+## 2. Skills Routing
+
+Agent rules are modular skill files under `.agents/skills/`. Load the specific
+skill for the task at hand rather than reading everything up front.
 
 | Skill Name                                                                                 | Path                                                                                                           | Trigger Condition / When to Load                                                | Description                                                                              |
 | :----------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------ | :--------------------------------------------------------------------------------------- |
@@ -19,7 +34,7 @@ Please reference the specific skill file based on the context of your task:
 
 ---
 
-## Current Work State
+## 3. Current Work State
 
 Active, in-flight task state and intra-task scratchpad context are maintained
 locally in `.agent-state.md` (gitignored).
@@ -37,6 +52,15 @@ provider. Do not duplicate context into provider-specific discovery files.
 Committed narrative history belongs in `gemini.md`; `.agent-state.md` carries
 only what is in flight.
 
+## 4. Related References
+
+| File                                                   | Purpose                                                                                         |
+| :----------------------------------------------------- | :---------------------------------------------------------------------------------------------- |
+| [`.agent-state.md`](./.agent-state.md)                 | In-flight task state, synced between AI providers. Gitignored.                                  |
+| [`.agents/TEMPLATE_REF.md`](./.agents/TEMPLATE_REF.md) | Upstream agent-template tracking marker.                                                        |
+| [`README.md`](./README.md)                             | Consumer-facing documentation: setup, validation gates, contract validation, batch diagnostics. |
+| Git history and GitHub releases                        | Narrative project history. It is deliberately not duplicated into a tracked file.               |
+
 ---
 
 For general rules of engagement, refer to the global rules provided in the parent context.
@@ -45,4 +69,4 @@ For general rules of engagement, refer to the global rules provided in the paren
 
 ---
 
-_Last Updated: 2026-08-17_ | _Last Reviewed: 2026-08-17_
+_Last Updated: 2026-08-18_ | _Last Reviewed: 2026-08-18_
