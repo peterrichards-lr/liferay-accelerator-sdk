@@ -4,7 +4,7 @@ This file is the single source of truth for agent rules in this repository, for
 every AI provider. It is a router: it holds no rules of its own beyond the
 pointers below.
 
-Provider discovery files (`gemini.md`, `CLAUDE.md`) exist only so each tool finds
+Provider discovery files (`GEMINI.md`, `CLAUDE.md`) exist only so each tool finds
 this file, and redirect straight back here. Do not duplicate context into them.
 
 ## 1. Project Identity
@@ -49,8 +49,8 @@ locally in `.agent-state.md` (gitignored).
 
 This file (`AGENTS.md`) is the single source of truth for agent rules, for every
 provider. Do not duplicate context into provider-specific discovery files.
-Committed narrative history belongs in `gemini.md`; `.agent-state.md` carries
-only what is in flight.
+Narrative history is not kept in a tracked file: it lives in git history,
+releases and closed issues. `.agent-state.md` carries only what is in flight.
 
 ## 4. Related References
 
