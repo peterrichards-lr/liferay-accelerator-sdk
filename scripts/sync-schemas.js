@@ -111,7 +111,9 @@ async function syncREST(baseUrl, auth) {
       fs.writeFileSync(filePath, JSON.stringify(response.data, null, 2));
       console.log(`✓ Saved to ${fileName}`);
     } catch (error) {
-      console.error(`✗ Failed to fetch ${api.name}: ${error.response?.status || error.message || error}`);
+      console.error(
+        `✗ Failed to fetch ${api.name}: ${error.response?.status || error.message || error}`
+      );
     }
   }
 }
