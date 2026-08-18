@@ -23,12 +23,11 @@ export default defineConfig({
         '**/GeneratedLiferayClient.cjs',
         '**/src/liferay/generated/**',
       ],
-      // Ratcheted as #133 landed: 40 -> 55 -> 60. Held a few points below the
-      // measured 65.9/66.5 so a small refactor does not fail the build, while a
-      // real regression does. Raise it again when #147 lands.
+      // Ratcheted as #133 and #147 landed: 40 -> 55 -> 60 -> 65. Held a few points
+      // below measured coverage so a small refactor does not fail the build.
       thresholds: {
-        statements: 60,
-        lines: 60,
+        statements: 65,
+        lines: 65,
       },
     },
   },

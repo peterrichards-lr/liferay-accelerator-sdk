@@ -94,11 +94,16 @@ async function syncREST(baseUrl, auth) {
     fs.mkdirSync(SCHEMA_DIR, { recursive: true });
   }
 
+  const headers = process.env.LIFERAY_API_COOKIE
+    ? { Cookie: process.env.LIFERAY_API_COOKIE }
+    : {};
+  const requestConfig = process.env.LIFERAY_API_COOKIE ? { headers } : { auth };
+
   for (const api of APIS) {
     const url = `${baseUrl}${api.path}`;
     try {
       console.log(`Fetching ${api.name}...`);
-      const response = await axios.get(url, { auth });
+      const response = await axios.get(url, requestConfig);
 
       const fileName = `${api.name}-openapi.json`;
       const filePath = path.join(SCHEMA_DIR, fileName);
@@ -106,7 +111,9 @@ async function syncREST(baseUrl, auth) {
       fs.writeFileSync(filePath, JSON.stringify(response.data, null, 2));
       console.log(`✓ Saved to ${fileName}`);
     } catch (error) {
-      console.error(`✗ Failed to fetch ${api.name}: ${error.message}`);
+      console.error(
+        `✗ Failed to fetch ${api.name}: ${error.response?.status || error.message || error}`
+      );
     }
   }
 }
@@ -209,11 +216,16 @@ async function syncGraphQL(baseUrl, auth) {
     }
   `;
 
+  const headers = process.env.LIFERAY_API_COOKIE
+    ? { Cookie: process.env.LIFERAY_API_COOKIE }
+    : {};
+  const requestConfig = process.env.LIFERAY_API_COOKIE ? { headers } : { auth };
+
   try {
     const response = await axios.post(
       url,
       { query: introspectionQuery },
-      { auth }
+      requestConfig
     );
 
     const filePath = path.join(SCHEMA_DIR, 'liferay-graphql-schema.json');

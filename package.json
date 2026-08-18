@@ -1,6 +1,6 @@
 {
   "name": "@liferay/accelerator-sdk",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Hardened Liferay Accelerator SDK for Batch, Workflow, and API orchestration.",
   "repository": {
     "type": "git",
@@ -53,6 +53,7 @@
   "scripts": {
     "pretest": "node scripts/ensure-native-modules.cjs",
     "test": "vitest run",
+    "test:integration": "INTEGRATION_TEST=true vitest run tests/integration",
     "eslint": "eslint .",
     "lint": "eslint . && prettier --check .",
     "validate:graphql": "node scripts/validate-graphql-queries.cjs",
