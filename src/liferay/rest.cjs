@@ -507,9 +507,7 @@ class LiferayRestService {
             processedItemsCount: 0,
           };
         }
-        const normalizedId = rawId.endsWith('.0')
-          ? parseInt(rawId, 10)
-          : rawId;
+        const normalizedId = rawId.endsWith('.0') ? parseInt(rawId, 10) : rawId;
         const result = await this.httpCore._get(
           config,
           PATH.IMPORT_TASK(normalizedId),
