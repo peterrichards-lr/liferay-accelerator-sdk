@@ -68,6 +68,9 @@ class LiferayRestService {
   _collectPagedIds(...args) {
     return this.batch._collectPagedIds(...args);
   }
+  _chunkArray(...args) {
+    return this.batch._chunkArray(...args);
+  }
 
   _deleteBatchNative(...args) {
     return this.batchDelete._deleteBatchNative(...args);
@@ -492,9 +495,24 @@ class LiferayRestService {
 
     while (attempts < maxAttempts) {
       try {
+        const rawId = String(batchId || '').trim();
+        if (!rawId || rawId === 'id') {
+          const loggerToUse = this.ctx?.logger || logger;
+          loggerToUse?.warn(
+            `Invalid batch task ID "${batchId}" passed to waitForBatchCompletion. Skipping poll.`
+          );
+          return {
+            executeStatus: 'COMPLETED',
+            totalItemsCount: 0,
+            processedItemsCount: 0,
+          };
+        }
+        const normalizedId = rawId.endsWith('.0')
+          ? parseInt(rawId, 10)
+          : rawId;
         const result = await this.httpCore._get(
           config,
-          PATH.IMPORT_TASK(batchId),
+          PATH.IMPORT_TASK(normalizedId),
           'import-task',
           'Failed to get import task'
         );
