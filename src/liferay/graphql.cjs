@@ -122,15 +122,27 @@ class LiferayGraphQLService {
       try {
         const response = await client.post('', { query });
         if (response.data.errors) {
-          this.ctx.logger.warn(`GraphQL partial failure in ${method}`, {
-            errorCount: response.data.errors.length,
-            firstError: response.data.errors[0].message,
-          });
-          // HARDENING: match _fetchCollection's behavior - a GraphQL error
-          // means the response can't be trusted as complete, so surface it
-          // instead of silently returning partial data as if fully successful.
-          throw new Error(
-            `GraphQL Errors in ${method}: ${response.data.errors[0].message}`
+          const isNotFound = (err) =>
+            err.message?.includes(': null') ||
+            err.message?.includes('NoSuch') ||
+            err.message?.includes('No entity found') ||
+            err.extensions?.code === 'NOT_FOUND';
+
+          const fatalErrors = response.data.errors.filter(
+            (err) => !isNotFound(err)
+          );
+
+          if (fatalErrors.length > 0) {
+            this.ctx.logger.warn(`GraphQL fatal failure in ${method}`, {
+              errorCount: fatalErrors.length,
+              firstError: fatalErrors[0].message,
+            });
+            throw new Error(
+              `GraphQL Errors in ${method}: ${fatalErrors[0].message}`
+            );
+          }
+          this.ctx.logger.debug(
+            `GraphQL non-existent entity notice in ${method}: ${response.data.errors.length} item(s) null`
           );
         }
         // Merge successful aliases from this chunk
