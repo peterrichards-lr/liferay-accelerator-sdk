@@ -662,8 +662,15 @@ class HttpCoreService {
         [401, 403].includes(error.status) ||
         error.message.includes('OAuth authentication failed')
       ) {
-        structuredError.error =
-          'Authentication failed. Please verify your OAuth Client ID and Client Secret are correct.';
+        // Distinguish "the credentials were rejected" from "there were no
+        // credentials". Telling an operator to verify a client id they never
+        // supplied sends them looking in the wrong place - which is exactly
+        // what happened while OAuth application discovery was broken (#159).
+        const hadCredentials = Boolean(config.clientId && config.clientSecret);
+
+        structuredError.error = hadCredentials
+          ? 'Authentication failed. Please verify your OAuth Client ID and Client Secret are correct.'
+          : 'Authentication failed, and no OAuth credentials were resolved. Check that the OAuth application external reference code is correct and that the routes configuration is readable, or set LIFERAY_OAUTH_CLIENT_ID and LIFERAY_OAUTH_CLIENT_SECRET.';
         structuredError.errorType = 'auth_error';
         structuredError.field = 'clientSecret';
 
