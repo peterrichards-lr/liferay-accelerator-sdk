@@ -222,4 +222,115 @@ describe('OAuthService', () => {
       );
     });
   });
+
+  describe('OAuth application resolution', () => {
+    // The SDK used to resolve this itself from a hardcoded external reference
+    // code belonging to one consumer. That ERC was wrong, so discovery always
+    // returned null and every caller silently used the environment fallback.
+    // See #159.
+    beforeEach(() => {
+      configNode.lxcConfig.oauthApplication.mockClear();
+    });
+
+    it('resolves the application from the ERC the consumer supplies', () => {
+      const service = new OAuthService({
+        ...mockContext,
+        oauthApplicationExternalReferenceCode: 'my-consumer-app',
+      });
+
+      expect(configNode.lxcConfig.oauthApplication).toHaveBeenCalledWith(
+        'my-consumer-app'
+      );
+      expect(service.getDefaultClientId()).toBe('mock-client-id');
+      expect(service.getDefaultClientSecret()).toBe('mock-client-secret');
+    });
+
+    it('accepts a pre-resolved application without consulting config-node', () => {
+      // For a consumer that does its own lookup, or does not use config-node.
+      const service = new OAuthService({
+        ...mockContext,
+        serverOauthApp: {
+          tokenUri: () => '/o/oauth2/token',
+          clientId: () => 'injected-id',
+          clientSecret: () => 'injected-secret',
+        },
+      });
+
+      expect(configNode.lxcConfig.oauthApplication).not.toHaveBeenCalled();
+      expect(service.getDefaultClientId()).toBe('injected-id');
+    });
+
+    it('does not guess an ERC when none is supplied', () => {
+      // Defaulting to some consumer's ERC is what caused #159; skipping
+      // discovery is the correct behaviour for a shared library.
+      const service = new OAuthService(mockContext);
+
+      expect(configNode.lxcConfig.oauthApplication).not.toHaveBeenCalled();
+      expect(service.serverOauthApp).toBeNull();
+    });
+
+    it('says so at debug level when discovery is skipped', () => {
+      // Silence is what hid the defect: the fallback looked like success.
+      new OAuthService(mockContext);
+
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('No OAuth application external reference code'),
+        expect.objectContaining({ operation: 'oauth-application-lookup' })
+      );
+    });
+
+    it('says so at debug level when the ERC resolves to nothing', () => {
+      configNode.lxcConfig.oauthApplication.mockReturnValueOnce(null);
+
+      new OAuthService({
+        ...mockContext,
+        oauthApplicationExternalReferenceCode: 'not-registered',
+      });
+
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "No LXC OAuth application registered for 'not-registered'"
+        ),
+        expect.objectContaining({ operation: 'oauth-application-lookup' })
+      );
+    });
+
+    it('warns rather than throwing when config-node fails', () => {
+      configNode.lxcConfig.oauthApplication.mockImplementationOnce(() => {
+        throw new Error('config tree unreadable');
+      });
+
+      expect(
+        () =>
+          new OAuthService({
+            ...mockContext,
+            oauthApplicationExternalReferenceCode: 'my-consumer-app',
+          })
+      ).not.toThrow();
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('config tree unreadable')
+      );
+    });
+
+    it('reports route credentials as available once resolved', () => {
+      const service = new OAuthService({
+        ...mockContext,
+        oauthApplicationExternalReferenceCode: 'my-consumer-app',
+      });
+
+      expect(service.isLiferayRouteAvailable()).toBeTruthy();
+    });
+
+    it('reports route credentials as unavailable when nothing resolved', () => {
+      configNode.lxcConfig.oauthApplication.mockReturnValueOnce(null);
+
+      const service = new OAuthService({
+        ...mockContext,
+        oauthApplicationExternalReferenceCode: 'not-registered',
+      });
+
+      expect(service.isLiferayRouteAvailable()).toBeFalsy();
+    });
+  });
 });

@@ -1,23 +1,48 @@
 const { lxcConfig } = require('@rotty3000/config-node');
 const axios = require('axios');
 const { createERC, normalizeNumber, delay } = require('../utils/misc.cjs');
-const { APP_ERCS, ENV, ERC_PREFIX } = require('../utils/constants.cjs');
+const { ENV, ERC_PREFIX } = require('../utils/constants.cjs');
 
 class OAuthService {
   constructor(ctx) {
     this.ctx = ctx;
 
-    let serverOauthApp = null;
-    try {
-      serverOauthApp = lxcConfig.oauthApplication(
-        APP_ERCS.OAUTH_SERVER_EXTERNAL_REFERENCE_CODE
-      );
-    } catch (e) {
-      if (ctx?.logger?.warn) {
-        ctx.logger.warn(
-          `Could not resolve OAuth application config from LXC environment: ${e.message}`
-        );
+    // The OAuth application is supplied by the consumer, not discovered here.
+    // Each consumer registers its own application under its own external
+    // reference code, so any ERC hardcoded in a shared library is wrong for
+    // every other consumer - and this one was wrong for the consumer it named.
+    // See #159.
+    //
+    // Two shapes are accepted: an ERC to resolve via config-node, for a
+    // consumer already using it; or a pre-resolved application, for one that
+    // does its own lookup or does not use config-node at all.
+    let serverOauthApp = ctx?.serverOauthApp ?? null;
+    const erc = ctx?.oauthApplicationExternalReferenceCode;
+
+    if (!serverOauthApp && erc) {
+      try {
+        serverOauthApp = lxcConfig.oauthApplication(erc);
+
+        if (!serverOauthApp && ctx?.logger?.debug) {
+          ctx.logger.debug(
+            `No LXC OAuth application registered for '${erc}'; falling back to environment credentials.`,
+            { operation: 'oauth-application-lookup' }
+          );
+        }
+      } catch (e) {
+        if (ctx?.logger?.warn) {
+          ctx.logger.warn(
+            `Could not resolve OAuth application config from LXC environment: ${e.message}`
+          );
+        }
       }
+    } else if (!serverOauthApp && ctx?.logger?.debug) {
+      // Silence here is what hid the defect in #159: discovery never ran, and
+      // every caller quietly used the environment fallback instead.
+      ctx.logger.debug(
+        'No OAuth application external reference code supplied; using environment credentials.',
+        { operation: 'oauth-application-lookup' }
+      );
     }
 
     const lxcDXPMainDomain = lxcConfig.dxpMainDomain();

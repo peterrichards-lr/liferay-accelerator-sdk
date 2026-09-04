@@ -46,8 +46,6 @@ const APP_ERCS = {
   ORDER_DATA_AI_PROMPT: 'AICA-PROMPT-ORDER',
   WAREHOUSE_DATA_AI_PROMPT: 'AICA-PROMPT-WAREHOUSE',
   PRICING_DATA_AI_PROMPT: 'AICA-PROMPT-PRICING',
-  OAUTH_SERVER_EXTERNAL_REFERENCE_CODE:
-    'liferay-ai-commerce-accelerator-microservice-oauth-application-headless-server',
 };
 
 const EMPTY_PLACEHOLDER = '__AICA_EMPTY__';
