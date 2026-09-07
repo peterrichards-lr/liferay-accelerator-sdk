@@ -1,12 +1,14 @@
 const BaseWorkflowService = require('./baseWorkflowService.cjs');
 const { delay, createERC } = require('../utils/misc.cjs');
 const { ERC_PREFIX, ENV, WORKFLOW_STEPS } = require('../utils/constants.cjs');
+const { describeRequestError } = require('../utils/describeRequestError.cjs');
 
 /**
  * BaseGenerator - Specialized orchestrator for data generation workflows.
  * It manages the execution of registered steps and ensures correct sequencing
  * for synchronous, parallel, and asynchronous operations.
  */
+
 class BaseGenerator extends BaseWorkflowService {
   constructor(ctx) {
     super(ctx);
@@ -291,11 +293,19 @@ class BaseGenerator extends BaseWorkflowService {
 
       return result;
     } catch (error) {
+      // `error.message` for a REST failure is the operation's friendly name, so
+      // logging it alone reported "Failed to create option" while the response
+      // said `optionValues[0].name must not be null`. HttpCoreService attaches
+      // the status and body to the error; this is the one place every step of
+      // every generator passes through, so surfacing them here covers all of
+      // them. Liferay does not log validation rejections either, so without
+      // this nothing anywhere records why a write was refused.
       this.logger.error(
         `Error in step handler '${stepName}': ${error.message}`,
         {
           sessionId,
           correlationId,
+          ...describeRequestError(error),
           stack: error.stack,
         }
       );
