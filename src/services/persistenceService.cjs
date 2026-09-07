@@ -161,6 +161,23 @@ class PersistenceService {
     return this._postMessage('exec', sql);
   }
 
+  /**
+   * Runs several statements as one transaction in the worker.
+   *
+   * `queries` is an array of `{ sql, params, action }`, applied in order.
+   * Prefer this over firing separate `_run` calls in parallel: the worker
+   * executes statements one at a time, so parallel calls interleave with
+   * whatever else is writing, and each carries its own rejection.
+   */
+  async _transaction(queries) {
+    await this.initPromise;
+    const id = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      this.pendingRequests.set(id, { resolve, reject });
+      this.worker.postMessage({ id, action: 'transaction', queries });
+    });
+  }
+
   _initSchema() {
     // Schema initialized inside the worker thread on startup
   }
@@ -724,31 +741,53 @@ class PersistenceService {
     };
   }
 
+  /**
+   * Wipes the workflow history.
+   *
+   * The four deletes used to run through `Promise.all`, which took the whole
+   * process down. workflow_events and workflow_batches reference
+   * workflow_sessions, so a run still recording events while the sessions were
+   * being deleted inserted a row whose parent had just gone, and SQLite raised
+   * `FOREIGN KEY constraint failed`. `Promise.all` reports the first rejection
+   * and abandons the rest, so the second failure had no handler and the
+   * unhandled-rejection guard shut the service down mid-request.
+   *
+   * One transaction, children before parents, cannot interleave with another
+   * writer and cannot leave a rejection behind.
+   */
   async clearAll() {
-    await Promise.all([
-      this._run('DELETE FROM workflow_events'),
-      this._run('DELETE FROM workflow_batches'),
-      this._run('DELETE FROM workflow_sessions'),
-      this._run('DELETE FROM queue_jobs'),
+    await this._transaction([
+      { sql: 'DELETE FROM workflow_events' },
+      { sql: 'DELETE FROM workflow_batches' },
+      { sql: 'DELETE FROM workflow_sessions' },
+      { sql: 'DELETE FROM queue_jobs' },
     ]);
     this.cache.clear();
   }
 
+  /**
+   * Removes history older than the cutoff. Same shape as clearAll, and it
+   * matters more here: this runs on a schedule, so the parallel version could
+   * take the service down at any moment rather than only on request.
+   */
   async cleanup(cutoffTimestamp) {
-    await Promise.all([
-      this._run(
-        'DELETE FROM workflow_events WHERE timestamp < ?',
-        cutoffTimestamp
-      ),
-      this._run(
-        'DELETE FROM workflow_batches WHERE created_at < ?',
-        cutoffTimestamp
-      ),
-      this._run(
-        'DELETE FROM workflow_sessions WHERE created_at < ?',
-        cutoffTimestamp
-      ),
-      this._run('DELETE FROM queue_jobs WHERE created_at < ?', cutoffTimestamp),
+    await this._transaction([
+      {
+        sql: 'DELETE FROM workflow_events WHERE timestamp < ?',
+        params: [cutoffTimestamp],
+      },
+      {
+        sql: 'DELETE FROM workflow_batches WHERE created_at < ?',
+        params: [cutoffTimestamp],
+      },
+      {
+        sql: 'DELETE FROM workflow_sessions WHERE created_at < ?',
+        params: [cutoffTimestamp],
+      },
+      {
+        sql: 'DELETE FROM queue_jobs WHERE created_at < ?',
+        params: [cutoffTimestamp],
+      },
     ]);
     this.cache.clear();
   }

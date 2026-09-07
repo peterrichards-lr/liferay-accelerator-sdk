@@ -401,4 +401,91 @@ describe('PersistenceService', () => {
       await persistenceOk.close();
     });
   });
+
+  describe('history purge', () => {
+    const seedHistory = async () => {
+      await persistence.createSession({
+        sessionId: 'purge-session',
+        flowType: 'products',
+        status: 'COMPLETED',
+      });
+      await persistence.createBatch({
+        erc: 'BATCH-1',
+        sessionId: 'purge-session',
+        stepKey: 'create-products',
+        status: 'COMPLETED',
+        totalCount: 1,
+      });
+      await persistence.logWorkflowEvent({
+        sessionId: 'purge-session',
+        status: 'COMPLETED',
+        message: 'done',
+      });
+    };
+
+    it('clears history without rejecting when events reference a session', async () => {
+      await seedHistory();
+
+      // workflow_events and workflow_batches reference workflow_sessions, so
+      // deleting the parents in parallel with the children raised
+      // "FOREIGN KEY constraint failed" - and because Promise.all abandons the
+      // rest after the first rejection, the second failure went unhandled and
+      // shut the whole service down.
+      await expect(persistence.clearAll()).resolves.toBeUndefined();
+
+      expect(await persistence.getSession('purge-session')).toBeNull();
+      expect(await persistence.getEventsForSession('purge-session')).toEqual(
+        []
+      );
+      expect(await persistence.getBatchesForSession('purge-session')).toEqual(
+        []
+      );
+    });
+
+    it('clears history in a single transaction', async () => {
+      await seedHistory();
+
+      const posted = [];
+      const original = persistence.worker.postMessage.bind(persistence.worker);
+      persistence.worker.postMessage = (msg) => {
+        posted.push(msg);
+        return original(msg);
+      };
+
+      await persistence.clearAll();
+      persistence.worker.postMessage = original;
+
+      // One atomic request, not four racing deletes.
+      expect(posted).toHaveLength(1);
+      expect(posted[0].action).toBe('transaction');
+      expect(posted[0].queries.map((q) => q.sql)).toEqual([
+        'DELETE FROM workflow_events',
+        'DELETE FROM workflow_batches',
+        'DELETE FROM workflow_sessions',
+        'DELETE FROM queue_jobs',
+      ]);
+    });
+
+    it('cleanup removes history older than the cutoff and keeps the rest', async () => {
+      await persistence.createSession({
+        sessionId: 'recent-session',
+        flowType: 'products',
+        status: 'COMPLETED',
+      });
+
+      const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      await expect(persistence.cleanup(future)).resolves.toBeUndefined();
+      expect(await persistence.getSession('recent-session')).toBeNull();
+
+      await persistence.createSession({
+        sessionId: 'kept-session',
+        flowType: 'products',
+        status: 'COMPLETED',
+      });
+
+      const past = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      await persistence.cleanup(past);
+      expect(await persistence.getSession('kept-session')).not.toBeNull();
+    });
+  });
 });
