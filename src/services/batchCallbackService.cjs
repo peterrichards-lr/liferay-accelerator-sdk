@@ -149,7 +149,15 @@ class BatchCallbackService {
                 totalItemsCount: task.totalItemsCount,
               },
               correlationId,
-              sessionId
+              sessionId,
+              // Passed explicitly: this payload is ours, not Liferay's map, so
+              // its first key is the string "id". Inferring the id from it
+              // produced `Invalid batch task ID "id" passed to
+              // waitForBatchCompletion`, and getImportTask then answered with a
+              // fabricated COMPLETED of 0 items - discarding the real counts
+              // this reconciler had just fetched and leaving the session unable
+              // to reconcile, so the completion check ran for ever.
+              b.downstream_batch_id
             );
           }
         } catch (err) {
@@ -379,12 +387,19 @@ class BatchCallbackService {
   /**
    * Internal implementation of callback processing.
    * Throws an error if the batch record is not found to trigger queue retries.
+   *
+   * `downstreamBatchId` is the Liferay import task id. Liferay's own callback
+   * body is a `{ "<taskId>": "<status>" }` map and carries the id only as a
+   * key, so it is inferred from the payload when not supplied. Callers that
+   * already know the id should pass it: inferring it from a key name breaks
+   * silently for any payload that is not that map.
    */
   async processCallbackInternal(
     batchERC,
     payload,
     correlationId = null,
-    providedSessionId = null
+    providedSessionId = null,
+    downstreamBatchId = null
   ) {
     const { logger, liferay, persistence, progress } = this.ctx;
 
@@ -412,7 +427,7 @@ class BatchCallbackService {
     const { config } = session.context;
     const effectiveCorrelationId = correlationId || session.correlationId;
 
-    const batchId = Object.keys(payload)[0];
+    const batchId = downstreamBatchId || Object.keys(payload)[0];
     if (!batchId) {
       logger.error('Could not extract batchId from callback payload', {
         batchERC,

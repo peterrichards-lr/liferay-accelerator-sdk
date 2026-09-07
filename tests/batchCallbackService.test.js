@@ -237,8 +237,46 @@ describe('BatchCallbackService', () => {
           status: 'COMPLETED',
         }),
         'cid-recover',
-        'sid-recover'
+        'sid-recover',
+        // The id is passed explicitly. This payload is the reconciler's own
+        // shape, not Liferay's `{ "<taskId>": "<status>" }` map, so inferring
+        // the id from its first key yielded the string "id".
+        12345
       );
+    });
+
+    it('does not leave the reconciled batch id to be guessed from a key name', async () => {
+      // Left to inference this produced `Invalid batch task ID "id" passed to
+      // waitForBatchCompletion`, and getImportTask answered with a fabricated
+      // COMPLETED of 0 items - discarding the counts the reconciler had just
+      // fetched, so the session could never reconcile and the completion check
+      // ran for ever.
+      const mockSession = {
+        session_id: 'sid-recover',
+        correlationId: 'cid-recover',
+        context: { config: {} },
+      };
+
+      mockPersistence.getIncompleteSessions.mockResolvedValue([mockSession]);
+      mockPersistence.getBatchesForSession.mockResolvedValue([
+        {
+          status: 'PROCESSING',
+          downstream_batch_id: 164,
+          erc: 'BATCH-REC-ERC',
+        },
+      ]);
+      mockLiferay.getImportTask.mockResolvedValue({
+        status: 'COMPLETED',
+        processedItemsCount: 10,
+        totalItemsCount: 10,
+      });
+      vi.spyOn(service, '_checkSessionCompletion').mockResolvedValue(true);
+
+      await service.recoverOrphanedSessions();
+
+      const ids = mockLiferay.getImportTask.mock.calls.map(([, id]) => id);
+      expect(ids).not.toContain('id');
+      expect(ids).toContain(164);
     });
   });
 
