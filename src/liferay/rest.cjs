@@ -2442,10 +2442,22 @@ class LiferayRestService {
     }
   }
 
+  /**
+   * Triggers a search reindex through the search-reindex OSGi module.
+   *
+   * The module began life inside AICA and moved to the shared modules
+   * repository so other projects could use it; its application base and JAX-RS
+   * name were genericised in that move, from `/aica-reindex` and
+   * `AICA.Reindex` to `/search-reindex` and `Custom.Search.Reindex`. The old
+   * path is gone with the retired bundle
+   * (`com.liferay.accelerator.reindex.endpoint`), so this is not a fallback
+   * situation - a caller on the old path gets a 404, and one granted the old
+   * scope gets a 403 with an empty body.
+   */
   async triggerReindex(config, className = null) {
     const url = className
-      ? `/o/aica-reindex/reindex/${className}`
-      : '/o/aica-reindex/reindex/all';
+      ? `/o/search-reindex/reindex/${className}`
+      : '/o/search-reindex/reindex/all';
     return await this.httpCore._post(
       config,
       url,

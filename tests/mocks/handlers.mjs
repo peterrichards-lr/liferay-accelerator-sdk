@@ -485,13 +485,13 @@ const handlers = [
   ),
 
   // Mock AICA Reindex endpoints
-  http.post('*/o/aica-reindex/reindex/all', () => {
+  http.post('*/o/search-reindex/reindex/all', () => {
     return HttpResponse.json({
       status: 'success',
       message: 'All indexes scheduled for reindexing',
     });
   }),
-  http.post('*/o/aica-reindex/reindex/:className', ({ params }) => {
+  http.post('*/o/search-reindex/reindex/:className', ({ params }) => {
     return HttpResponse.json({
       status: 'success',
       className: params.className,
