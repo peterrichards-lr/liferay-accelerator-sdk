@@ -1,9 +1,7 @@
 const BaseWorkflowService = require('./baseWorkflowService.cjs');
 const { delay, createERC } = require('../utils/misc.cjs');
 const { ERC_PREFIX, ENV, WORKFLOW_STEPS } = require('../utils/constants.cjs');
-const {
-  describeRequestError,
-} = require('../utils/describeRequestError.cjs');
+const { describeRequestError } = require('../utils/describeRequestError.cjs');
 
 /**
  * BaseGenerator - Specialized orchestrator for data generation workflows.
