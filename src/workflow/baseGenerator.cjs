@@ -258,7 +258,38 @@ class BaseGenerator extends BaseWorkflowService {
       stepName,
       session.context.steps
     );
-    if (!isReady) return;
+    if (!isReady) {
+      // "Not ready" used to cover both "not yet" and "never": a dependency
+      // that ended FAILED or BLOCKED left this step returning on every
+      // advancement tick, recording nothing, forever. Blocking it instead
+      // gives the run a terminal state and a reason naming the dependency,
+      // and the block propagates to whatever depends on this in turn (#172).
+      const blocker = await this.findTerminalDependencyBlocker(
+        sessionId,
+        stepName,
+        session.context.steps
+      );
+
+      if (blocker) {
+        const because = blocker.reason ? `: ${blocker.reason}` : '';
+
+        this.logger.warn(
+          `Step '${stepName}' cannot run because '${blocker.dependency}' ended ${blocker.status}${because}`,
+          { sessionId, correlationId, step: stepName }
+        );
+
+        await this.completeSyncStep(
+          sessionId,
+          stepName,
+          'BLOCKED',
+          0,
+          0,
+          `'${blocker.dependency}' ended ${blocker.status}${because}`
+        );
+      }
+
+      return;
+    }
 
     this.logger.info(`Executing step: ${stepName}`, {
       sessionId,
@@ -322,19 +353,29 @@ class BaseGenerator extends BaseWorkflowService {
     stepKey,
     status = 'SYNCHRONOUS',
     processedCount = 1,
-    totalCount = 1
+    totalCount = 1,
+    statusReason = null
   ) {
     const session = await this.persistence.getSession(sessionId);
     if (!session) return;
 
-    // 1. Persist the completion state to the database
+    // 1. Persist the completion state to the database.
+    //
+    // `statusReason` is what lets a step say why it ended as it did. Without
+    // it a step skipped for a good reason and a step skipped because a
+    // precondition was missing were indistinguishable in the report (#172).
+    //
+    // Note the keys: `createBatch` takes camelCase, and the snake_case names
+    // used here previously matched nothing, so every synchronous step recorded
+    // a processed count of zero.
     await this.persistence.createBatch({
       erc: `SYNC-${stepKey}-${Date.now()}`,
       sessionId,
       stepKey,
       status,
-      processed_count: processedCount,
-      total_count: totalCount,
+      processedCount,
+      totalCount,
+      statusReason,
     });
 
     this.logger.debug(
@@ -420,8 +461,16 @@ class BaseGenerator extends BaseWorkflowService {
         const workflowSteps = context.steps || [];
         const batches = await this.persistence.getBatchesForSession(sessionId);
 
+        // BLOCKED is terminal: the step will not be attempted again, so the
+        // workflow has to advance past it rather than wait (#172).
         const isTerminal = (b) =>
-          ['COMPLETED', 'FAILED', 'BYPASSED', 'SYNCHRONOUS'].includes(b.status);
+          [
+            'COMPLETED',
+            'FAILED',
+            'BYPASSED',
+            'SYNCHRONOUS',
+            'BLOCKED',
+          ].includes(b.status);
 
         const stepStateMap = new Map();
         const allStepKeys = [...new Set(batches.map((b) => b.step_key))];
@@ -430,6 +479,12 @@ class BaseGenerator extends BaseWorkflowService {
           const stepBatches = batches.filter((b) => b.step_key === key);
           if (stepBatches.some((b) => b.status === 'FAILED')) {
             stepStateMap.set(key, 'FAILED');
+          } else if (stepBatches.some((b) => b.status === 'BLOCKED')) {
+            // Distinct from COMPLETE so the run cannot report success over
+            // work that was asked for and never attempted, and distinct from
+            // FAILED because nothing threw - and because aborting here would
+            // discard work already paid for. See #172.
+            stepStateMap.set(key, 'BLOCKED');
           } else if (stepBatches.every(isTerminal)) {
             stepStateMap.set(key, 'COMPLETE');
           } else {
@@ -444,8 +499,21 @@ class BaseGenerator extends BaseWorkflowService {
           if (type === 'parallel') {
             const subStates = s.steps.map(getStepState);
             if (subStates.some((st) => st === 'FAILED')) return 'FAILED';
-            if (subStates.every((st) => st === 'COMPLETE')) return 'COMPLETE';
-            if (subStates.some((st) => st === 'RUNNING' || st === 'COMPLETE'))
+            // A group whose members all finished but where one could not be
+            // attempted is blocked, not complete - otherwise the distinction
+            // is lost the moment a step sits inside a parallel or a sequence.
+            if (
+              subStates.every((st) => st === 'COMPLETE' || st === 'BLOCKED')
+            ) {
+              return subStates.some((st) => st === 'BLOCKED')
+                ? 'BLOCKED'
+                : 'COMPLETE';
+            }
+            if (
+              subStates.some((st) =>
+                ['RUNNING', 'COMPLETE', 'BLOCKED'].includes(st)
+              )
+            )
               return 'RUNNING';
             return 'PENDING';
           }
@@ -453,8 +521,21 @@ class BaseGenerator extends BaseWorkflowService {
           if (type === 'sequence') {
             const subStates = s.steps.map(getStepState);
             if (subStates.some((st) => st === 'FAILED')) return 'FAILED';
-            if (subStates.every((st) => st === 'COMPLETE')) return 'COMPLETE';
-            if (subStates.some((st) => st === 'RUNNING' || st === 'COMPLETE'))
+            // A group whose members all finished but where one could not be
+            // attempted is blocked, not complete - otherwise the distinction
+            // is lost the moment a step sits inside a parallel or a sequence.
+            if (
+              subStates.every((st) => st === 'COMPLETE' || st === 'BLOCKED')
+            ) {
+              return subStates.some((st) => st === 'BLOCKED')
+                ? 'BLOCKED'
+                : 'COMPLETE';
+            }
+            if (
+              subStates.some((st) =>
+                ['RUNNING', 'COMPLETE', 'BLOCKED'].includes(st)
+              )
+            )
               return 'RUNNING';
             return 'PENDING';
           }
@@ -523,6 +604,24 @@ class BaseGenerator extends BaseWorkflowService {
             return false;
           }
 
+          // Terminal, so the run advances - but it was reported as BLOCKED
+          // rather than COMPLETE, which is what keeps it out of the success
+          // aggregation. Unlike FAILED it does not stop advancement: work
+          // already paid for should not be discarded over a precondition.
+          if (state === 'BLOCKED') {
+            this.logger.warn(
+              `Workflow step '${stepName || stepType}' was blocked and will not be attempted. Continuing.`,
+              {
+                sessionId,
+                correlationId,
+                step: stepName,
+                type: stepType,
+                state: 'BLOCKED',
+              }
+            );
+            return true;
+          }
+
           if (state === 'COMPLETE') return true;
 
           if (stepType === 'parallel') {
@@ -532,7 +631,8 @@ class BaseGenerator extends BaseWorkflowService {
 
             const subStates = step.steps.map(getStepState);
 
-            // If any sub-step is still running or pending, we are NOT terminal
+            // If any sub-step is still running or pending, we are NOT terminal.
+            // BLOCKED is absent on purpose: it is terminal.
             if (subStates.some((st) => ['RUNNING', 'PENDING'].includes(st))) {
               foundBlockingStep = true;
               return false;

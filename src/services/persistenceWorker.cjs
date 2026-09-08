@@ -158,6 +158,7 @@ function _initSchema(conn) {
       total_count INTEGER DEFAULT 0,
       error_count INTEGER DEFAULT 0,
       error_message TEXT,
+      status_reason TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (session_id) REFERENCES workflow_sessions(session_id) ON DELETE CASCADE
@@ -172,6 +173,17 @@ function _initSchema(conn) {
   if (!batchColumns.find((c) => c.name === 'error_message')) {
     try {
       conn.exec('ALTER TABLE workflow_batches ADD COLUMN error_message TEXT;');
+    } catch (err) {
+      if (!err.message.includes('duplicate column name')) throw err;
+    }
+  }
+
+  // Why a step ended as it did. `error_message` is for a thrown error; a step
+  // that could not be attempted has not errored, and a step that had nothing
+  // to do has not either - both still owe the operator a reason. See #172.
+  if (!batchColumns.find((c) => c.name === 'status_reason')) {
+    try {
+      conn.exec('ALTER TABLE workflow_batches ADD COLUMN status_reason TEXT;');
     } catch (err) {
       if (!err.message.includes('duplicate column name')) throw err;
     }

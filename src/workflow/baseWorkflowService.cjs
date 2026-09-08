@@ -51,6 +51,40 @@ class BaseWorkflowService {
   /**
    * Verifies if all upstream dependencies for a specific step are in a terminal state.
    */
+  /**
+   * The dependency that will never be satisfied, if there is one.
+   *
+   * Separate from `verifyStepDependencies` so its true/false contract is
+   * unchanged for existing callers, while a caller that wants to act on a
+   * permanently unsatisfiable dependency can ask (#172).
+   */
+  async findTerminalDependencyBlocker(sessionId, stepName, workflowSteps) {
+    const stepConfig = (workflowSteps || []).find((s) =>
+      typeof s === 'string' ? s === stepName : s.name === stepName
+    );
+
+    if (!stepConfig || !stepConfig.dependsOn) {
+      return null;
+    }
+
+    const dependencies = Array.isArray(stepConfig.dependsOn)
+      ? stepConfig.dependsOn
+      : [stepConfig.dependsOn];
+
+    for (const dep of dependencies) {
+      const blocker = await this.persistence.getDependencyBlocker(
+        sessionId,
+        dep
+      );
+
+      if (blocker) {
+        return { dependency: dep, ...blocker };
+      }
+    }
+
+    return null;
+  }
+
   async verifyStepDependencies(sessionId, stepName, workflowSteps) {
     const stepConfig = workflowSteps.find((s) =>
       typeof s === 'string' ? s === stepName : s.name === stepName

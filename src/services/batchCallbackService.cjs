@@ -677,13 +677,19 @@ class BatchCallbackService {
       const stepBatches = sessionBatches.filter(
         (b) => b.step_key === dbBatch.step_key
       );
+      // BLOCKED counts as terminal so the step resolves, but it is excluded
+      // from the completion broadcast below alongside FAILED: the step did not
+      // do its work, and announcing it as completed is what let a run report
+      // success over an inventory step that never ran (#172).
       const isTerminal = (b) =>
-        ['COMPLETED', 'FAILED', 'BYPASSED', 'SYNCHRONOUS'].includes(b.status);
+        ['COMPLETED', 'FAILED', 'BYPASSED', 'SYNCHRONOUS', 'BLOCKED'].includes(
+          b.status
+        );
 
       if (
         stepBatches.length > 0 &&
         stepBatches.every(isTerminal) &&
-        !stepBatches.some((b) => b.status === 'FAILED')
+        !stepBatches.some((b) => ['FAILED', 'BLOCKED'].includes(b.status))
       ) {
         const totalStepCount = stepBatches.reduce(
           (sum, b) => sum + (b.total_count || 0),
