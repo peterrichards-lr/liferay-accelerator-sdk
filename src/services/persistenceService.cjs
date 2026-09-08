@@ -4,6 +4,7 @@ const { Cache } = require('memory-cache');
 const path = require('path');
 
 const { ENV } = require('../utils/constants.cjs');
+const { resolveDbPath } = require('../utils/dbPath.cjs');
 
 class PersistenceService {
   constructor(ctx, dbPath) {
@@ -11,10 +12,7 @@ class PersistenceService {
     this.logger = ctx?.logger;
 
     const rawPath = dbPath || ENV.PERSISTENCE_DB_PATH || './data/workflows.db';
-    const isMemory = rawPath === ':memory:' || process.env.NODE_ENV === 'test';
-    const finalPath = isMemory
-      ? ':memory:'
-      : path.resolve(__dirname, '..', rawPath);
+    const finalPath = resolveDbPath(rawPath);
 
     this.cache = new Cache();
     this._initSettled = false;
