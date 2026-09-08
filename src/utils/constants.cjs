@@ -50,6 +50,14 @@ const APP_ERCS = {
 
 const EMPTY_PLACEHOLDER = '__AICA_EMPTY__';
 
+/**
+ * Application base of the search-reindex OSGi module, as the shared modules
+ * repository deploys it. The module belongs to the environment rather than to
+ * the SDK, so this is a default rather than a fact: see
+ * ENV.LIFERAY_REINDEX_BASE_PATH.
+ */
+const DEFAULT_REINDEX_BASE_PATH = '/o/search-reindex';
+
 const ABS_MIN = {
   WS_HEARTBEAT_INTERVAL_MS: 10000,
   WS_RETRY_INTERVAL_MS: 300,
@@ -117,6 +125,21 @@ const ENV = {
   LIFERAY_OAUTH_CLIENT_ID: str('LIFERAY_OAUTH_CLIENT_ID', ''),
   LIFERAY_OAUTH_CLIENT_SECRET: str('LIFERAY_OAUTH_CLIENT_SECRET', ''),
   LIFERAY_AUTH_METHOD: str('LIFERAY_AUTH_METHOD', ''),
+
+  // Application base of the search-reindex OSGi module. It is deployed by the
+  // environment, not by the SDK, so a consumer that deploys it elsewhere sets
+  // this instead of waiting for an SDK release. The OAuth scope granted to the
+  // caller has to match the deployment this names; see
+  // LiferayRestService.triggerReindex.
+  //
+  // The LIFERAY_ prefix is load-bearing: str() also reads a Liferay
+  // client-extension config, and in a shared PaaS environment a bare
+  // REINDEX_BASE_PATH is a plausible name for an unrelated setting that would
+  // then redirect every reindex call the SDK makes.
+  LIFERAY_REINDEX_BASE_PATH: str(
+    'LIFERAY_REINDEX_BASE_PATH',
+    DEFAULT_REINDEX_BASE_PATH
+  ),
 
   // Internal microservice configuration
   MICROSERVICE_URL: str('MICROSERVICE_URL', 'http://localhost:3001'),
@@ -369,6 +392,7 @@ const WORKFLOW_STEPS = {
 
 module.exports = {
   APP_ERCS,
+  DEFAULT_REINDEX_BASE_PATH,
   EMPTY_PLACEHOLDER,
   ENV,
   ERC_PREFIX,
