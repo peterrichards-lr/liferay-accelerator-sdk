@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw';
 import { server } from './setup.mjs';
 
 const { LiferayService } = require('../src/liferay/index.cjs');
+const { ENV } = require('../src/utils/constants.cjs');
 
 describe('LiferayService', () => {
   let liferayService;
@@ -1204,6 +1205,29 @@ describe('LiferayService', () => {
   });
 
   describe('triggerReindex', () => {
+    // The search-reindex module is deployed by the environment, so the base is
+    // configuration; only the base varies, never the /reindex sub-paths.
+    const capturePostedPath = () => {
+      const posted = { path: null };
+      server.use(
+        http.post('*', ({ request }) => {
+          posted.path = new URL(request.url).pathname;
+          return HttpResponse.json({ status: 'success' });
+        })
+      );
+      return posted;
+    };
+
+    const withEnvBasePath = async (basePath, run) => {
+      const original = ENV.LIFERAY_REINDEX_BASE_PATH;
+      ENV.LIFERAY_REINDEX_BASE_PATH = basePath;
+      try {
+        await run();
+      } finally {
+        ENV.LIFERAY_REINDEX_BASE_PATH = original;
+      }
+    };
+
     it('should successfully trigger a full search reindex (all)', async () => {
       const res = await liferayService.rest.triggerReindex(config);
       expect(res.status).toBe('success');
@@ -1217,6 +1241,83 @@ describe('LiferayService', () => {
       );
       expect(res.status).toBe('success');
       expect(res.className).toBe('com.liferay.portal.kernel.model.User');
+    });
+
+    it('should default to /o/search-reindex when nothing is configured', async () => {
+      const posted = capturePostedPath();
+
+      await liferayService.rest.triggerReindex(config);
+
+      expect(posted.path).toBe('/o/search-reindex/reindex/all');
+    });
+
+    it('should take the base path from the per-call config', async () => {
+      const posted = capturePostedPath();
+
+      await liferayService.rest.triggerReindex({
+        ...config,
+        reindexBasePath: '/o/custom-reindex',
+      });
+
+      expect(posted.path).toBe('/o/custom-reindex/reindex/all');
+    });
+
+    it('should take the base path from the environment when the config is silent', async () => {
+      const posted = capturePostedPath();
+
+      await withEnvBasePath('/o/env-reindex', () =>
+        liferayService.rest.triggerReindex(config)
+      );
+
+      expect(posted.path).toBe('/o/env-reindex/reindex/all');
+    });
+
+    it('should prefer the config base path over the environment', async () => {
+      const posted = capturePostedPath();
+
+      await withEnvBasePath('/o/env-reindex', () =>
+        liferayService.rest.triggerReindex({
+          ...config,
+          reindexBasePath: '/o/config-reindex',
+        })
+      );
+
+      expect(posted.path).toBe('/o/config-reindex/reindex/all');
+    });
+
+    it('should tolerate a trailing slash on the configured base path', async () => {
+      const posted = capturePostedPath();
+
+      await liferayService.rest.triggerReindex({
+        ...config,
+        reindexBasePath: '/o/custom-reindex/',
+      });
+
+      expect(posted.path).toBe('/o/custom-reindex/reindex/all');
+    });
+
+    it('should tolerate a missing leading slash on the configured base path', async () => {
+      const posted = capturePostedPath();
+
+      await liferayService.rest.triggerReindex({
+        ...config,
+        reindexBasePath: 'search-reindex/',
+      });
+
+      expect(posted.path).toBe('/search-reindex/reindex/all');
+    });
+
+    it('should build the className sub-path under the configured base', async () => {
+      const posted = capturePostedPath();
+
+      await liferayService.rest.triggerReindex(
+        { ...config, reindexBasePath: '/o/custom-reindex' },
+        'com.liferay.portal.kernel.model.User'
+      );
+
+      expect(posted.path).toBe(
+        '/o/custom-reindex/reindex/com.liferay.portal.kernel.model.User'
+      );
     });
   });
 });

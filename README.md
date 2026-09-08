@@ -134,6 +134,35 @@ follows it, which is why `on` validates every batch item rather than sampling.
 The one-time costs are paid by any caller that constructs a `ContractValidator`
 at all, whatever this setting says.
 
+## Search Reindex Endpoint
+
+`triggerReindex` calls the `search-reindex` OSGi module, which lives in the
+shared modules repository and is deployed by the environment rather than
+released with the SDK. Its application base is therefore configuration, in
+descending precedence:
+
+| Source                      | Scope                                                                     |
+| :-------------------------- | :------------------------------------------------------------------------ |
+| `config.reindexBasePath`    | per call, alongside `liferayUrl` and the credentials                      |
+| `LIFERAY_REINDEX_BASE_PATH` | the deployment - an environment variable or client-extension config entry |
+| `/o/search-reindex`         | the default, matching the module's own configuration                      |
+
+A trailing slash and a missing leading slash are both tolerated, so
+`search-reindex/` and `/o/search-reindex` are equivalent inputs. Only the base
+is configurable; the `/reindex/{className}` and `/reindex/all` sub-paths belong
+to the module.
+
+The base and the OAuth scope have to be set together. A deployment under
+`/o/search-reindex` answers to `Custom.Search.Reindex.everything.write`, so
+moving the base without granting the new deployment's scope - or granting that
+scope while calling a base that does not serve it - is rejected as a **403 with
+an empty body**, which is indistinguishable by eye from a missing grant.
+
+The scope is not configurable here and cannot be. It derives from the module's
+`osgi.jaxrs.name` rather than from its application base, so it does not follow
+the base this setting names - granting it stays the consumer's job, which is
+where OAuth grants already live.
+
 ## Batch Failure Diagnostics
 
 When a Liferay batch import reports failed items, `BatchCallbackService` builds
@@ -166,4 +195,4 @@ build it never affects callback processing.
 
 ---
 
-_Last Updated: 2026-08-17_ | _Last Reviewed: 2026-08-17_
+_Last Updated: 2026-09-08_ | _Last Reviewed: 2026-09-08_

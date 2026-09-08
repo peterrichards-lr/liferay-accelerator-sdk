@@ -344,6 +344,26 @@ function resolveOperation(entity, phase, subAction) {
   return subAction ? `${base}:${String(subAction).trim()}` : base || 'generate';
 }
 
+/**
+ * Normalises the application base of a deployed module into the form a path is
+ * built from: no trailing slash, exactly one leading slash. Configuration is
+ * written by hand, so `search-reindex/` and `/o/search-reindex` both have to
+ * arrive at something a URL can be concatenated onto.
+ *
+ * @param {string} value the configured base
+ * @param {string} [fallback] returned when the value is empty or only slashes
+ * @returns {string} the normalised base
+ */
+function normalizeApplicationBasePath(value, fallback = '') {
+  const withoutTrailingSlash = String(value ?? '')
+    .trim()
+    .replace(/\/+$/, '');
+  if (!withoutTrailingSlash) return fallback;
+  return withoutTrailingSlash.startsWith('/')
+    ? withoutTrailingSlash
+    : `/${withoutTrailingSlash}`;
+}
+
 function normalizeNumber(value, { min, max, defaultValue = 0 } = {}) {
   let n = Number(value);
   if (!Number.isFinite(n)) n = Number(defaultValue);
@@ -435,6 +455,7 @@ module.exports = {
   isoNow,
   isoToday,
   isValidUrl,
+  normalizeApplicationBasePath,
   normalizeNumber,
   now,
   parseDataUrl,

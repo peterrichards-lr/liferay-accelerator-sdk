@@ -10,8 +10,16 @@ const crypto = require('crypto');
 
 const { PATH, CUSTOM_OBJECTS, q } = require('../utils/liferayPaths.cjs');
 const { ASSET_TYPE } = require('../utils/liferayPermissions.cjs');
-const { ERC_PREFIX, ENV } = require('../utils/constants.cjs');
-const { delay, createERC } = require('../utils/misc.cjs');
+const {
+  ERC_PREFIX,
+  ENV,
+  DEFAULT_REINDEX_BASE_PATH,
+} = require('../utils/constants.cjs');
+const {
+  delay,
+  createERC,
+  normalizeApplicationBasePath,
+} = require('../utils/misc.cjs');
 const { sanitizedERC } = require('../utils/normalize.cjs');
 const { ErrorHandler } = require('../utils/expressErrorHandler.cjs');
 const { parse } = require('csv-parse/sync');
@@ -2445,6 +2453,20 @@ class LiferayRestService {
   /**
    * Triggers a search reindex through the search-reindex OSGi module.
    *
+   * The module is deployed by the environment rather than released with the
+   * SDK, so its application base is configuration: `config.reindexBasePath`
+   * wins, then `ENV.LIFERAY_REINDEX_BASE_PATH` (which a Liferay
+   * client-extension config can supply), then `/o/search-reindex`. Only the
+   * base varies; the
+   * `/reindex/{className}` and `/reindex/all` sub-paths are the module's own.
+   *
+   * The base and the OAuth scope have to be got right together. A deployment
+   * under `/o/search-reindex` answers to `Custom.Search.Reindex.everything.write`,
+   * so pointing the base elsewhere without granting that deployment's scope -
+   * or granting this scope while calling a base that does not serve it - is
+   * rejected as a 403 with an empty body, indistinguishable by eye from a
+   * missing grant.
+   *
    * The module began life inside AICA and moved to the shared modules
    * repository so other projects could use it; its application base and JAX-RS
    * name were genericised in that move, from `/aica-reindex` and
@@ -2455,9 +2477,13 @@ class LiferayRestService {
    * scope gets a 403 with an empty body.
    */
   async triggerReindex(config, className = null) {
+    const basePath = normalizeApplicationBasePath(
+      config?.reindexBasePath || ENV.LIFERAY_REINDEX_BASE_PATH,
+      DEFAULT_REINDEX_BASE_PATH
+    );
     const url = className
-      ? `/o/search-reindex/reindex/${className}`
-      : '/o/search-reindex/reindex/all';
+      ? `${basePath}/reindex/${className}`
+      : `${basePath}/reindex/all`;
     return await this.httpCore._post(
       config,
       url,

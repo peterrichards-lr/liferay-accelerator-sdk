@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { PATH } = require('../src/utils/liferayPaths.cjs');
+const { DEFAULT_REINDEX_BASE_PATH } = require('../src/utils/constants.cjs');
 
 const SCHEMA_DIR = path.join(__dirname, '..', 'api-schemas');
 const SRC_DIR = path.join(__dirname, '..', 'src');
@@ -42,10 +43,14 @@ const ROOTS_WITHOUT_SPECS = {
   '/o/oauth2': 'the OAuth2 token endpoint is not described by a headless spec',
   '/o/headless-pim':
     'probed for existence by CatalogAdapterFactory; the PIM spec is unreleased (issue #3)',
-  '/o/search-reindex':
+  // Taken from the constant the SDK defaults to, so a rename of the module's
+  // base cannot leave this gate excusing a root nothing calls any more.
+  [DEFAULT_REINDEX_BASE_PATH]:
     'the search-reindex OSGi module, not a Liferay headless API. Formerly ' +
     '/o/aica-reindex, renamed when the module moved out of AICA into the ' +
-    'shared modules repository and its names were made generic',
+    'shared modules repository and its names were made generic. Only the ' +
+    'default base is checked here; a deployment elsewhere is named by ' +
+    'ENV.LIFERAY_REINDEX_BASE_PATH and never appears as a literal in src',
   '/o/object-admin': 'no object-admin spec is synced into api-schemas',
   '/o/headless-form': 'no headless-form spec is synced into api-schemas',
   '/o/workflow-admin': 'no workflow-admin spec is synced into api-schemas',

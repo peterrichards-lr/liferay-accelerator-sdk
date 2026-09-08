@@ -109,6 +109,34 @@ describe('utils/misc', () => {
     });
   });
 
+  describe('normalizeApplicationBasePath', () => {
+    it('should strip trailing slashes and add a missing leading one', () => {
+      expect(misc.normalizeApplicationBasePath('/o/search-reindex')).toBe(
+        '/o/search-reindex'
+      );
+      expect(misc.normalizeApplicationBasePath('/o/search-reindex/')).toBe(
+        '/o/search-reindex'
+      );
+      expect(misc.normalizeApplicationBasePath('search-reindex/')).toBe(
+        '/search-reindex'
+      );
+      expect(misc.normalizeApplicationBasePath('  /o/x//  ')).toBe('/o/x');
+    });
+
+    it('should fall back when the value is empty or only slashes', () => {
+      expect(misc.normalizeApplicationBasePath('', '/o/default')).toBe(
+        '/o/default'
+      );
+      expect(misc.normalizeApplicationBasePath(null, '/o/default')).toBe(
+        '/o/default'
+      );
+      expect(misc.normalizeApplicationBasePath('/', '/o/default')).toBe(
+        '/o/default'
+      );
+      expect(misc.normalizeApplicationBasePath(undefined)).toBe('');
+    });
+  });
+
   describe('liferayUtils', () => {
     describe('asItems', () => {
       it('should return array directly if input is an array', () => {
@@ -156,6 +184,26 @@ describe('utils/misc', () => {
       expect(freshConstants2.ENV.LOGGER_PRETTY).toBe(false);
 
       delete process.env['logger.pretty'];
+    });
+
+    it('should take the reindex base path from the environment, defaulting to the module path', () => {
+      delete require.cache[require.resolve('../src/utils/constants.cjs')];
+      const defaulted = require('../src/utils/constants.cjs');
+      expect(defaulted.ENV.LIFERAY_REINDEX_BASE_PATH).toBe(
+        defaulted.DEFAULT_REINDEX_BASE_PATH
+      );
+      expect(defaulted.DEFAULT_REINDEX_BASE_PATH).toBe('/o/search-reindex');
+
+      process.env.LIFERAY_REINDEX_BASE_PATH = '/o/custom-reindex';
+      delete require.cache[require.resolve('../src/utils/constants.cjs')];
+      const overridden = require('../src/utils/constants.cjs');
+      expect(overridden.ENV.LIFERAY_REINDEX_BASE_PATH).toBe(
+        '/o/custom-reindex'
+      );
+
+      delete process.env.LIFERAY_REINDEX_BASE_PATH;
+      delete require.cache[require.resolve('../src/utils/constants.cjs')];
+      require('../src/utils/constants.cjs');
     });
 
     it('should parse comma-separated lists correctly', () => {
