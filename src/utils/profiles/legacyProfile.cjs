@@ -1,3 +1,5 @@
+const { DEFAULT_CONFIG_OBJECT_NAME } = require('../constants.cjs');
+
 const enc = encodeURIComponent;
 
 const byERC = (base, erc, variant = 'camel') =>
@@ -65,8 +67,19 @@ const VARIANT = {
   specifications: 'kebab',
 };
 
+/**
+ * Names of Liferay object definitions the SDK addresses under `/o/c`. These
+ * are instance-defined: the definition is created by whoever provisions the
+ * portal, so the name here is a default, not a fact about the API.
+ *
+ * `AICA_CONFIGS` is the default only. Callers resolve the live name through
+ * `resolveConfigObjectName` (`src/utils/misc.cjs`), which lets a per-call
+ * `config.configObjectName` or `ENV.LIFERAY_CONFIG_OBJECT_NAME` name a
+ * differently-provisioned definition; the value is taken from the same
+ * constant that default is declared in so the two cannot drift apart.
+ */
 const CUSTOM_OBJECTS = {
-  AICA_CONFIGS: 'aicaconfigurations',
+  AICA_CONFIGS: DEFAULT_CONFIG_OBJECT_NAME,
 };
 
 const PATH = {
@@ -298,6 +311,8 @@ const PATH = {
     }
   },
 
+  // `plural` is the object definition's REST label, resolved per call rather
+  // than fixed: see resolveConfigObjectName in src/utils/misc.cjs.
   CUSTOM_OBJECT: (plural) => `${BASE.C_OBJECT}/${plural}`,
   CUSTOM_OBJECT_QUERY: (plural, params) =>
     `${BASE.C_OBJECT}/${plural}${q(params)}`,

@@ -58,6 +58,15 @@ const EMPTY_PLACEHOLDER = '__AICA_EMPTY__';
  */
 const DEFAULT_REINDEX_BASE_PATH = '/o/search-reindex';
 
+/**
+ * REST label of the Liferay object definition the SDK keeps its configuration
+ * entries in - the single segment under the portal-provided `/o/c` root. The
+ * definition is created by whoever provisions the instance rather than by the
+ * SDK, so this is AICA's name for it: a default rather than a fact. See
+ * ENV.LIFERAY_CONFIG_OBJECT_NAME, and the OAuth scope named alongside it.
+ */
+const DEFAULT_CONFIG_OBJECT_NAME = 'aicaconfigurations';
+
 const ABS_MIN = {
   WS_HEARTBEAT_INTERVAL_MS: 10000,
   WS_RETRY_INTERVAL_MS: 300,
@@ -139,6 +148,23 @@ const ENV = {
   LIFERAY_REINDEX_BASE_PATH: str(
     'LIFERAY_REINDEX_BASE_PATH',
     DEFAULT_REINDEX_BASE_PATH
+  ),
+
+  // REST label of the object definition holding the SDK's configuration
+  // entries, as one segment under /o/c. The definition belongs to whoever
+  // provisions the instance, not to the SDK, so a consumer whose definition is
+  // named something else sets this instead of waiting for an SDK release - and
+  // grants that definition's own scope, which this cannot name for them; see
+  // LiferayRestService.updateConfig.
+  //
+  // The LIFERAY_ prefix is load-bearing for the same reason it is on the
+  // reindex base: str() also reads a Liferay client-extension config, and a
+  // bare CONFIG_OBJECT_NAME in a shared PaaS environment is a plausible name
+  // for an unrelated setting that would then redirect every configuration read
+  // and write the SDK makes.
+  LIFERAY_CONFIG_OBJECT_NAME: str(
+    'LIFERAY_CONFIG_OBJECT_NAME',
+    DEFAULT_CONFIG_OBJECT_NAME
   ),
 
   // Internal microservice configuration
@@ -392,6 +418,7 @@ const WORKFLOW_STEPS = {
 
 module.exports = {
   APP_ERCS,
+  DEFAULT_CONFIG_OBJECT_NAME,
   DEFAULT_REINDEX_BASE_PATH,
   EMPTY_PLACEHOLDER,
   ENV,

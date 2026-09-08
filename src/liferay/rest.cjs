@@ -8,7 +8,7 @@ const StreamZip = require('node-stream-zip');
 const { logger } = require('../utils/logger.cjs');
 const crypto = require('crypto');
 
-const { PATH, CUSTOM_OBJECTS, q } = require('../utils/liferayPaths.cjs');
+const { PATH, q } = require('../utils/liferayPaths.cjs');
 const { ASSET_TYPE } = require('../utils/liferayPermissions.cjs');
 const {
   ERC_PREFIX,
@@ -19,6 +19,7 @@ const {
   delay,
   createERC,
   normalizeApplicationBasePath,
+  resolveConfigObjectName,
 } = require('../utils/misc.cjs');
 const { sanitizedERC } = require('../utils/normalize.cjs');
 const { ErrorHandler } = require('../utils/expressErrorHandler.cjs');
@@ -359,7 +360,29 @@ class LiferayRestService {
     );
   }
 
+  /**
+   * Writes a configuration entry to the Liferay object definition that holds
+   * them, creating it when `getConfig` finds nothing to PATCH.
+   *
+   * The definition is created by whoever provisions the instance rather than
+   * by the SDK, so its REST label is configuration: `config.configObjectName`
+   * wins, then `ENV.LIFERAY_CONFIG_OBJECT_NAME` (which a Liferay
+   * client-extension config can supply), then `aicaconfigurations`. Only the
+   * object's own segment varies; the `/o/c` root above it is portal-provided
+   * and fixed.
+   *
+   * The name and the OAuth scope have to be got right together, and the scope
+   * cannot be derived from the name given here. AICA's definition is named
+   * `AICAConfiguration` with a `restContextPath` of `/aicaconfigurations`:
+   * the URL segment comes from the second field and the scope,
+   * `c_aicaconfiguration.everything`, from the first. Pointing this setting at
+   * another definition therefore also means granting *that* definition's
+   * scope - which stays the consumer's job, in its `client-extension.yaml` -
+   * and a mismatch is rejected as a 403, reading like a missing grant rather
+   * than a name pointing at the wrong object.
+   */
   async updateConfig(config, configKey, configValue) {
+    const objectName = resolveConfigObjectName(config);
     const erc = String(configKey || '').toUpperCase();
     const existing = await this.getConfig(config, configKey);
 
@@ -373,14 +396,14 @@ class LiferayRestService {
       const id = existing.items[0].id;
       return await this.httpCore._patch(
         config,
-        `${PATH.CUSTOM_OBJECT(CUSTOM_OBJECTS.AICA_CONFIGS)}/${id}`,
+        `${PATH.CUSTOM_OBJECT(objectName)}/${id}`,
         payload,
         `update-config:${configKey}`
       );
     } else {
       return await this.httpCore._post(
         config,
-        PATH.CUSTOM_OBJECT(CUSTOM_OBJECTS.AICA_CONFIGS),
+        PATH.CUSTOM_OBJECT(objectName),
         payload,
         `create-config:${configKey}`
       );

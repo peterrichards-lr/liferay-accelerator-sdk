@@ -4,14 +4,18 @@ const {
 const axios = require('axios');
 const fs = require('fs');
 const { logger } = require('../../utils/logger.cjs');
-const { PATH, CUSTOM_OBJECTS } = require('../../utils/liferayPaths.cjs');
+const { PATH } = require('../../utils/liferayPaths.cjs');
 const { ERC_PREFIX, ENV } = require('../../utils/constants.cjs');
 const { findContract } = require('../../utils/contractMappings.cjs');
 const {
   shouldValidateInbound,
   shouldValidateOutbound,
 } = require('../../utils/contractValidationPolicy.cjs');
-const { delay, createERC } = require('../../utils/misc.cjs');
+const {
+  delay,
+  createERC,
+  resolveConfigObjectName,
+} = require('../../utils/misc.cjs');
 const { ErrorHandler } = require('../../utils/expressErrorHandler.cjs');
 const { SOFT_STATUS_BY_OP } = require('./config.cjs');
 
@@ -709,7 +713,27 @@ class HttpCoreService {
     }
   }
 
+  /**
+   * Reads a configuration entry from the Liferay object definition that holds
+   * them, by `configKey` and then by external reference code.
+   *
+   * The definition is provisioned with the instance rather than released with
+   * the SDK, so its REST label is configuration: `config.configObjectName`,
+   * then `ENV.LIFERAY_CONFIG_OBJECT_NAME`, then `aicaconfigurations`. The
+   * `/o/c` root above it is portal-provided and fixed. Resolved once here so
+   * both queries address the same definition, and so
+   * `LiferayRestService.updateConfig` PATCHes the record this found.
+   *
+   * The name and the OAuth scope travel together: AICA's definition is named
+   * `AICAConfiguration` and served at `/aicaconfigurations`, so the URL
+   * segment and the scope `c_aicaconfiguration.everything` come from two
+   * different fields of the same definition and neither can be computed from
+   * the other. Naming another definition here means granting that
+   * definition's scope too; without it the read is a 403, not a 404, and a
+   * 403 here reads as a missing grant rather than as the wrong object name.
+   */
   async getConfig(config, configKey) {
+    const objectName = resolveConfigObjectName(config);
     const erc = String(configKey || '').toUpperCase();
 
     // MANDATE: Filter-In-Memory. Avoid 'or' filters.
@@ -717,7 +741,7 @@ class HttpCoreService {
     try {
       const response = await this._get(
         config,
-        PATH.CUSTOM_OBJECT_QUERY(CUSTOM_OBJECTS.AICA_CONFIGS, {
+        PATH.CUSTOM_OBJECT_QUERY(objectName, {
           filter: `configKey eq '${configKey}'`,
           pageSize: 500,
         }),
@@ -732,7 +756,7 @@ class HttpCoreService {
       // FALLBACK: Try fetching by ERC directly (another simple filter)
       return await this._get(
         config,
-        PATH.CUSTOM_OBJECT_QUERY(CUSTOM_OBJECTS.AICA_CONFIGS, {
+        PATH.CUSTOM_OBJECT_QUERY(objectName, {
           filter: `externalReferenceCode eq '${erc}'`,
           pageSize: 10,
         }),
