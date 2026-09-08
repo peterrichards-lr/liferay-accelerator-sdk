@@ -173,8 +173,16 @@ const PATH = {
   PRODUCT_SKUS: (productId) => `${BASE.PRODUCTS}/${productId}/skus`,
   SKU_BY_ERC: (erc) =>
     `${BASE.CATALOG_API}/skus/by-externalReferenceCode/${enc(erc)}`,
+  // Reading a product's options without asking for the values gives every
+  // option `productOptionValues: []` - the ids exist, Liferay simply does not
+  // expand a nested collection unless asked. A caller that then links SKUs to
+  // option values finds none, drops every link, and Liferay marks the SKUs
+  // inactive. The write path must NOT carry it, so the expansion belongs to
+  // the read rather than to this shared template.
   PRODUCT_OPTIONS: (productId) =>
     `${BASE.PRODUCTS}/${productId}/productOptions`,
+  PRODUCT_OPTIONS_WITH_VALUES: (productId) =>
+    `${BASE.PRODUCTS}/${productId}/productOptions?nestedFields=productOptionValues`,
   PRODUCT_OPTIONS_BY_ERC: (erc) =>
     `${BASE.PRODUCTS}/by-externalReferenceCode/${enc(erc)}/productOptions`,
   PRODUCT_OPTION: (id) => `${BASE.CATALOG_API}/productOptions/${id}`,
