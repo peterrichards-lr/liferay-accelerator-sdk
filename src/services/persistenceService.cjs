@@ -491,6 +491,46 @@ class PersistenceService {
     });
   }
 
+  /**
+   * The status stopping a dependency from ever being satisfied, or null if it
+   * may still get there.
+   *
+   * `verifyDependencyReady` answers "is it ready", which cannot tell "not yet"
+   * from "never". A dependent step that reads only the former pauses on every
+   * advancement tick and never records anything, so a dependency that ends
+   * FAILED or BLOCKED would stall its dependents indefinitely (#172).
+   */
+  async getDependencyBlocker(sessionId, dependencyStepKey) {
+    const batches = await this.getBatchesForSession(sessionId);
+    const dependencyBatches = (batches || []).filter(
+      (b) => b.step_key === dependencyStepKey
+    );
+
+    if (dependencyBatches.length === 0) {
+      return null;
+    }
+
+    const terminal = [
+      'COMPLETED',
+      'BYPASSED',
+      'SYNCHRONOUS',
+      'FAILED',
+      'BLOCKED',
+    ];
+
+    if (!dependencyBatches.every((b) => terminal.includes(b.status))) {
+      return null;
+    }
+
+    const blocked = dependencyBatches.find((b) =>
+      ['FAILED', 'BLOCKED'].includes(b.status)
+    );
+
+    return blocked
+      ? { status: blocked.status, reason: blocked.status_reason || null }
+      : null;
+  }
+
   async verifyDependencyReady(sessionId, dependencyStepKey) {
     const batches = await this.getBatchesForSession(sessionId);
     if (!batches || batches.length === 0) return false;
@@ -500,6 +540,8 @@ class PersistenceService {
     );
     if (dependencyBatches.length === 0) return false;
 
+    // BLOCKED is deliberately absent: the step was asked for and could not be
+    // attempted, so nothing downstream should treat it as satisfied (#172).
     return dependencyBatches.every((b) =>
       ['COMPLETED', 'BYPASSED', 'SYNCHRONOUS'].includes(b.status)
     );
@@ -570,21 +612,39 @@ class PersistenceService {
     return false;
   }
 
-  async createBatch({ erc, sessionId, stepKey, status, totalCount }) {
+  /**
+   * `statusReason` says *why* a step ended as it did. `error_message` is for a
+   * thrown error, and neither a step that had nothing to do nor one that could
+   * not be attempted has thrown - both still owe the operator a reason (#172).
+   *
+   * `processedCount` used to be dropped here: the column was written as a
+   * literal 0 while `completeSyncStep` passed a count in, so a synchronous
+   * step always reported having processed nothing.
+   */
+  async createBatch({
+    erc,
+    sessionId,
+    stepKey,
+    status,
+    processedCount = 0,
+    totalCount,
+    statusReason = null,
+  }) {
     const now = new Date().toISOString();
     await this._run(
       `
       INSERT INTO workflow_batches (
-        erc, session_id, step_key, status, processed_count, total_count, error_count, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        erc, session_id, step_key, status, processed_count, total_count, error_count, status_reason, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       erc,
       sessionId,
       stepKey,
       status,
-      0,
+      processedCount || 0,
       totalCount || 0,
       0,
+      statusReason,
       now,
       now
     );
