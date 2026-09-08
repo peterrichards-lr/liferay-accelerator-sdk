@@ -121,6 +121,26 @@ class ContractValidator {
   }
 
   /**
+   * Describes a schema's declared surface, for callers that need to decide
+   * *whether* a schema applies to a payload before validating against it.
+   *
+   * @param {string} specFileName e.g. 'headless-commerce-admin-catalog-v1.0-openapi.json'
+   * @param {string} schemaName e.g. 'Product'
+   * @returns {{properties: string[], required: string[]}|null} null when the
+   *   spec or the schema is not loaded
+   */
+  describeSchema(specFileName, schemaName) {
+    const schema =
+      this.schemas[specFileName]?.components?.schemas?.[schemaName];
+    if (!schema || typeof schema !== 'object') return null;
+
+    return {
+      properties: Object.keys(schema.properties || {}),
+      required: Array.isArray(schema.required) ? [...schema.required] : [],
+    };
+  }
+
+  /**
    * Validates data against a specific Liferay API schema.
    * @param {string} specFileName e.g. 'headless-commerce-admin-catalog-v1.0-openapi.json'
    * @param {string} schemaName e.g. 'Product'
