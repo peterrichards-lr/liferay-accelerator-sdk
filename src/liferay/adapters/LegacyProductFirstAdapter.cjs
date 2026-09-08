@@ -102,10 +102,17 @@ class LegacyProductFirstAdapter extends LiferayCatalogAdapter {
     return results.filter((r) => r.status === 'fulfilled').map((r) => r.value);
   }
 
+  /**
+   * Asks for the option values, not just the options.
+   *
+   * Without the expansion every option comes back `productOptionValues: []`,
+   * so a caller linking SKUs to option values finds none and drops the links -
+   * leaving SKUs Liferay marks inactive and orders it refuses.
+   */
   async getProductOptions(config, productId) {
     const data = await this.rest._get(
       config,
-      this.paths.PATH.PRODUCT_OPTIONS(productId),
+      this.paths.PATH.PRODUCT_OPTIONS_WITH_VALUES(productId),
       'get-product-options'
     );
     return asItems(data);

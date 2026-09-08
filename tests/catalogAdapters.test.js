@@ -87,15 +87,32 @@ describe('LegacyProductFirstAdapter', () => {
       );
     });
 
+    // The expansion belongs to the read alone. Putting it on the shared path
+    // template would send a query parameter on the POST that creates options,
+    // which is why the two paths are separate rather than one.
+    it('does not carry the expansion on the write path', async () => {
+      rest._post = rest._post || vi.fn();
+      rest._post.mockResolvedValue({ id: 1 });
+
+      await adapter.addProductOptions(config, 42, [{ key: 'color' }]);
+
+      const paths = rest._post.mock.calls.map(([, path]) => path);
+      paths.forEach((path) => expect(path).not.toContain('nestedFields'));
+    });
+
     it('unwraps product options and specifications to plain arrays', async () => {
       rest._get.mockResolvedValue({ items: [{ id: 7 }], totalCount: 1 });
 
       await expect(adapter.getProductOptions(config, 42)).resolves.toEqual([
         { id: 7 },
       ]);
+      // Liferay does not expand a nested collection unless asked, so without
+      // this every option returns productOptionValues: [] - and a caller
+      // linking SKUs to option values finds none, drops every link, and leaves
+      // SKUs Liferay marks inactive.
       expect(rest._get).toHaveBeenCalledWith(
         config,
-        `${CATALOG}/products/42/productOptions`,
+        `${CATALOG}/products/42/productOptions?nestedFields=productOptionValues`,
         'get-product-options'
       );
 

@@ -1715,10 +1715,12 @@ class LiferayRestService {
     );
   }
 
+  // Expanded, for the same reason as the adapter's read: an option without its
+  // values cannot be linked to a SKU.
   async getCommerceProductOptions(config, productId) {
     const data = await this.httpCore._get(
       config,
-      PATH.PRODUCT_OPTIONS(productId),
+      PATH.PRODUCT_OPTIONS_WITH_VALUES(productId),
       'get-product-options'
     );
     return asItems(data);
