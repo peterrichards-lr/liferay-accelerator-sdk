@@ -325,6 +325,66 @@ describe('liferay/rest/HttpCoreService', () => {
       expect(result).toEqual({ items: [] });
     });
 
+    it('queries the default object when nothing is configured', async () => {
+      service._get = vi
+        .fn()
+        .mockResolvedValue({ items: [{ configKey: 'FOO' }] });
+
+      await service.getConfig({}, 'FOO');
+
+      expect(service._get.mock.calls[0][1]).toContain(
+        '/o/c/aicaconfigurations?'
+      );
+    });
+
+    it('queries the object named by the per-call config, for both filters', async () => {
+      service._get = vi
+        .fn()
+        .mockResolvedValueOnce({ items: [] })
+        .mockResolvedValueOnce({ items: [] });
+
+      await service.getConfig(
+        { configObjectName: 'tenantconfigurations' },
+        'FOO'
+      );
+
+      // Both the configKey query and the ERC fallback must address the same
+      // definition, or updateConfig would PATCH a record read from elsewhere.
+      expect(service._get.mock.calls[0][1]).toContain(
+        '/o/c/tenantconfigurations?'
+      );
+      expect(service._get.mock.calls[1][1]).toContain(
+        '/o/c/tenantconfigurations?'
+      );
+    });
+
+    it('queries the object named by the environment when the config is silent', async () => {
+      const original = ENV.LIFERAY_CONFIG_OBJECT_NAME;
+      ENV.LIFERAY_CONFIG_OBJECT_NAME = 'envconfigurations';
+      service._get = vi
+        .fn()
+        .mockResolvedValue({ items: [{ configKey: 'FOO' }] });
+
+      try {
+        await service.getConfig({}, 'FOO');
+      } finally {
+        ENV.LIFERAY_CONFIG_OBJECT_NAME = original;
+      }
+
+      expect(service._get.mock.calls[0][1]).toContain(
+        '/o/c/envconfigurations?'
+      );
+    });
+
+    it('rejects an object name that is a path before issuing a request', async () => {
+      service._get = vi.fn();
+
+      await expect(
+        service.getConfig({ configObjectName: 'c/tenantconfigurations' }, 'FOO')
+      ).rejects.toThrow(/does not name a single object/);
+      expect(service._get).not.toHaveBeenCalled();
+    });
+
     it('rethrows unrelated errors', async () => {
       const otherErr = new Error('boom');
       service._get = vi.fn().mockRejectedValue(otherErr);

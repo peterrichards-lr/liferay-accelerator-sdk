@@ -1204,6 +1204,133 @@ describe('LiferayService', () => {
     });
   });
 
+  describe('updateConfig', () => {
+    // The configuration object definition is provisioned with the instance, so
+    // its REST label is configuration; the /o/c root above it never varies.
+    const captureConfigCalls = ({ existingId = null } = {}) => {
+      const seen = { queried: [], written: null, method: null };
+      server.use(
+        http.get('*', ({ request }) => {
+          const url = new URL(request.url);
+          seen.queried.push(url.pathname);
+          return HttpResponse.json(
+            existingId === null
+              ? { items: [] }
+              : { items: [{ id: existingId }] }
+          );
+        }),
+        http.post('*', ({ request }) => {
+          seen.written = new URL(request.url).pathname;
+          seen.method = 'POST';
+          return HttpResponse.json({ id: 1 });
+        }),
+        http.patch('*', ({ request }) => {
+          seen.written = new URL(request.url).pathname;
+          seen.method = 'PATCH';
+          return HttpResponse.json({ id: existingId });
+        })
+      );
+      return seen;
+    };
+
+    const withEnvObjectName = async (objectName, run) => {
+      const original = ENV.LIFERAY_CONFIG_OBJECT_NAME;
+      ENV.LIFERAY_CONFIG_OBJECT_NAME = objectName;
+      try {
+        await run();
+      } finally {
+        ENV.LIFERAY_CONFIG_OBJECT_NAME = original;
+      }
+    };
+
+    it('should default to /o/c/aicaconfigurations when nothing is configured', async () => {
+      const seen = captureConfigCalls();
+
+      await liferayService.rest.updateConfig(config, 'FOO', 'bar');
+
+      expect(seen.method).toBe('POST');
+      expect(seen.written).toBe('/o/c/aicaconfigurations');
+      expect(seen.queried[0]).toBe('/o/c/aicaconfigurations');
+    });
+
+    it('should take the object name from the per-call config', async () => {
+      const seen = captureConfigCalls();
+
+      await liferayService.rest.updateConfig(
+        { ...config, configObjectName: 'tenantconfigurations' },
+        'FOO',
+        'bar'
+      );
+
+      expect(seen.written).toBe('/o/c/tenantconfigurations');
+      expect(seen.queried[0]).toBe('/o/c/tenantconfigurations');
+    });
+
+    it('should take the object name from the environment when the config is silent', async () => {
+      const seen = captureConfigCalls();
+
+      await withEnvObjectName('envconfigurations', () =>
+        liferayService.rest.updateConfig(config, 'FOO', 'bar')
+      );
+
+      expect(seen.written).toBe('/o/c/envconfigurations');
+    });
+
+    it('should prefer the config object name over the environment', async () => {
+      const seen = captureConfigCalls();
+
+      await withEnvObjectName('envconfigurations', () =>
+        liferayService.rest.updateConfig(
+          { ...config, configObjectName: 'configconfigurations' },
+          'FOO',
+          'bar'
+        )
+      );
+
+      expect(seen.written).toBe('/o/c/configconfigurations');
+    });
+
+    it('should tolerate the leading slash a restContextPath carries', async () => {
+      const seen = captureConfigCalls();
+
+      await liferayService.rest.updateConfig(
+        { ...config, configObjectName: '/tenantconfigurations' },
+        'FOO',
+        'bar'
+      );
+
+      expect(seen.written).toBe('/o/c/tenantconfigurations');
+    });
+
+    it('should PATCH the existing record under the configured object name', async () => {
+      const seen = captureConfigCalls({ existingId: 42 });
+
+      await liferayService.rest.updateConfig(
+        { ...config, configObjectName: 'tenantconfigurations' },
+        'FOO',
+        'bar'
+      );
+
+      expect(seen.method).toBe('PATCH');
+      expect(seen.written).toBe('/o/c/tenantconfigurations/42');
+    });
+
+    it('should reject an object name that is a path rather than a segment', async () => {
+      const seen = captureConfigCalls();
+
+      await expect(
+        liferayService.rest.updateConfig(
+          { ...config, configObjectName: 'c/tenantconfigurations' },
+          'FOO',
+          'bar'
+        )
+      ).rejects.toThrow(/does not name a single object/);
+
+      expect(seen.written).toBeNull();
+      expect(seen.queried).toEqual([]);
+    });
+  });
+
   describe('triggerReindex', () => {
     // The search-reindex module is deployed by the environment, so the base is
     // configuration; only the base varies, never the /reindex sub-paths.

@@ -163,6 +163,38 @@ The scope is not configurable here and cannot be. It derives from the module's
 the base this setting names - granting it stays the consumer's job, which is
 where OAuth grants already live.
 
+## Configuration Object
+
+`getConfig` and `updateConfig` read and write entries in a Liferay object
+definition under the portal's `/o/c` root. The definition is created when the
+instance is provisioned rather than released with the SDK, so its REST label is
+configuration, in descending precedence:
+
+| Source                       | Scope                                                                     |
+| :--------------------------- | :------------------------------------------------------------------------ |
+| `config.configObjectName`    | per call, alongside `liferayUrl` and the credentials                      |
+| `LIFERAY_CONFIG_OBJECT_NAME` | the deployment - an environment variable or client-extension config entry |
+| `aicaconfigurations`         | the default, matching AICA's own object definition                        |
+
+This is a name, not a path. Only the one segment under `/o/c` varies - the root
+itself is portal-provided and fixed. A leading or trailing slash is tolerated,
+so the `restContextPath` of an object definition (`/aicaconfigurations`) can be
+pasted in as it reads; anything that would address a different endpoint rather
+than name a segment - an interior slash, `?`, `#` or whitespace - is rejected
+with a `TypeError` rather than concatenated into a URL.
+
+The name and the OAuth scope have to be set together, and neither can be
+computed from the other. AICA's definition is named `AICAConfiguration` and
+served at `/aicaconfigurations`: the URL segment comes from its
+`restContextPath` and the scope, `c_aicaconfiguration.everything`, from its
+`name`. Pointing this setting at a differently-named definition therefore also
+means granting **that** definition's scope in the consumer's
+`client-extension.yaml`. A mismatch is rejected as a **403**, which reads as a
+missing grant rather than as a name pointing at the wrong object.
+
+Granting the scope stays the consumer's job, which is where OAuth grants
+already live; the SDK can only name the object it calls.
+
 ## Batch Failure Diagnostics
 
 When a Liferay batch import reports failed items, `BatchCallbackService` builds

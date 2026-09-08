@@ -137,6 +137,54 @@ describe('utils/misc', () => {
     });
   });
 
+  describe('normalizeObjectName', () => {
+    it('should return a bare segment, tolerating the slashes restContextPath carries', () => {
+      expect(misc.normalizeObjectName('aicaconfigurations')).toBe(
+        'aicaconfigurations'
+      );
+      expect(misc.normalizeObjectName('/aicaconfigurations')).toBe(
+        'aicaconfigurations'
+      );
+      expect(misc.normalizeObjectName('aicaconfigurations/')).toBe(
+        'aicaconfigurations'
+      );
+      expect(misc.normalizeObjectName('  /aicaconfigurations/  ')).toBe(
+        'aicaconfigurations'
+      );
+    });
+
+    it('should fall back when the value is empty or only slashes', () => {
+      expect(misc.normalizeObjectName('', 'aicaconfigurations')).toBe(
+        'aicaconfigurations'
+      );
+      expect(misc.normalizeObjectName(null, 'aicaconfigurations')).toBe(
+        'aicaconfigurations'
+      );
+      expect(misc.normalizeObjectName('/', 'aicaconfigurations')).toBe(
+        'aicaconfigurations'
+      );
+      expect(misc.normalizeObjectName(undefined)).toBe('');
+    });
+
+    it('should reject a value that is a path rather than a name', () => {
+      // Concatenated silently these would address a different object, or a
+      // different portal API, under the same /o/c root.
+      expect(() => misc.normalizeObjectName('c/aicaconfigurations')).toThrow(
+        TypeError
+      );
+      expect(() => misc.normalizeObjectName('../headless-admin-user')).toThrow(
+        /does not name a single object/
+      );
+      expect(() =>
+        misc.normalizeObjectName('aicaconfigurations?filter=1')
+      ).toThrow(TypeError);
+      expect(() => misc.normalizeObjectName('aica configurations')).toThrow(
+        TypeError
+      );
+      expect(() => misc.normalizeObjectName('..')).toThrow(TypeError);
+    });
+  });
+
   describe('liferayUtils', () => {
     describe('asItems', () => {
       it('should return array directly if input is an array', () => {
@@ -202,6 +250,26 @@ describe('utils/misc', () => {
       );
 
       delete process.env.LIFERAY_REINDEX_BASE_PATH;
+      delete require.cache[require.resolve('../src/utils/constants.cjs')];
+      require('../src/utils/constants.cjs');
+    });
+
+    it("should take the config object name from the environment, defaulting to AICA's object", () => {
+      delete require.cache[require.resolve('../src/utils/constants.cjs')];
+      const defaulted = require('../src/utils/constants.cjs');
+      expect(defaulted.ENV.LIFERAY_CONFIG_OBJECT_NAME).toBe(
+        defaulted.DEFAULT_CONFIG_OBJECT_NAME
+      );
+      expect(defaulted.DEFAULT_CONFIG_OBJECT_NAME).toBe('aicaconfigurations');
+
+      process.env.LIFERAY_CONFIG_OBJECT_NAME = 'tenantconfigurations';
+      delete require.cache[require.resolve('../src/utils/constants.cjs')];
+      const overridden = require('../src/utils/constants.cjs');
+      expect(overridden.ENV.LIFERAY_CONFIG_OBJECT_NAME).toBe(
+        'tenantconfigurations'
+      );
+
+      delete process.env.LIFERAY_CONFIG_OBJECT_NAME;
       delete require.cache[require.resolve('../src/utils/constants.cjs')];
       require('../src/utils/constants.cjs');
     });

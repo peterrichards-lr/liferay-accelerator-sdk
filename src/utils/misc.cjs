@@ -1,6 +1,10 @@
 const crypto = require('crypto');
 const { ErrorHandler } = require('./expressErrorHandler.cjs');
-const { ERC_PREFIX, ENV } = require('./constants.cjs');
+const {
+  ERC_PREFIX,
+  ENV,
+  DEFAULT_CONFIG_OBJECT_NAME,
+} = require('./constants.cjs');
 
 function getRandomInt(max) {
   return Math.floor(Math.random() * max);
@@ -364,6 +368,60 @@ function normalizeApplicationBasePath(value, fallback = '') {
     : `/${withoutTrailingSlash}`;
 }
 
+/**
+ * Normalises the REST label of a Liferay object definition into the single
+ * path segment that follows `/o/c`. This is a name, not a path: the only
+ * slashes tolerated are the ones a definition's own `restContextPath` carries
+ * (`/aicaconfigurations`), because that is the field a reader copies the value
+ * out of. Anything else that would change the shape of the URL rather than
+ * name a segment - an interior slash, a query or fragment marker, whitespace -
+ * is rejected, because silently concatenating it would address a different
+ * object, or a different portal API, without saying so.
+ *
+ * @param {string} value the configured object name
+ * @param {string} [fallback] returned when the value is empty or only slashes
+ * @returns {string} the bare segment
+ * @throws {TypeError} when the value does not name a single object
+ */
+function normalizeObjectName(value, fallback = '') {
+  const name = String(value ?? '')
+    .trim()
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '');
+  if (!name) return fallback;
+  if (/[/?#\s]/.test(name) || /^\.+$/.test(name)) {
+    throw new TypeError(
+      `normalizeObjectName: "${value}" does not name a single object. A ` +
+        "Liferay object's REST label is one segment under /o/c; a slash, " +
+        '"?", "#", whitespace, or a name of only dots would change which ' +
+        'endpoint is called rather than which object.'
+    );
+  }
+  return name;
+}
+
+/**
+ * Resolves the object definition the SDK reads and writes its configuration
+ * entries through, in descending precedence: `config.configObjectName` per
+ * call, then `ENV.LIFERAY_CONFIG_OBJECT_NAME` for the deployment, then
+ * `DEFAULT_CONFIG_OBJECT_NAME`.
+ *
+ * Shared rather than inlined because four call sites - the `getConfig` query
+ * pair and the `updateConfig` PATCH/POST pair - have to agree on the answer:
+ * `updateConfig` PATCHes the record `getConfig` found, so a resolution that
+ * differed between them would write to a record that was read from somewhere
+ * else.
+ *
+ * @param {object} [config] the per-call Liferay connection config
+ * @returns {string} the object's REST label, as a bare segment
+ */
+function resolveConfigObjectName(config) {
+  return normalizeObjectName(
+    config?.configObjectName || ENV.LIFERAY_CONFIG_OBJECT_NAME,
+    DEFAULT_CONFIG_OBJECT_NAME
+  );
+}
+
 function normalizeNumber(value, { min, max, defaultValue = 0 } = {}) {
   let n = Number(value);
   if (!Number.isFinite(n)) n = Number(defaultValue);
@@ -457,6 +515,7 @@ module.exports = {
   isValidUrl,
   normalizeApplicationBasePath,
   normalizeNumber,
+  normalizeObjectName,
   now,
   parseDataUrl,
   randomDateBetween,
@@ -466,6 +525,7 @@ module.exports = {
   randomString,
   ratioTrigger,
   buildKeyedERC,
+  resolveConfigObjectName,
   resolveErrorReference,
   resolveOperation,
   resolvePhaseAndMode,

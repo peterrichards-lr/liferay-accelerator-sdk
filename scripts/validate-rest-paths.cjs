@@ -38,7 +38,17 @@ const SENTINEL = '12345';
  */
 const ROOTS_WITHOUT_SPECS = {
   '/o/headless-admin-taxonomy': 'no taxonomy spec is synced into api-schemas',
-  '/o/c': 'Liferay Objects paths are instance-defined, not described by a spec',
+  // Unverifiable in principle, not merely unsynced: the segment under /o/c is
+  // an object definition created when the instance is provisioned, so no
+  // published spec can describe it. That stays true now the SDK's own
+  // configuration object is configurable - config.configObjectName or
+  // ENV.LIFERAY_CONFIG_OBJECT_NAME can name any definition at run time, and
+  // only DEFAULT_CONFIG_OBJECT_NAME is ever a literal in src for a harvester
+  // to find.
+  '/o/c':
+    'Liferay Objects paths are instance-defined: the object under /o/c is ' +
+    'created when the portal is provisioned, so no spec describes it and no ' +
+    'gate here can',
   '/o/api': 'the API explorer is not itself a described API',
   '/o/oauth2': 'the OAuth2 token endpoint is not described by a headless spec',
   '/o/headless-pim':
@@ -56,7 +66,18 @@ const ROOTS_WITHOUT_SPECS = {
   '/o/workflow-admin': 'no workflow-admin spec is synced into api-schemas',
 };
 
-/** PATH members that are lookup tables rather than emittable paths. */
+/**
+ * PATH members that are lookup tables rather than emittable paths.
+ *
+ * CUSTOM_OBJECTS holds object names, not paths, and its one entry is only the
+ * default: the live name comes from config.configObjectName or
+ * ENV.LIFERAY_CONFIG_OBJECT_NAME. Emitting it would produce a path under /o/c,
+ * which is excused above as instance-defined, so nothing is lost by skipping
+ * it - but note that between the two exclusions the most instance-specific
+ * path the SDK emits is the one this gate checks least. That is a property of
+ * Liferay Objects rather than a gap to close here; the object name is covered
+ * by unit tests instead.
+ */
 const NON_PATH_MEMBERS = new Set(['VARIANT', 'CUSTOM_OBJECTS']);
 
 /**
