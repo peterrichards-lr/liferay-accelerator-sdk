@@ -8,7 +8,7 @@ const {
   findContractByEntityType,
 } = require('../src/utils/contractMappings.cjs');
 
-const { VERDICT, LOCAL_ASSESSMENT } = SchemaCorrelationService;
+const { VERDICT, LOCAL_ASSESSMENT, SCHEMA_SOURCE } = SchemaCorrelationService;
 
 const createLogger = () => ({
   trace: vi.fn(),
@@ -261,6 +261,127 @@ describe('SchemaCorrelationService', () => {
     });
   });
 
+  // The create-skus step submits Products with their SKUs nested inside,
+  // because that is the only shape Liferay accepts them in. Its step key still
+  // says 'skus', so anything that reads the step name to pick a schema reaches
+  // for Sku and then reports the parent Product as missing the child's
+  // required 'sku'. See #663.
+  describe('schema identification', () => {
+    const nestedSkuProduct = {
+      catalogId: 35018,
+      externalReferenceCode: 'AICA-PRD-0001',
+      active: true,
+      name: { en_US: 'Trail Runner 500' },
+      productType: 'simple',
+      skus: [
+        {
+          sku: 'TR500-BLK-37L',
+          externalReferenceCode: 'TR500-BLK-37L',
+          published: true,
+          purchasable: true,
+        },
+        {
+          sku: 'TR500-BLK-48L',
+          externalReferenceCode: 'TR500-BLK-48L',
+          published: true,
+          purchasable: true,
+        },
+      ],
+    };
+
+    it('assesses a nested-SKU product against Product, not against Sku', () => {
+      const assumed = findContractByEntityType('skus');
+      expect(assumed).toMatchObject({ schema: 'Sku' });
+
+      const assessment = service.assessLocally(assumed, nestedSkuProduct);
+
+      expect(assessment.contract).toMatchObject({ schema: 'Product' });
+      expect(assessment.schemaSource).toBe(SCHEMA_SOURCE.PAYLOAD_SHAPE);
+      expect(assessment.status).toBe(LOCAL_ASSESSMENT.PASSED);
+      expect(service._verdictFor(assessment)).toBe(VERDICT.SERVER_SIDE_ONLY);
+    });
+
+    it('never reports the parent product as missing the required sku of its children', () => {
+      const assessment = service.assessLocally(
+        findContractByEntityType('skus'),
+        nestedSkuProduct
+      );
+
+      const complaints = assessment.errors.map((error) => error.message);
+      expect(complaints).not.toContain("must have required property 'sku'");
+      expect(service._verdictFor(assessment)).not.toBe(
+        VERDICT.LOCALLY_PREVENTABLE
+      );
+    });
+
+    it('still catches a malformed SKU nested in a product, and names its index', () => {
+      const assessment = service.assessLocally(
+        findContractByEntityType('skus'),
+        {
+          ...nestedSkuProduct,
+          skus: [
+            nestedSkuProduct.skus[0],
+            { externalReferenceCode: 'has-no-sku-code' },
+          ],
+        }
+      );
+
+      expect(assessment.status).toBe(LOCAL_ASSESSMENT.FAILED);
+      expect(assessment.contract).toMatchObject({ schema: 'Product' });
+      expect(service._verdictFor(assessment)).toBe(VERDICT.LOCALLY_PREVENTABLE);
+
+      const formatted = service._formatLocalAssessment(assessment);
+      expect(formatted).toContain("skus[1] must have required property 'sku'");
+    });
+
+    it("keeps the step key's schema when the payload confirms it", () => {
+      const assumed = findContractByEntityType('skus');
+      const assessment = service.assessLocally(assumed, {
+        sku: 'TR500-BLK-37L',
+        externalReferenceCode: 'TR500-BLK-37L',
+        published: true,
+        purchasable: true,
+      });
+
+      expect(assessment.contract).toMatchObject({ schema: 'Sku' });
+      expect(assessment.schemaSource).toBe(SCHEMA_SOURCE.STEP_KEY_CONFIRMED);
+      expect(assessment.status).toBe(LOCAL_ASSESSMENT.PASSED);
+    });
+
+    it('reports an item it cannot identify as unassessed rather than guessing', () => {
+      const assessment = service.assessLocally(
+        findContractByEntityType('skus'),
+        {
+          externalReferenceCode: 'AICA-ZZZ-0003',
+          somethingLiferayNeverDeclared: true,
+          anotherUnknownField: 1,
+        }
+      );
+
+      expect(assessment.status).toBe(LOCAL_ASSESSMENT.SKIPPED);
+      expect(assessment.contract).toBeNull();
+      expect(assessment.schemaSource).toBe(SCHEMA_SOURCE.UNIDENTIFIED);
+      expect(service._verdictFor(assessment)).toBe(VERDICT.UNDIAGNOSED);
+      expect(service._formatLocalAssessment(assessment)).toMatch(
+        /^NOT ASSESSED/
+      );
+    });
+
+    it('does not second-guess a contract the caller named explicitly', () => {
+      const assessment = service.assessLocally(
+        {
+          spec: 'headless-commerce-admin-catalog-v1.0-openapi.json',
+          schema: 'Sku',
+          isOverride: true,
+        },
+        nestedSkuProduct
+      );
+
+      expect(assessment.contract).toMatchObject({ schema: 'Sku' });
+      expect(assessment.schemaSource).toBe(SCHEMA_SOURCE.OVERRIDE);
+    });
+  });
+
   describe('correlate', () => {
     it('classifies each failed item against the submitted payload', async () => {
       const report = await service.correlate({
@@ -416,6 +537,43 @@ describe('SchemaCorrelationService', () => {
       });
       expect(report.entries[0].verdict).toBe(VERDICT.UNDIAGNOSED);
       expect(service.formatReport(report)).toContain('placeholder spec');
+    });
+
+    it('does not blame a nested-SKU product for the sku its children carry', async () => {
+      const report = await service.correlate({
+        config: {},
+        batchId: '9009',
+        stepKey: 'create-skus',
+        entityType: 'skus',
+        failureReport: [
+          {
+            externalReferenceCode: 'AICA-PRD-0001',
+            errorMessage: 'ConstraintViolationException',
+          },
+        ],
+        submittedItems: [
+          {
+            catalogId: 35018,
+            externalReferenceCode: 'AICA-PRD-0001',
+            active: true,
+            name: { en_US: 'Trail Runner 500' },
+            productType: 'simple',
+            skus: [
+              { sku: 'TR500-BLK-37L', externalReferenceCode: 'TR500-BLK-37L' },
+              { sku: 'TR500-BLK-48L', externalReferenceCode: 'TR500-BLK-48L' },
+            ],
+          },
+        ],
+        fetchSubmittedContent: false,
+      });
+
+      expect(report.summary.locallyPreventableCount).toBe(0);
+      expect(report.entries[0].verdict).toBe(VERDICT.SERVER_SIDE_ONLY);
+
+      const formatted = service.formatReport(report);
+      expect(formatted).not.toContain("must have required property 'sku'");
+      expect(formatted).toContain('Schema Applied');
+      expect(formatted).toContain('Product (headless-commerce-admin-catalog');
     });
 
     it('honours an explicit contract override', async () => {

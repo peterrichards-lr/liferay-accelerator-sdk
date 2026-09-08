@@ -1,4 +1,7 @@
-const { findContractByEntityType } = require('../utils/contractMappings.cjs');
+const {
+  findContractByEntityType,
+  ENTITY_CONTRACTS,
+} = require('../utils/contractMappings.cjs');
 
 /**
  * Per-item conclusion drawn by correlating a Liferay import failure with the
@@ -19,8 +22,28 @@ const LOCAL_ASSESSMENT = {
   SKIPPED: 'SKIPPED',
 };
 
+/** How the schema an item was assessed against came to be chosen. */
+const SCHEMA_SOURCE = {
+  /** The caller named the contract explicitly; it is not second-guessed. */
+  OVERRIDE: 'override',
+  /** Derived from the step key / entity type and confirmed by the item's shape. */
+  STEP_KEY_CONFIRMED: 'stepKeyConfirmedByShape',
+  /** The step key's schema did not describe the item; its shape named another. */
+  PAYLOAD_SHAPE: 'payloadShape',
+  /** No schema could be identified with confidence: the item is not assessed. */
+  UNIDENTIFIED: 'unidentified',
+};
+
 const DEFAULT_MAX_ENTRIES = 25;
 const DEFAULT_PAYLOAD_CHARS = 600;
+
+/**
+ * Share of an item's own top-level fields a schema must declare before it is
+ * accepted as describing that item. Below this the schema is a bystander that
+ * happens to share a field name or two, and assessing against it would report
+ * violations of rules the item was never subject to.
+ */
+const MIN_SHAPE_COVERAGE = 0.5;
 
 /**
  * Correlates Liferay batch import failures with the payload items that caused
@@ -41,7 +64,13 @@ class SchemaCorrelationService {
    * @param {{contract?: object, entityType?: string, stepKey?: string}} opts
    */
   resolveContract({ contract, entityType, stepKey } = {}) {
-    if (contract && contract.spec && contract.schema) return contract;
+    if (contract && contract.spec && contract.schema) {
+      return { ...contract, isOverride: true };
+    }
+
+    // A step key names the work, not the wire format. 'create-skus' submits
+    // Products with their SKUs nested inside, so what this resolves is only a
+    // hypothesis - identifySchema() checks it against the item before use.
     return (
       findContractByEntityType(entityType) ||
       findContractByEntityType(stepKey) ||
@@ -157,34 +186,198 @@ class SchemaCorrelationService {
     return { item: null, matchedBy: 'unmatched' };
   }
 
+  /** The item's own top-level field names, ignoring OpenAPI's x- extensions. */
+  _itemFieldNames(payloadItem) {
+    return Object.keys(payloadItem).filter((name) => !name.startsWith('x-'));
+  }
+
+  /** Every distinct contract worth considering as a description of an item. */
+  _candidateContracts(assumedContract) {
+    const validator = this.ctx?.contractValidator;
+    const seen = new Set();
+    const candidates = [];
+
+    for (const contract of [
+      assumedContract,
+      ...Object.values(ENTITY_CONTRACTS),
+    ]) {
+      if (!contract) continue;
+
+      const key = `${contract.spec}#${contract.schema}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      // A placeholder spec declares almost nothing, so it can neither win a
+      // shape comparison nor be ruled out by one.
+      if (validator.isPlaceholderSpec?.(contract.spec)) continue;
+
+      candidates.push({ spec: contract.spec, schema: contract.schema });
+    }
+
+    return candidates;
+  }
+
   /**
-   * Runs a payload item back through ContractValidator.
-   * @returns {{status: string, errors: Array, reason?: string}}
+   * Decides which schema actually describes a payload item.
+   *
+   * The step key is treated as a hypothesis and confirmed against the item's
+   * top-level fields, because the two disagree whenever a batch nests one
+   * entity inside another. Where the hypothesis is wrong the item's own shape
+   * has to name the replacement unambiguously; where nothing does, the item is
+   * reported as unassessed. A schema chosen by elimination would produce a
+   * confident verdict against rules the item was never subject to, which reads
+   * as a real defect and costs more than saying nothing.
+   *
+   * @param {{spec: string, schema: string}|null} assumedContract
+   * @param {object} payloadItem
+   * @returns {{contract: object|null, source: string, reason: string|null}}
    */
-  assessLocally(contract, payloadItem) {
+  identifySchema(assumedContract, payloadItem) {
     const validator = this.ctx?.contractValidator;
 
-    if (!validator) {
+    if (assumedContract?.isOverride) {
       return {
-        status: LOCAL_ASSESSMENT.SKIPPED,
-        errors: [],
-        reason: 'No ContractValidator registered on the SDK context',
+        contract: assumedContract,
+        source: SCHEMA_SOURCE.OVERRIDE,
+        reason: null,
       };
     }
-    if (!contract) {
+
+    // Without a way to read the specs there is nothing to confirm against, so
+    // the hypothesis stands rather than every item becoming unassessable.
+    if (typeof validator?.describeSchema !== 'function') {
       return {
-        status: LOCAL_ASSESSMENT.SKIPPED,
-        errors: [],
-        reason: 'No OpenAPI contract is mapped for this entity type',
+        contract: assumedContract,
+        source: SCHEMA_SOURCE.STEP_KEY_CONFIRMED,
+        reason: null,
       };
+    }
+
+    const fieldNames = this._itemFieldNames(payloadItem);
+    if (fieldNames.length === 0) {
+      return {
+        contract: null,
+        source: SCHEMA_SOURCE.UNIDENTIFIED,
+        reason: 'the payload item declares no fields to identify it by',
+      };
+    }
+
+    const scored = this._candidateContracts(assumedContract)
+      .map((contract) => {
+        const definition = validator.describeSchema(
+          contract.spec,
+          contract.schema
+        );
+        if (!definition) return null;
+
+        const declared = new Set(definition.properties);
+        const matched = fieldNames.filter((name) => declared.has(name));
+        return {
+          contract,
+          matched: matched.length,
+          coverage: matched.length / fieldNames.length,
+        };
+      })
+      .filter(Boolean);
+
+    const best = scored.reduce(
+      (leader, candidate) =>
+        !leader || candidate.matched > leader.matched ? candidate : leader,
+      null
+    );
+
+    const fieldCount = `${fieldNames.length} top-level field${
+      fieldNames.length === 1 ? '' : 's'
+    }`;
+    const assumedMatched = scored.find(
+      (candidate) =>
+        assumedContract &&
+        candidate.contract.spec === assumedContract.spec &&
+        candidate.contract.schema === assumedContract.schema
+    )?.matched;
+    const assumption = assumedContract
+      ? `the step suggested ${assumedContract.schema}, which declares ${
+          assumedMatched ?? 0
+        } of the item's ${fieldCount}`
+      : 'no schema was suggested for this step';
+
+    if (!best || best.matched === 0 || best.coverage < MIN_SHAPE_COVERAGE) {
+      return {
+        contract: null,
+        source: SCHEMA_SOURCE.UNIDENTIFIED,
+        reason: `no loaded schema describes this item - ${assumption}; fields seen: ${fieldNames.join(', ')}`,
+      };
+    }
+
+    const leaders = scored.filter(
+      (candidate) => candidate.matched === best.matched
+    );
+
+    // The step key is a real signal, so it wins its own ties; only a schema
+    // that beats it outright is allowed to displace it.
+    const assumedLeads = leaders.some(
+      (candidate) =>
+        assumedContract &&
+        candidate.contract.spec === assumedContract.spec &&
+        candidate.contract.schema === assumedContract.schema
+    );
+
+    if (assumedLeads) {
+      return {
+        contract: assumedContract,
+        source: SCHEMA_SOURCE.STEP_KEY_CONFIRMED,
+        reason: null,
+      };
+    }
+
+    if (leaders.length > 1) {
+      return {
+        contract: null,
+        source: SCHEMA_SOURCE.UNIDENTIFIED,
+        reason: `the item's shape matches ${leaders
+          .map((candidate) => candidate.contract.schema)
+          .join(
+            ' and '
+          )} equally well, so no schema could be chosen - ${assumption}`,
+      };
+    }
+
+    return {
+      contract: best.contract,
+      source: SCHEMA_SOURCE.PAYLOAD_SHAPE,
+      reason: `it declares ${best.matched} of the item's ${fieldCount}, where ${assumption}`,
+    };
+  }
+
+  /**
+   * Runs a payload item back through ContractValidator, against the schema
+   * that actually describes it rather than the one its step key named.
+   *
+   * @returns {{status: string, errors: Array, reason?: string,
+   *   contract?: object|null, assumedContract?: object|null,
+   *   schemaSource?: string}}
+   */
+  assessLocally(assumedContract, payloadItem) {
+    const validator = this.ctx?.contractValidator;
+    const unassessed = (reason, extra = {}) => ({
+      status: LOCAL_ASSESSMENT.SKIPPED,
+      errors: [],
+      reason,
+      contract: null,
+      assumedContract: assumedContract || null,
+      ...extra,
+    });
+
+    if (!validator) {
+      return unassessed('No ContractValidator registered on the SDK context');
+    }
+    if (!assumedContract) {
+      return unassessed('No OpenAPI contract is mapped for this entity type');
     }
     if (!payloadItem || typeof payloadItem !== 'object') {
-      return {
-        status: LOCAL_ASSESSMENT.SKIPPED,
-        errors: [],
-        reason:
-          'Failed item could not be correlated with a submitted payload item',
-      };
+      return unassessed(
+        'Failed item could not be correlated with a submitted payload item'
+      );
     }
 
     // A placeholder spec's schemas assert almost nothing, so validating against
@@ -193,38 +386,76 @@ class SchemaCorrelationService {
     // not assess it instead of asserting something we did not check.
     if (
       typeof validator.isPlaceholderSpec === 'function' &&
-      validator.isPlaceholderSpec(contract.spec)
+      validator.isPlaceholderSpec(assumedContract.spec)
     ) {
-      return {
-        status: LOCAL_ASSESSMENT.SKIPPED,
-        errors: [],
-        reason: `${contract.spec} is a placeholder spec (it declares no paths), so it cannot meaningfully assess ${contract.schema} payloads - re-sync it with scripts/sync-schemas.js`,
-      };
+      return unassessed(
+        `${assumedContract.spec} is a placeholder spec (it declares no paths), so it cannot meaningfully assess ${assumedContract.schema} payloads - re-sync it with scripts/sync-schemas.js`,
+        { schemaSource: SCHEMA_SOURCE.UNIDENTIFIED }
+      );
     }
+
+    const identified = this.identifySchema(assumedContract, payloadItem);
+
+    if (!identified.contract) {
+      return unassessed(identified.reason, { schemaSource: identified.source });
+    }
+
+    const contract = identified.contract;
+    const provenance = {
+      contract: { spec: contract.spec, schema: contract.schema },
+      assumedContract: {
+        spec: assumedContract.spec,
+        schema: assumedContract.schema,
+      },
+      schemaSource: identified.source,
+      schemaReason: identified.reason,
+    };
 
     try {
       validator.validate(contract.spec, contract.schema, payloadItem);
-      return { status: LOCAL_ASSESSMENT.PASSED, errors: [] };
+      return { status: LOCAL_ASSESSMENT.PASSED, errors: [], ...provenance };
     } catch (error) {
       if (error.name !== 'ContractViolationError') {
-        return {
-          status: LOCAL_ASSESSMENT.SKIPPED,
-          errors: [],
-          reason: `Local validation could not run: ${error.message}`,
-        };
+        return unassessed(`Local validation could not run: ${error.message}`, {
+          schemaSource: identified.source,
+        });
       }
 
       return {
         status: LOCAL_ASSESSMENT.FAILED,
         message: error.message,
         errors: (error.errors || []).map((ajvError) => ({
-          path: ajvError.instancePath || ajvError.schemaPath || '',
+          path: this._formatErrorPath(ajvError),
           keyword: ajvError.keyword,
           message: ajvError.message,
           params: ajvError.params,
         })),
+        ...provenance,
       };
     }
+  }
+
+  /**
+   * Renders an ajv error location as the payload path a developer can follow -
+   * 'skus[3]' rather than '/skus/3'. Where a nested item is at fault, that
+   * index is the whole of the actionable information.
+   */
+  _formatErrorPath(ajvError) {
+    const instancePath = ajvError.instancePath || '';
+    if (!instancePath) return ajvError.schemaPath || '';
+
+    return instancePath
+      .split('/')
+      .filter(Boolean)
+      .reduce(
+        (path, segment) =>
+          /^\d+$/.test(segment)
+            ? `${path}[${segment}]`
+            : path
+              ? `${path}.${segment}`
+              : segment,
+        ''
+      );
   }
 
   _verdictFor(assessment) {
@@ -392,7 +623,35 @@ class SchemaCorrelationService {
     if (localAssessment.status === LOCAL_ASSESSMENT.PASSED) {
       return 'PASSED - payload satisfies the Liferay OpenAPI contract';
     }
-    return `SKIPPED - ${localAssessment.reason || 'not assessed'}`;
+    // Deliberately not a verdict. A reader scanning a failed run has to be able
+    // to tell "we checked and found nothing wrong" from "we could not check",
+    // because only the first one licenses blaming the server.
+    return `NOT ASSESSED - ${localAssessment.reason || 'no reason recorded'}`;
+  }
+
+  /**
+   * Names the schema an item was actually assessed against, and says why that
+   * one - so a reader can tell a verdict drawn from the right contract from a
+   * step key's guess, without having to know the workflow's step names.
+   */
+  _formatSchemaApplied(localAssessment = {}) {
+    const { contract, assumedContract, schemaSource, schemaReason } =
+      localAssessment;
+
+    if (!contract) {
+      return assumedContract
+        ? `none - ${assumedContract.schema} was suggested by the step but not applied`
+        : 'none';
+    }
+
+    const applied = `${contract.schema} (${contract.spec})`;
+    if (schemaSource === SCHEMA_SOURCE.PAYLOAD_SHAPE) {
+      return `${applied} - ${schemaReason}`;
+    }
+    if (schemaSource === SCHEMA_SOURCE.OVERRIDE) {
+      return `${applied} - named explicitly by the caller`;
+    }
+    return applied;
   }
 
   _formatPayloadItem(payloadItem, maxChars) {
@@ -423,7 +682,7 @@ class SchemaCorrelationService {
     lines.push(
       `Step: ${report.stepKey || 'unknown'} | Entity: ${
         report.entityType || 'unknown'
-      } | Contract: ${
+      } | Contract suggested by the step: ${
         report.contract
           ? `${report.contract.schema} (${report.contract.spec})`
           : 'none mapped'
@@ -457,6 +716,11 @@ class SchemaCorrelationService {
         )}`
       );
       lines.push(
+        `    Schema Applied ........... ${this._formatSchemaApplied(
+          entry.localAssessment
+        )}`
+      );
+      lines.push(
         `    Failed Payload Item ...... ${this._formatPayloadItem(
           entry.payloadItem,
           maxPayloadChars
@@ -471,3 +735,4 @@ class SchemaCorrelationService {
 module.exports = SchemaCorrelationService;
 module.exports.VERDICT = VERDICT;
 module.exports.LOCAL_ASSESSMENT = LOCAL_ASSESSMENT;
+module.exports.SCHEMA_SOURCE = SCHEMA_SOURCE;
