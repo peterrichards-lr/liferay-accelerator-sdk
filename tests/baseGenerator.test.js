@@ -602,6 +602,66 @@ describe('BaseGenerator', () => {
       expect(batches).toHaveLength(2);
       expect(new Set(batches.map((b) => b.erc)).size).toBe(2);
     });
+
+    describe('completion broadcast', () => {
+      beforeEach(async () => {
+        await persistence.createSession({
+          sessionId: 'sid-broadcast',
+          flowType: 'generate',
+          status: 'RUNNING',
+          context: { config: {} },
+          currentSteps: [],
+          correlationId: 'cid-broadcast',
+        });
+      });
+
+      it('reports what the step processed, not what it was asked to process', async () => {
+        await generator.completeSyncStep(
+          'sid-broadcast',
+          WORKFLOW_STEPS.GENERATE_PRODUCT_DATA,
+          'SYNCHRONOUS',
+          16,
+          50
+        );
+
+        expect(mockCtx.progress.stepCompleted).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sessionId: 'sid-broadcast',
+            step: WORKFLOW_STEPS.GENERATE_PRODUCT_DATA,
+            processedCount: 16,
+            totalCount: 50,
+          })
+        );
+
+        const [batch] = await persistence.getBatchesForSession('sid-broadcast');
+        expect(batch.processed_count).toBe(16);
+      });
+
+      it('still reports full when the step processed everything', async () => {
+        await generator.completeSyncStep(
+          'sid-broadcast',
+          WORKFLOW_STEPS.GENERATE_PRODUCT_DATA,
+          'SYNCHRONOUS',
+          50,
+          50
+        );
+
+        expect(mockCtx.progress.stepCompleted).toHaveBeenCalledWith(
+          expect.objectContaining({ processedCount: 50, totalCount: 50 })
+        );
+      });
+
+      it('reports the default single unit when the step passes no counts', async () => {
+        await generator.completeSyncStep(
+          'sid-broadcast',
+          WORKFLOW_STEPS.LOAD_LANGUAGES
+        );
+
+        expect(mockCtx.progress.stepCompleted).toHaveBeenCalledWith(
+          expect.objectContaining({ processedCount: 1, totalCount: 1 })
+        );
+      });
+    });
   });
 
   describe('Verification', () => {

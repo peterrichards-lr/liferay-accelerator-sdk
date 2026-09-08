@@ -390,13 +390,20 @@ class BaseGenerator extends BaseWorkflowService {
       { sessionId }
     );
 
-    // Broadcast step completion to the UI
+    // Broadcast step completion to the UI.
+    //
+    // `processedCount` travels with the total because the broadcast used to
+    // carry the total alone, leaving the progress service to fill the
+    // processed count from it. Every step then announced that it had done
+    // everything it was asked to, however little it actually did: the row
+    // written above recorded 16 of 50 while the wire said 50 of 50 (#773).
     if (this.progress && typeof this.progress.stepCompleted === 'function') {
       await this.progress.stepCompleted({
         sessionId,
         step: stepKey,
         entityType: this._normalizeEntityType(stepKey),
         operation: session.flow_type || session.flowType,
+        processedCount,
         totalCount,
         correlationId: session.correlationId,
       });
