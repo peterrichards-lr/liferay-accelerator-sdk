@@ -159,6 +159,29 @@ describe('BaseWorkflowService.submitBatch', () => {
     );
   });
 
+  // A batch Liferay reports as already completed has processed every one of
+  // its items. Recording it against the wrong field left the report showing
+  // rows like `create-price-lists COMPLETED 0/90` (#763).
+  it('records the full item count as processed when submitFn reports completion', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(generator, 'completeSyncStep').mockResolvedValue(true);
+
+    const submitFn = vi.fn().mockResolvedValue({ status: 'completed' });
+
+    const result = await generator.submitBatch(
+      sessionId,
+      WORKFLOW_STEPS.GENERATE_PRICE_LISTS,
+      'priceLists',
+      'generate',
+      submitFn,
+      90
+    );
+
+    const batch = await persistence.getBatch(result.batchERC);
+    expect(batch.processed_count).toBe(90);
+    expect(batch.total_count).toBe(90);
+  });
+
   it('logs and swallows errors raised while auto-advancing the simulated batch', async () => {
     vi.useFakeTimers();
 
@@ -184,7 +207,19 @@ describe('BaseWorkflowService.submitBatch', () => {
     await Promise.resolve();
 
     expect(mockCtx.logger.error).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to auto-advance simulated batch')
+      expect.stringContaining('Failed to auto-advance simulated batch'),
+      expect.objectContaining({
+        sessionId,
+        stepKey: WORKFLOW_STEPS.LOAD_LANGUAGES,
+      })
+    );
+
+    // The failed advance must not take the completion check down with it. The
+    // batch itself is already done; skipping the check leaves the session
+    // waiting on it with nothing left to arrive (#763).
+    expect(mockCtx.batchCallback._checkSessionCompletion).toHaveBeenCalledWith(
+      sessionId,
+      'cid-1'
     );
   });
 

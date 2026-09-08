@@ -149,7 +149,11 @@ class BaseWorkflowService {
         await this.persistence.updateBatch(batchERC, {
           status: isAlreadyCompleted ? 'COMPLETED' : 'SUBMITTED',
           downstreamBatchId: batchId,
-          ...(isAlreadyCompleted && { completedCount: itemsCount }),
+          // `processedCount` is the key `updateBatch` reads. `completedCount`
+          // matched nothing, so a batch Liferay had already completed was
+          // recorded as having processed none of its items - the
+          // `create-price-lists COMPLETED 0/90` rows in the report (#763).
+          ...(isAlreadyCompleted && { processedCount: itemsCount }),
         });
 
         this.progress.batchStarted({
@@ -170,21 +174,33 @@ class BaseWorkflowService {
           });
           // Since we are in the SDK, we don't have direct access to batchCallback,
           // but we can just use completeSyncStep to force the advancement!
-          setTimeout(() => {
-            this.completeSyncStep(sessionId, stepKey, 'COMPLETED')
-              .then(() => {
-                if (this.ctx.batchCallback) {
-                  this.ctx.batchCallback._checkSessionCompletion(
-                    sessionId,
-                    session.correlationId
-                  );
-                }
-              })
-              .catch((e) =>
-                this.logger.error(
-                  `Failed to auto-advance simulated batch: ${e.message}`
-                )
+          setTimeout(async () => {
+            try {
+              await this.completeSyncStep(sessionId, stepKey, 'COMPLETED');
+            } catch (error) {
+              this.logger.error(
+                `Failed to auto-advance simulated batch: ${error.message}`,
+                { sessionId, stepKey, batchERC }
               );
+            }
+
+            // The completion check runs even when the marker row could not be
+            // written. It used to be chained behind `.then`, so a failed
+            // advance also skipped the check and left the session waiting on
+            // a batch that had already finished (#763).
+            try {
+              if (this.ctx.batchCallback) {
+                await this.ctx.batchCallback._checkSessionCompletion(
+                  sessionId,
+                  session.correlationId
+                );
+              }
+            } catch (error) {
+              this.logger.error(
+                `Failed to check session completion after simulated batch: ${error.message}`,
+                { sessionId, stepKey, batchERC }
+              );
+            }
           }, 500);
         }
 

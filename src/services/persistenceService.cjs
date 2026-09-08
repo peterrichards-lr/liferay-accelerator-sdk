@@ -680,6 +680,13 @@ class PersistenceService {
     return rows;
   }
 
+  /**
+   * A field this method does not recognise is discarded in silence, and that
+   * has now cost two bugs: snake_case keys in `completeSyncStep` (#172) and
+   * `completedCount` in `submitBatch` (#763), both of which left a finished
+   * batch reporting a processed count of zero. The warning makes the next one
+   * visible in the log rather than only in the report.
+   */
   async updateBatch(
     erc,
     {
@@ -689,8 +696,16 @@ class PersistenceService {
       totalCount,
       errorCount,
       errorMessage,
+      ...unsupported
     }
   ) {
+    const unsupportedKeys = Object.keys(unsupported);
+    if (unsupportedKeys.length > 0) {
+      this.logger?.warn?.(
+        `updateBatch ignoring unsupported field(s) for batch ${erc}: ${unsupportedKeys.join(', ')}`
+      );
+    }
+
     const now = new Date().toISOString();
     const sets = ['updated_at = ?'];
     const params = [now];

@@ -368,8 +368,15 @@ class BaseGenerator extends BaseWorkflowService {
     // Note the keys: `createBatch` takes camelCase, and the snake_case names
     // used here previously matched nothing, so every synchronous step recorded
     // a processed count of zero.
+    //
+    // The ERC needs more than the step key and a millisecond to stay unique:
+    // `submitBatch` schedules one auto-advance per simulated batch, so a step
+    // that submits several of them fires those timers together and two calls
+    // for the same step landed in the same millisecond, colliding on the
+    // `workflow_batches` primary key (#763). `createERC` carries a
+    // same-millisecond counter and a random suffix.
     await this.persistence.createBatch({
-      erc: `SYNC-${stepKey}-${Date.now()}`,
+      erc: createERC(`SYNC-${stepKey}`),
       sessionId,
       stepKey,
       status,
