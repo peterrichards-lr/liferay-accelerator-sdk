@@ -565,6 +565,45 @@ describe('BaseGenerator', () => {
     });
   });
 
+  describe('completeSyncStep', () => {
+    // A step that submits several simulated batches schedules one auto-advance
+    // per batch, and those timers fire together. While the marker ERC was only
+    // `SYNC-<stepKey>-<Date.now()>`, two of them landing in the same
+    // millisecond collided on the workflow_batches primary key and one step
+    // completion was lost to a UNIQUE constraint error (#763).
+    it('writes a distinct batch row per call when two calls share a millisecond', async () => {
+      await persistence.createSession({
+        sessionId: 'sid-sync-erc',
+        flowType: 'test-flow',
+        status: 'RUNNING',
+        context: { config: {} },
+        currentSteps: [],
+        correlationId: 'cid-sync-erc',
+      });
+
+      const frozen = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+
+      try {
+        await generator.completeSyncStep(
+          'sid-sync-erc',
+          WORKFLOW_STEPS.UPDATE_INVENTORY,
+          'COMPLETED'
+        );
+        await generator.completeSyncStep(
+          'sid-sync-erc',
+          WORKFLOW_STEPS.UPDATE_INVENTORY,
+          'COMPLETED'
+        );
+      } finally {
+        frozen.mockRestore();
+      }
+
+      const batches = await persistence.getBatchesForSession('sid-sync-erc');
+      expect(batches).toHaveLength(2);
+      expect(new Set(batches.map((b) => b.erc)).size).toBe(2);
+    });
+  });
+
   describe('Verification', () => {
     it('verifySteps should throw if a handler is missing', () => {
       generator.steps = {
