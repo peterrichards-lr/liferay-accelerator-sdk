@@ -1863,11 +1863,22 @@ class LiferayRestService {
    * catalog API serves /attachment/{id} for DELETE alone, and exposes a GET
    * only under /attachment/by-externalReferenceCode (#181).
    *
+   * Also reports whether that `src` is served from somewhere other than the
+   * portal, which is the one case where the origin Liferay returned should be
+   * dialled as-is instead of rewritten onto `liferayUrl` (#189). Only an
+   * attachment says so, via `cdnEnabled`, so only a lookup that fetched the
+   * attachment can answer it - a caller who hands in a bare `src` string has
+   * given us a URL and nothing else, and a URL cannot distinguish an origin
+   * Liferay misreported from one that is genuinely elsewhere. Rewriting is the
+   * right default for that case: an origin Liferay got wrong is the observed
+   * failure, and a public CDN URL needs no authenticated client to fetch it.
+   *
    * @param {object} config Liferay connection config.
    * @param {string} srcOrERC An attachment `src`, or its external reference code.
    * @param {string} op Operation name used for error reporting.
    * @param {string} friendly Friendly operation name used for error reporting.
-   * @returns {Promise<string>} The attachment's `src`.
+   * @returns {Promise<{src: string, externalOrigin: boolean}>} The attachment's
+   *   `src`, and whether its origin is to be trusted rather than rewritten.
    */
   async _resolveAttachmentSrc(config, srcOrERC, op, friendly) {
     if (typeof srcOrERC !== 'string' || srcOrERC.trim() === '') {
@@ -1877,7 +1888,7 @@ class LiferayRestService {
     }
 
     if (/^[a-z][a-z0-9+.-]*:/i.test(srcOrERC) || srcOrERC.startsWith('/')) {
-      return srcOrERC;
+      return { src: srcOrERC, externalOrigin: false };
     }
 
     const attachment = await this.httpCore._get(
@@ -1893,7 +1904,13 @@ class LiferayRestService {
       );
     }
 
-    return attachment.src;
+    // A `src` still rooted at the portal has no origin to trust, whatever
+    // cdnEnabled says, so it goes through resolution either way.
+    return {
+      src: attachment.src,
+      externalOrigin:
+        attachment.cdnEnabled === true && /^https?:\/\//i.test(attachment.src),
+    };
   }
 
   /**
@@ -1911,7 +1928,7 @@ class LiferayRestService {
    *   and the Content-Type the server served them as.
    */
   async _getAttachmentContent(config, srcOrERC, op, friendly) {
-    const src = await this._resolveAttachmentSrc(
+    const { src, externalOrigin } = await this._resolveAttachmentSrc(
       config,
       srcOrERC,
       op,
@@ -1920,7 +1937,7 @@ class LiferayRestService {
 
     const response = await this.httpCore._get(
       config,
-      this.httpCore._resolveUrl(config, src),
+      externalOrigin ? src : this.httpCore._resolveUrl(config, src),
       op,
       friendly,
       { responseType: 'arraybuffer' },
