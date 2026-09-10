@@ -171,6 +171,11 @@ const PATH = {
       callbackURL ? `?callbackURL=${enc(callbackURL)}` : ''
     }`,
   PRODUCT_SKUS: (productId) => `${BASE.PRODUCTS}/${productId}/skus`,
+  // The catalogue-wide SKU collection (getSkusPage). Callers that want every
+  // SKU in the instance read this once rather than walking PRODUCT_SKUS per
+  // product; CommerceService named it before it existed, so every bulk SKU
+  // read requested `<liferay>/undefined` (#199).
+  SKUS: `${BASE.CATALOG_API}/skus`,
   SKU_BY_ERC: (erc) =>
     `${BASE.CATALOG_API}/skus/by-externalReferenceCode/${enc(erc)}`,
   // Reading a product's options without asking for the values gives every
