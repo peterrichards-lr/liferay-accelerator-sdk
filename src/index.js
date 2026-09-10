@@ -23,6 +23,7 @@ const SchemaCorrelationService = require('./services/schemaCorrelationService.cj
 const liferayPaths = require('./utils/liferayPaths.cjs');
 const liferayUtils = require('./utils/liferayUtils.cjs');
 const constants = require('./utils/constants.cjs');
+const commerceConstants = require('./utils/commerceConstants.cjs');
 const misc = require('./utils/misc.cjs');
 const expressErrorHandler = require('./utils/expressErrorHandler.cjs');
 const serviceErrorHandler = require('./utils/serviceErrorHandler.cjs');
@@ -48,6 +49,7 @@ module.exports = {
   utils: {
     ...liferayPaths,
     ...liferayUtils,
+    ...commerceConstants,
     ...misc,
     ...expressErrorHandler,
     ...serviceErrorHandler,

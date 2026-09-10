@@ -26,7 +26,10 @@ const { ErrorHandler } = require('../utils/expressErrorHandler.cjs');
 const { parse } = require('csv-parse/sync');
 
 const { getBatchCacheTTLms } = require('../utils/ttl.cjs');
-const { SKU_COMMERCE_CONSTRAINTS } = require('../utils/commerceConstants.cjs');
+const {
+  ATTACHMENT_PROJECTION,
+  SKU_COMMERCE_CONSTRAINTS,
+} = require('../utils/commerceConstants.cjs');
 const { asItems, asCount } = require('../utils/liferayUtils.cjs');
 
 const HttpCoreService = require('./rest/HttpCoreService.cjs');
@@ -1746,20 +1749,29 @@ class LiferayRestService {
   }
 
   /**
-   * Collects an attachment collection across every page and narrows each entry
-   * to the fields a consumer of the media needs.
+   * Collects an attachment collection across every page, optionally narrowing
+   * each entry to a named set of fields.
    *
    * The paging is the point: Liferay serves 20 per page by default, and a
    * product with 21 images would otherwise export 20 and report success.
+   *
+   * Narrowing is the caller's choice, not this method's. It used to keep six
+   * fields unconditionally, which made the other fourteen the Attachment
+   * schema declares invisible - so an attachment that was scheduled, or hidden
+   * from the gallery, or tagged, read back as a plain permanent one and could
+   * not be carried to another instance (#187).
    *
    * @param {object} config Liferay connection config.
    * @param {string} listUrl The attachment collection to read.
    * @param {number} pageSize Items requested per page.
    * @param {string} op Operation name used for error reporting.
    * @param {string} friendly Friendly operation name used for error reporting.
+   * @param {Array<string>|null} [fields] Field names to keep. Omit for the
+   *   whole record. Applied here rather than asked of Liferay, so the request
+   *   is the same either way.
    * @returns {Promise<Array<object>>} Attachment metadata.
    */
-  async _collectAttachments(config, listUrl, pageSize, op, friendly) {
+  async _collectAttachments(config, listUrl, pageSize, op, friendly, fields) {
     const items = await this._collectPagedItems(config, {
       listUrl,
       pageSize,
@@ -1767,14 +1779,18 @@ class LiferayRestService {
       friendly,
     });
 
-    return items.map((item) => ({
-      id: item.id,
-      externalReferenceCode: item.externalReferenceCode,
-      title: item.title,
-      priority: item.priority,
-      contentType: item.contentType,
-      src: item.src,
-    }));
+    if (!Array.isArray(fields)) {
+      return items;
+    }
+
+    // Every requested key is set even when the attachment lacks it, so the
+    // projected shape is the field list and does not vary per item.
+    return items.map((item) =>
+      fields.reduce((projected, field) => {
+        projected[field] = item[field];
+        return projected;
+      }, {})
+    );
   }
 
   /**
@@ -1789,18 +1805,26 @@ class LiferayRestService {
    * @param {object} [opts] Options.
    * @param {number} [opts.pageSize=200] Items requested per page. Every page is
    *   collected regardless; this only trades request count against page size.
-   * @returns {Promise<Array<object>>} `id`, `externalReferenceCode`, `title`
-   *   (the localized map Liferay returns), `priority`, `contentType` and `src`.
-   *   `src` is relative to the portal root - pass it to getProductImageContent
-   *   rather than to a bare HTTP client.
+   * @param {Array<string>} [opts.fields] Keep only these fields. Omit for the
+   *   whole Attachment. `ATTACHMENT_PROJECTION.MEDIA` is the six-field shape
+   *   this used to return unconditionally, and documents what it leaves out.
+   * @returns {Promise<Array<object>>} The Attachment as Liferay serves it, or
+   *   just `opts.fields` of it. `title` is the localized map, and `src` is
+   *   relative to the portal root - pass it to getProductImageContent rather
+   *   than to a bare HTTP client.
    */
-  async getProductImages(config, productERC, { pageSize = 200 } = {}) {
+  async getProductImages(
+    config,
+    productERC,
+    { pageSize = 200, fields = null } = {}
+  ) {
     return this._collectAttachments(
       config,
       PATH.PRODUCT_IMAGES_BY_ERC(productERC),
       pageSize,
       'get-product-images',
-      'Failed to read product images'
+      'Failed to read product images',
+      fields
     );
   }
 
@@ -1812,15 +1836,22 @@ class LiferayRestService {
    * @param {object} [opts] Options.
    * @param {number} [opts.pageSize=200] Items requested per page. Every page is
    *   collected regardless; this only trades request count against page size.
+   * @param {Array<string>} [opts.fields] Keep only these fields. Omit for the
+   *   whole Attachment.
    * @returns {Promise<Array<object>>} The same shape as getProductImages.
    */
-  async getProductAttachments(config, productERC, { pageSize = 200 } = {}) {
+  async getProductAttachments(
+    config,
+    productERC,
+    { pageSize = 200, fields = null } = {}
+  ) {
     return this._collectAttachments(
       config,
       PATH.PRODUCT_ATTACHMENTS_BY_ERC(productERC),
       pageSize,
       'get-product-attachments',
-      'Failed to read product attachments'
+      'Failed to read product attachments',
+      fields
     );
   }
 
@@ -3068,5 +3099,6 @@ class LiferayRestService {
 }
 
 LiferayRestService.SOFT_STATUS_BY_OP = SOFT_STATUS_BY_OP;
+LiferayRestService.ATTACHMENT_PROJECTION = ATTACHMENT_PROJECTION;
 
 module.exports = LiferayRestService;
