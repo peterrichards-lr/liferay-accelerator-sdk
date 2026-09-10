@@ -1,0 +1,43 @@
+# Dependabot version updates.
+#
+# Alerts are raised from the advisory database with no configuration at all,
+# but pull requests are only opened when a config asks for them. Without this
+# file the alerts accumulate and nothing ever proposes a fix (see issue #186).
+#
+# This repository is a single npm package at the root (yarn v1, one
+# package.json + one yarn.lock), so unlike AICA there is one npm entry rather
+# than one per workspace. The github-actions entry covers .github/workflows,
+# which AICA's config does not do.
+version: 2
+updates:
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 10
+    # Widen the package.json range as well as the lockfile, so a bump is not
+    # silently undone by the next fresh install.
+    versioning-strategy: increase
+    # Grouped so a week's updates arrive as two reviewable pull requests
+    # rather than a dozen. Runtime and test-only dependencies are kept apart
+    # because they carry very different risk: a runtime bump touches what we
+    # ship, a devDependency bump touches only how we build and test it.
+    groups:
+      production-dependencies:
+        dependency-type: 'production'
+        patterns:
+          - '*'
+      development-dependencies:
+        dependency-type: 'development'
+        patterns:
+          - '*'
+
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - '*'
