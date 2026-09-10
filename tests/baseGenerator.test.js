@@ -122,6 +122,67 @@ describe('BaseGenerator', () => {
       expect(session.context.languages).toBeDefined();
       expect(session.context.languages[0].id).toBe('en-US');
     });
+
+    // These two loaded a list and then said nothing about it, which read as a
+    // single unit of work only because that was the SDK's default. With the
+    // default gone they have to report what they loaded, or a step that just
+    // read every country Liferay knows would record 0 of 0 (#799).
+    it('reports how many countries the step loaded', async () => {
+      const sessionId = 'countries-count';
+      await persistence.createSession({
+        sessionId,
+        flowType: 'test',
+        status: 'STARTED',
+        currentSteps: [],
+        correlationId: 'cid',
+        context: { config: {} },
+      });
+
+      mockCtx.liferay.getCountries.mockResolvedValue({
+        items: [{ id: 1 }, { id: 2 }, { id: 3 }],
+      });
+
+      await generator._runLoadCountriesStep(sessionId);
+
+      expect(mockCtx.progress.stepCompleted).toHaveBeenCalledWith(
+        expect.objectContaining({
+          step: WORKFLOW_STEPS.LOAD_COUNTRIES,
+          processedCount: 3,
+          totalCount: 3,
+        })
+      );
+
+      const [batch] = await persistence.getBatchesForSession(sessionId);
+      expect(batch.processed_count).toBe(3);
+      expect(batch.total_count).toBe(3);
+    });
+
+    it('reports how many languages the step loaded', async () => {
+      const sessionId = 'languages-count';
+      await persistence.createSession({
+        sessionId,
+        flowType: 'test',
+        status: 'STARTED',
+        currentSteps: [],
+        correlationId: 'cid',
+        context: { config: {} },
+      });
+
+      mockCtx.liferay.getLanguages.mockResolvedValue([
+        { id: 'en-US' },
+        { id: 'fr-FR' },
+      ]);
+
+      await generator._runLoadLanguagesStep(sessionId);
+
+      expect(mockCtx.progress.stepCompleted).toHaveBeenCalledWith(
+        expect.objectContaining({
+          step: WORKFLOW_STEPS.LOAD_LANGUAGES,
+          processedCount: 2,
+          totalCount: 2,
+        })
+      );
+    });
   });
 
   describe('Sync Delay', () => {
@@ -144,7 +205,16 @@ describe('BaseGenerator', () => {
         WORKFLOW_STEPS.SYNC_DELAY
       );
 
-      expect(spy).toHaveBeenCalledWith(sessionId, WORKFLOW_STEPS.SYNC_DELAY);
+      // Spelled out rather than left to a default. Since #799 a caller that
+      // says nothing reports nothing, so the wait has to name the single unit
+      // it completed or it would record 0 of 0.
+      expect(spy).toHaveBeenCalledWith(
+        sessionId,
+        WORKFLOW_STEPS.SYNC_DELAY,
+        'SYNCHRONOUS',
+        1,
+        1
+      );
     });
 
     it('_runAdaptiveSyncDelayStep should retry with backoff and complete on success', async () => {
@@ -651,14 +721,46 @@ describe('BaseGenerator', () => {
         );
       });
 
-      it('reports the default single unit when the step passes no counts', async () => {
+      // A marker exists to advance a step, not to report work on it. While
+      // its counts defaulted to 1 that 1 travelled, and #776 had taught the
+      // client to believe a reported count over its own batch sum: five
+      // inventory batches summing 139 read `1 / 139` as soon as the first
+      // marker arrived (#799).
+      it('reports no counts at all when the step passes none', async () => {
         await generator.completeSyncStep(
           'sid-broadcast',
-          WORKFLOW_STEPS.LOAD_LANGUAGES
+          WORKFLOW_STEPS.UPDATE_INVENTORY
+        );
+
+        const [broadcast] = mockCtx.progress.stepCompleted.mock.calls[0];
+        expect(broadcast).not.toHaveProperty('processedCount');
+        expect(broadcast).not.toHaveProperty('totalCount');
+      });
+
+      it('records a marker row with no counts rather than a unit of work', async () => {
+        await generator.completeSyncStep(
+          'sid-broadcast',
+          WORKFLOW_STEPS.UPDATE_INVENTORY,
+          'COMPLETED'
+        );
+
+        const [batch] = await persistence.getBatchesForSession('sid-broadcast');
+        expect(batch.status).toBe('COMPLETED');
+        expect(batch.processed_count).toBe(0);
+        expect(batch.total_count).toBe(0);
+      });
+
+      it('still reports a zero a step chose to report', async () => {
+        await generator.completeSyncStep(
+          'sid-broadcast',
+          WORKFLOW_STEPS.SYNC_DELAY,
+          'SYNCHRONOUS',
+          0,
+          1
         );
 
         expect(mockCtx.progress.stepCompleted).toHaveBeenCalledWith(
-          expect.objectContaining({ processedCount: 1, totalCount: 1 })
+          expect.objectContaining({ processedCount: 0, totalCount: 1 })
         );
       });
     });

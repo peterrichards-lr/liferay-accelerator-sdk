@@ -4,6 +4,17 @@ const { ERC_PREFIX, ENV, WORKFLOW_STEPS } = require('../utils/constants.cjs');
 const { describeRequestError } = require('../utils/describeRequestError.cjs');
 
 /**
+ * How many items a metadata load actually returned.
+ *
+ * Liferay answers these calls with either a page object or a bare array, and
+ * the caller has already unwrapped `items`; anything else is a shape nothing
+ * can be counted from, and a step reports no work rather than guessing at it.
+ */
+function countOf(items) {
+  return Array.isArray(items) ? items.length : 0;
+}
+
+/**
  * BaseGenerator - Specialized orchestrator for data generation workflows.
  * It manages the execution of registered steps and ensures correct sequencing
  * for synchronous, parallel, and asynchronous operations.
@@ -95,7 +106,13 @@ class BaseGenerator extends BaseWorkflowService {
 
     await delay(delayMs);
 
-    await this.completeSyncStep(sessionId, stepKey);
+    // The wait is the unit of work, and it either happened or it did not, so
+    // this step reports one of one - the same figure its adaptive twin below
+    // reports on a met condition. It used to arrive at that by leaving the
+    // counts off and taking the default of 1; now that a caller with nothing
+    // to report reports nothing, a caller with something to report has to say
+    // so, or the delay would record 0 of 0 (#799).
+    await this.completeSyncStep(sessionId, stepKey, 'SYNCHRONOUS', 1, 1);
 
     this.logger.info('Inter-service synchronization delay completed.', {
       sessionId,
@@ -184,12 +201,24 @@ class BaseGenerator extends BaseWorkflowService {
     this.logger.info('Loading countries from Liferay...', { sessionId });
 
     const countries = await this.liferay.getCountries(config);
+    const loaded = countries.items || countries;
+    const count = countOf(loaded);
 
     await this.persistence.updateSessionContext(sessionId, {
-      countries: countries.items || countries,
+      countries: loaded,
     });
 
-    await this.completeSyncStep(sessionId, WORKFLOW_STEPS.LOAD_COUNTRIES);
+    // What it loaded is what it processed. This step used to say nothing and
+    // take the default of 1, which described neither the work nor its absence;
+    // now that the default is nothing, saying nothing would record 0 of 0 for
+    // a step that had just loaded every country Liferay knows (#799).
+    await this.completeSyncStep(
+      sessionId,
+      WORKFLOW_STEPS.LOAD_COUNTRIES,
+      'SYNCHRONOUS',
+      count,
+      count
+    );
   }
 
   /**
@@ -202,12 +231,22 @@ class BaseGenerator extends BaseWorkflowService {
     this.logger.info('Loading active languages from Liferay...', { sessionId });
 
     const languages = await this.liferay.getLanguages(config);
+    const loaded = languages.items || languages;
+    const count = countOf(loaded);
 
     await this.persistence.updateSessionContext(sessionId, {
-      languages: languages.items || languages,
+      languages: loaded,
     });
 
-    await this.completeSyncStep(sessionId, WORKFLOW_STEPS.LOAD_LANGUAGES);
+    // See `_runLoadCountriesStep`: a step that loaded a list has a count to
+    // give and now has to give it (#799).
+    await this.completeSyncStep(
+      sessionId,
+      WORKFLOW_STEPS.LOAD_LANGUAGES,
+      'SYNCHRONOUS',
+      count,
+      count
+    );
   }
 
   /**
@@ -347,13 +386,23 @@ class BaseGenerator extends BaseWorkflowService {
   /**
    * Hardening: Standardized method to mark a synchronous step as complete.
    * This creates a physical database entry and triggers the workflow advancement.
+   *
+   * A caller that passes counts is reporting work. A caller that passes none
+   * is only advancing the step - `submitBatch` writes one of these markers
+   * when Liferay says a batch had already completed, a bypassed step writes
+   * another, and neither did anything countable. The counts therefore default
+   * to nothing rather than to one: while they defaulted to `1`, the marker
+   * that follows real batch work on the same entity put a `1` on the wire,
+   * where #776 had taught the client to believe a reported count over its own
+   * batch sum. A run that placed 139 inventory items over five batches read
+   * `Inventory 1 / 139` the moment the first marker arrived (#799).
    */
   async completeSyncStep(
     sessionId,
     stepKey,
     status = 'SYNCHRONOUS',
-    processedCount = 1,
-    totalCount = 1,
+    processedCount = null,
+    totalCount = null,
     statusReason = null
   ) {
     const session = await this.persistence.getSession(sessionId);
@@ -375,6 +424,11 @@ class BaseGenerator extends BaseWorkflowService {
     // for the same step landed in the same millisecond, colliding on the
     // `workflow_batches` primary key (#763). `createERC` carries a
     // same-millisecond counter and a random suffix.
+    //
+    // A marker's absent counts land as `0/0` here rather than `1/1`. That is
+    // what the row means, and it keeps the marker out of the total the batch
+    // callback sums across a step's rows - five inventory batches of 139
+    // items plus four markers of one reported a step total of 143 (#799).
     await this.persistence.createBatch({
       erc: createERC(`SYNC-${stepKey}`),
       sessionId,
@@ -397,14 +451,18 @@ class BaseGenerator extends BaseWorkflowService {
     // processed count from it. Every step then announced that it had done
     // everything it was asked to, however little it actually did: the row
     // written above recorded 16 of 50 while the wire said 50 of 50 (#773).
+    //
+    // A marker carries neither. The client then keeps the figure it summed
+    // from the step's own batches, which is the fallback #773 built for a
+    // caller with no count to give (#799).
     if (this.progress && typeof this.progress.stepCompleted === 'function') {
       await this.progress.stepCompleted({
         sessionId,
         step: stepKey,
         entityType: this._normalizeEntityType(stepKey),
         operation: session.flow_type || session.flowType,
-        processedCount,
-        totalCount,
+        ...(processedCount !== null && { processedCount }),
+        ...(totalCount !== null && { totalCount }),
         correlationId: session.correlationId,
       });
     }
