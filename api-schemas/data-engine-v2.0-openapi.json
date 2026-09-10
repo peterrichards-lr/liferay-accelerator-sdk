@@ -2,7 +2,7 @@
   "openapi": "3.0.1",
   "info": {
     "title": "Data Engine",
-    "description": "A Java client JAR is available for use with the group ID 'com.liferay', artifact ID 'com.liferay.data.engine.rest.client', and version '3.0.39'.",
+    "description": "A Java client JAR is available for use with the group ID 'com.liferay', artifact ID 'com.liferay.data.engine.rest.client', and version '3.0.41'.",
     "license": {
       "name": "Apache 2.0",
       "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
@@ -3108,6 +3108,7 @@
             "default": "com.liferay.data.engine.rest.dto.v2_0.DataDefinition"
           }
         },
+        "description": "https://www.schema.org/DataDefinition",
         "xml": {
           "name": "DataDefinition"
         },
@@ -3198,6 +3199,7 @@
             "enum": ["all", "keyword", "none", "text"]
           }
         },
+        "description": "Represents the value of each field in data definition.",
         "xml": {
           "name": "DataDefinitionField"
         },
@@ -3536,12 +3538,6 @@
       "PageDataDefinitionFieldLink": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DataDefinitionFieldLink"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -3549,6 +3545,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DataDefinitionFieldLink"
+            }
           },
           "actions": {
             "type": "object",
@@ -3579,12 +3581,6 @@
       "PageDataDefinition": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DataDefinition"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -3592,6 +3588,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DataDefinition"
+            }
           },
           "actions": {
             "type": "object",
@@ -3622,12 +3624,6 @@
       "PagePermission": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Permission"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -3635,6 +3631,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Permission"
+            }
           },
           "actions": {
             "type": "object",
@@ -3689,12 +3691,6 @@
       "PageDataLayout": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DataLayout"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -3702,6 +3698,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DataLayout"
+            }
           },
           "actions": {
             "type": "object",
@@ -3772,12 +3774,6 @@
       "PageDataListView": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DataListView"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -3785,6 +3781,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DataListView"
+            }
           },
           "actions": {
             "type": "object",
@@ -3848,6 +3850,7 @@
             "default": "com.liferay.data.engine.rest.dto.v2_0.DataRecordCollection"
           }
         },
+        "description": "https://www.schema.org/DataRecordCollection",
         "xml": {
           "name": "DataRecordCollection"
         },
@@ -3856,12 +3859,6 @@
       "PageDataRecordCollection": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DataRecordCollection"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -3869,6 +3866,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DataRecordCollection"
+            }
           },
           "actions": {
             "type": "object",
@@ -3924,6 +3927,7 @@
             "default": "com.liferay.data.engine.rest.dto.v2_0.DataRecord"
           }
         },
+        "description": "https://www.schema.org/DataRecord",
         "xml": {
           "name": "DataRecord"
         },
@@ -3932,12 +3936,6 @@
       "PageDataRecord": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DataRecord"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -3945,6 +3943,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DataRecord"
+            }
           },
           "actions": {
             "type": "object",

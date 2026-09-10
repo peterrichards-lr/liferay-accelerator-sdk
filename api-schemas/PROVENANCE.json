@@ -3,9 +3,9 @@
   "schemas": {
     "data-engine-v2.0-openapi.json": {
       "sourceUrl": "http://localhost:8080/o/data-engine/v2.0/openapi.json",
-      "dxpRelease": "2026.q1.12-lts",
-      "dxpReleaseSource": "container image liferay/dxp:2026.q1.12-lts; the instance itself reported no version (its Liferay-Portal header carried only the product name)",
-      "syncedAt": "2026-09-10T10:30:30Z"
+      "dxpRelease": "2026.Q3.2",
+      "dxpReleaseSource": "LIFERAY_DXP_RELEASE",
+      "syncedAt": "2026-09-10T10:45:42.614Z"
     },
     "headless-admin-address-v1.0-openapi.json": {
       "sourceUrl": null,
@@ -15,9 +15,9 @@
     },
     "headless-admin-list-type-v1.0-openapi.json": {
       "sourceUrl": "http://localhost:8080/o/headless-admin-list-type/v1.0/openapi.json",
-      "dxpRelease": "2026.q1.12-lts",
-      "dxpReleaseSource": "container image liferay/dxp:2026.q1.12-lts; the instance itself reported no version (its Liferay-Portal header carried only the product name)",
-      "syncedAt": "2026-09-10T10:30:30Z"
+      "dxpRelease": "2026.Q3.2",
+      "dxpReleaseSource": "LIFERAY_DXP_RELEASE",
+      "syncedAt": "2026-09-10T10:45:42.614Z"
     },
     "headless-admin-site-v1.0-openapi.json": {
       "sourceUrl": null,
@@ -27,9 +27,9 @@
     },
     "headless-admin-taxonomy-v1.0-openapi.json": {
       "sourceUrl": "http://localhost:8080/o/headless-admin-taxonomy/v1.0/openapi.json",
-      "dxpRelease": "2026.q1.12-lts",
-      "dxpReleaseSource": "container image liferay/dxp:2026.q1.12-lts; the instance itself reported no version (its Liferay-Portal header carried only the product name)",
-      "syncedAt": "2026-09-10T10:30:30Z"
+      "dxpRelease": "2026.Q3.2",
+      "dxpReleaseSource": "LIFERAY_DXP_RELEASE",
+      "syncedAt": "2026-09-10T10:45:42.614Z"
     },
     "headless-admin-user-v1.0-openapi.json": {
       "sourceUrl": null,
@@ -39,9 +39,9 @@
     },
     "headless-admin-workflow-v1.0-openapi.json": {
       "sourceUrl": "http://localhost:8080/o/headless-admin-workflow/v1.0/openapi.json",
-      "dxpRelease": "2026.q1.12-lts",
-      "dxpReleaseSource": "container image liferay/dxp:2026.q1.12-lts; the instance itself reported no version (its Liferay-Portal header carried only the product name)",
-      "syncedAt": "2026-09-10T10:30:30Z"
+      "dxpRelease": "2026.Q3.2",
+      "dxpReleaseSource": "LIFERAY_DXP_RELEASE",
+      "syncedAt": "2026-09-10T10:45:42.614Z"
     },
     "headless-batch-engine-v1.0-openapi.json": {
       "sourceUrl": null,
@@ -93,9 +93,9 @@
     },
     "object-admin-v1.0-openapi.json": {
       "sourceUrl": "http://localhost:8080/o/object-admin/v1.0/openapi.json",
-      "dxpRelease": "2026.q1.12-lts",
-      "dxpReleaseSource": "container image liferay/dxp:2026.q1.12-lts; the instance itself reported no version (its Liferay-Portal header carried only the product name)",
-      "syncedAt": "2026-09-10T10:30:30Z"
+      "dxpRelease": "2026.Q3.2",
+      "dxpReleaseSource": "LIFERAY_DXP_RELEASE",
+      "syncedAt": "2026-09-10T10:45:42.614Z"
     }
   }
 }

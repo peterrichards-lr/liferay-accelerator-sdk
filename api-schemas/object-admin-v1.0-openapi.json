@@ -2,7 +2,7 @@
   "openapi": "3.0.1",
   "info": {
     "title": "Object",
-    "description": "A Java client JAR is available for use with the group ID 'com.liferay', artifact ID 'com.liferay.object.admin.rest.client', and version '1.0.86'.",
+    "description": "A Java client JAR is available for use with the group ID 'com.liferay', artifact ID 'com.liferay.object.admin.rest.client', and version '1.0.89'.",
     "license": {
       "name": "Apache 2.0",
       "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
@@ -4431,12 +4431,6 @@
       "PageObjectAction": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ObjectAction"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -4444,6 +4438,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectAction"
+            }
           },
           "actions": {
             "type": "object",
@@ -4533,6 +4533,7 @@
             "default": "com.liferay.headless.delivery.dto.v1_0.Creator"
           }
         },
+        "description": "Represents the user account of the content's creator/author. Properties follow the [creator](https://schema.org/creator) specification.",
         "xml": {
           "name": "Creator"
         },
@@ -4922,12 +4923,14 @@
               "Date",
               "DateTime",
               "Decimal",
+              "EmailAddress",
               "Encrypted",
               "Formula",
               "Integer",
               "LongInteger",
               "LongText",
               "MultiselectPicklist",
+              "PhoneNumber",
               "Picklist",
               "PrecisionDecimal",
               "Relationship",
@@ -5656,7 +5659,7 @@
             "default": "com.liferay.headless.delivery.dto.v1_0.UserGroupBrief"
           }
         },
-        "description": "A list of userGroups information.",
+        "description": "The author's user groups information.",
         "xml": {
           "name": "UserGroupBrief"
         },
@@ -5685,12 +5688,6 @@
       "PageObjectDefinition": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ObjectDefinition"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -5698,6 +5695,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectDefinition"
+            }
           },
           "actions": {
             "type": "object",
@@ -5728,12 +5731,6 @@
       "PageObjectField": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ObjectField"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -5741,6 +5738,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectField"
+            }
           },
           "actions": {
             "type": "object",
@@ -5859,12 +5862,6 @@
       "PageObjectFolder": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ObjectFolder"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -5872,6 +5869,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectFolder"
+            }
           },
           "actions": {
             "type": "object",
@@ -5902,12 +5905,6 @@
       "PageObjectLayout": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ObjectLayout"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -5915,6 +5912,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectLayout"
+            }
           },
           "actions": {
             "type": "object",
@@ -5945,12 +5948,6 @@
       "PageObjectRelationship": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ObjectRelationship"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -5958,6 +5955,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectRelationship"
+            }
           },
           "actions": {
             "type": "object",
@@ -5988,12 +5991,6 @@
       "PageObjectValidationRule": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ObjectValidationRule"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -6001,6 +5998,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectValidationRule"
+            }
           },
           "actions": {
             "type": "object",
@@ -6031,12 +6034,6 @@
       "PageObjectView": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ObjectView"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -6044,6 +6041,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectView"
+            }
           },
           "actions": {
             "type": "object",
