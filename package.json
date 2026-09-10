@@ -1,6 +1,6 @@
 {
   "name": "@liferay/accelerator-sdk",
-  "version": "0.8.18",
+  "version": "0.8.19",
   "description": "Hardened Liferay Accelerator SDK for Batch, Workflow, and API orchestration.",
   "repository": {
     "type": "git",
@@ -38,7 +38,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@vitest/coverage-v8": "^4.1.9",
+    "@vitest/coverage-v8": "4.1.11",
     "eslint": "10.6.0",
     "globals": "15.15.0",
     "graphql": "^16.13.2",
