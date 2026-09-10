@@ -33,12 +33,26 @@ class CommerceService {
    * @throws {Error} When the SKUs cannot be read. Products without their SKUs
    *   are not an answer to this question (#199).
    */
-  async getProductsWithSkus(config, { catalogId, pageSize = 200 } = {}) {
-    // 1. Fetch all products
+  async getProductsWithSkus(
+    config,
+    { catalogId, fields, filter, pageSize = 200 } = {}
+  ) {
+    // 1. Fetch all products.
+    //
+    // `fields` and `filter` are forwarded rather than swallowed. getProducts
+    // defaults to 'productId,externalReferenceCode,name', which suits the
+    // discovery and exclusion paths that dominate its callers - but a caller
+    // needing the whole product had no way to ask, and could not drop to
+    // getProducts to get one, because this method's contract is that it throws
+    // rather than answering with SKU-less products (#199). A dataset extract
+    // read 22 products and found four required fields missing from every one,
+    // for no reason other than that they were never requested (#210).
     const { items: products, truncated } = await this.liferay.getProducts(
       config,
       {
         catalogId,
+        ...(fields ? { fields } : {}),
+        ...(filter ? { filter } : {}),
         pageSize,
       }
     );

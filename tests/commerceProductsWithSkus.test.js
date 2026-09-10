@@ -104,6 +104,59 @@ describe('CommerceService.getProductsWithSkus (#199)', () => {
     ).rejects.toThrow(/Failed to fetch SKUs for products/);
   });
 
+  /**
+   * getProducts defaults `fields` to 'productId,externalReferenceCode,name',
+   * and Liferay honours the parameter on this collection - a Q3 instance
+   * answers a two-item page with exactly those three keys per item. A caller
+   * needing the whole product could not ask for it: this method took no
+   * `fields`, and dropping to getProducts to pass one means giving up the
+   * guarantee that products arrive with their SKUs (#199).
+   *
+   * A dataset extract read 22 products and reported four required fields
+   * missing from every one - description, productType, shortDescription and
+   * urls - which are precisely the DTO-sourced fields outside that default
+   * (#210).
+   */
+  it('forwards fields so a caller can ask for the whole product (#210)', async () => {
+    getSpy.mockResolvedValue({ items: [], totalCount: 0 });
+
+    await commerce.getProductsWithSkus(config, {
+      catalogId: 40123,
+      fields: 'productId,externalReferenceCode,name,description,urls',
+    });
+
+    expect(liferay.getProducts).toHaveBeenCalledWith(
+      config,
+      expect.objectContaining({
+        fields: 'productId,externalReferenceCode,name,description,urls',
+      })
+    );
+  });
+
+  it('leaves getProducts to its own default when no fields are asked for', async () => {
+    getSpy.mockResolvedValue({ items: [], totalCount: 0 });
+
+    await commerce.getProductsWithSkus(config, { catalogId: 40123 });
+
+    const [, options] = liferay.getProducts.mock.calls[0];
+
+    expect(options).not.toHaveProperty('fields');
+  });
+
+  it('forwards a filter rather than swallowing it', async () => {
+    getSpy.mockResolvedValue({ items: [], totalCount: 0 });
+
+    await commerce.getProductsWithSkus(config, {
+      catalogId: 40123,
+      filter: "productType eq 'simple'",
+    });
+
+    expect(liferay.getProducts).toHaveBeenCalledWith(
+      config,
+      expect.objectContaining({ filter: "productType eq 'simple'" })
+    );
+  });
+
   it('keeps the underlying failure as the cause', async () => {
     const underlying = new Error('Request failed with status code 404');
     getSpy.mockRejectedValue(underlying);
