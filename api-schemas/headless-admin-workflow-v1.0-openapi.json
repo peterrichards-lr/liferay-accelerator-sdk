@@ -2,7 +2,7 @@
   "openapi": "3.0.1",
   "info": {
     "title": "Headless Admin Workflow",
-    "description": "A Java client JAR is available for use with the group ID 'com.liferay', artifact ID 'com.liferay.headless.admin.workflow.client', and version '4.0.46'.",
+    "description": "A Java client JAR is available for use with the group ID 'com.liferay', artifact ID 'com.liferay.headless.admin.workflow.client', and version '4.0.50'.",
     "license": {
       "name": "Apache 2.0",
       "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
@@ -2698,12 +2698,6 @@
       "PageAssignee": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Assignee"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -2711,6 +2705,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Assignee"
+            }
           },
           "actions": {
             "type": "object",
@@ -2741,12 +2741,6 @@
       "PageTransition": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Transition"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -2754,6 +2748,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Transition"
+            }
           },
           "actions": {
             "type": "object",
@@ -2806,6 +2806,7 @@
             "default": "com.liferay.headless.admin.workflow.dto.v1_0.Transition"
           }
         },
+        "description": "Represents the transition to be launched by the task's workflow.",
         "xml": {
           "name": "Transition"
         },
@@ -2814,12 +2815,6 @@
       "PageWorkflowDefinitionLink": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/WorkflowDefinitionLink"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -2827,6 +2822,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowDefinitionLink"
+            }
           },
           "actions": {
             "type": "object",
@@ -2944,7 +2945,7 @@
             "default": "com.liferay.headless.admin.workflow.dto.v1_0.Creator"
           }
         },
-        "description": "The previous person assigned to the workflow.",
+        "description": "Represents the user who created/authored the content. Properties follow the [creator](https://schema.org/creator) specification.",
         "xml": {
           "name": "Creator"
         },
@@ -2972,18 +2973,22 @@
             "readOnly": true,
             "enum": [
               "AI_DECISION",
+              "AI_HUB_AGENT",
               "CONDITION",
               "FORK",
+              "HTTP_REQUEST",
               "INITIAL_STATE",
               "JOIN",
               "JOIN_XOR",
               "LLM",
+              "SERVICE",
               "STATE",
               "TASK",
               "TERMINAL_STATE"
             ]
           }
         },
+        "description": "Represents a node in a workflow.",
         "xml": {
           "name": "Node"
         },
@@ -3026,6 +3031,9 @@
             "readOnly": true
           },
           "externalReferenceCode": {
+            "type": "string"
+          },
+          "groupExternalReferenceCode": {
             "type": "string"
           },
           "id": {
@@ -3086,12 +3094,6 @@
       "PageWorkflowDefinition": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/WorkflowDefinition"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -3099,6 +3101,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowDefinition"
+            }
           },
           "actions": {
             "type": "object",
@@ -3154,7 +3162,7 @@
             "default": "com.liferay.headless.admin.workflow.dto.v1_0.ObjectReviewed"
           }
         },
-        "description": "The object/asset that the task's workflow is managing.",
+        "description": "Represents the resource modified by the current workflow.",
         "xml": {
           "name": "ObjectReviewed"
         },
@@ -3229,6 +3237,7 @@
             "default": "com.liferay.headless.admin.workflow.dto.v1_0.WorkflowInstance"
           }
         },
+        "description": "Represents an instance to be executed in a workflow.",
         "xml": {
           "name": "WorkflowInstance"
         },
@@ -3237,12 +3246,6 @@
       "PageWorkflowInstance": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/WorkflowInstance"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -3250,6 +3253,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowInstance"
+            }
           },
           "actions": {
             "type": "object",
@@ -3299,6 +3308,7 @@
             "default": "com.liferay.headless.admin.workflow.dto.v1_0.ChangeTransition"
           }
         },
+        "description": "Represents a write-only schema to update a workflow's transition.",
         "xml": {
           "name": "ChangeTransition"
         },
@@ -3345,12 +3355,6 @@
       "PageWorkflowLog": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/WorkflowLog"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -3358,6 +3362,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowLog"
+            }
           },
           "actions": {
             "type": "object",
@@ -3453,6 +3463,7 @@
             "default": "com.liferay.headless.admin.workflow.dto.v1_0.Role"
           }
         },
+        "description": "Represents a relationship between a user and a company or site. This follows the [`Role`](https://www.schema.org/Role) specification.",
         "xml": {
           "name": "Role"
         },
@@ -3544,6 +3555,7 @@
             ]
           }
         },
+        "description": "Represents the log containing the workflow's activity history (e.g., transitions, assignees, etc.).",
         "xml": {
           "name": "WorkflowLog"
         },
@@ -3617,12 +3629,6 @@
       "PageWorkflowTask": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/WorkflowTask"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -3630,6 +3636,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowTask"
+            }
           },
           "actions": {
             "type": "object",
@@ -3688,6 +3700,9 @@
             "type": "boolean",
             "description": "A flag that indicates whether the task is complete.",
             "readOnly": true
+          },
+          "creator": {
+            "$ref": "#/components/schemas/Creator"
           },
           "dateCompletion": {
             "type": "string",
@@ -3761,6 +3776,7 @@
             "default": "com.liferay.headless.admin.workflow.dto.v1_0.WorkflowTask"
           }
         },
+        "description": "Represents a task to be executed in a workflow.",
         "xml": {
           "name": "WorkflowTask"
         },
@@ -3793,6 +3809,7 @@
             "default": "com.liferay.headless.admin.workflow.dto.v1_0.WorkflowTaskAssignToUser"
           }
         },
+        "description": "Represents a write-only schema to assign a workflow task to a specific user.",
         "xml": {
           "name": "WorkflowTaskAssignToUser"
         },
@@ -3821,6 +3838,7 @@
             "default": "com.liferay.headless.admin.workflow.dto.v1_0.WorkflowTaskAssignToMe"
           }
         },
+        "description": "Represents a write-only schema to assign a workflow task to the currently logged-in user.",
         "xml": {
           "name": "WorkflowTaskAssignToMe"
         },
@@ -3849,6 +3867,7 @@
             "default": "com.liferay.headless.admin.workflow.dto.v1_0.WorkflowTaskAssignToRole"
           }
         },
+        "description": "Represents a write-only schema to assign a workflow task to a specific role.",
         "xml": {
           "name": "WorkflowTaskAssignToRole"
         },

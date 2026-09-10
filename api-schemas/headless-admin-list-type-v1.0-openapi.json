@@ -2,7 +2,7 @@
   "openapi": "3.0.1",
   "info": {
     "title": "List Type",
-    "description": "A Java client JAR is available for use with the group ID 'com.liferay', artifact ID 'om.liferay.headless.admin.list.type.client', and version '1.0.0'.. A Java client JAR is available for use with the group ID 'com.liferay', artifact ID 'com.liferay.headless.admin.list.type.client', and version '1.0.38'.",
+    "description": "A Java client JAR is available for use with the group ID 'com.liferay', artifact ID 'om.liferay.headless.admin.list.type.client', and version '1.0.0'.. A Java client JAR is available for use with the group ID 'com.liferay', artifact ID 'com.liferay.headless.admin.list.type.client', and version '1.0.41'.",
     "license": {
       "name": "Apache 2.0",
       "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
@@ -1175,6 +1175,7 @@
             "default": "com.liferay.headless.delivery.dto.v1_0.Creator"
           }
         },
+        "description": "Represents the user account of the content's creator/author. Properties follow the [creator](https://schema.org/creator) specification.",
         "xml": {
           "name": "Creator"
         },
@@ -1421,7 +1422,7 @@
             "default": "com.liferay.headless.delivery.dto.v1_0.UserGroupBrief"
           }
         },
-        "description": "A list of userGroups information.",
+        "description": "The author's user groups information.",
         "xml": {
           "name": "UserGroupBrief"
         },
@@ -1458,12 +1459,6 @@
       "PageListTypeDefinition": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ListTypeDefinition"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -1471,6 +1466,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListTypeDefinition"
+            }
           },
           "actions": {
             "type": "object",
@@ -1501,12 +1502,6 @@
       "PageListTypeEntry": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ListTypeEntry"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -1514,6 +1509,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListTypeEntry"
+            }
           },
           "actions": {
             "type": "object",
