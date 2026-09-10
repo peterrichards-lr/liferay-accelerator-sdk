@@ -130,8 +130,13 @@ const SKIPPED_SOURCES =
 
 /**
  * The HttpCoreService helpers that put a request on the wire, and the verb each
- * one sends. `_postMultipart` and `_downloadFile` are here because they are
- * requests too, even though they do not read as one.
+ * one sends. The multipart helpers and `_downloadFile` are here because they
+ * are requests too, even though they do not read as one.
+ *
+ * `_putMultipart` is a separate entry rather than `_postMultipart` gaining a
+ * method argument for exactly this table's sake: the verb has to be readable
+ * from the call site's name, or a PUT against a POST-only template goes
+ * unchecked - which is the failure #184 was opened for.
  *
  * `_request` is deliberately absent: it takes its method inside an axios config
  * object rather than in its name, and every caller of it in src reaches it
@@ -144,6 +149,7 @@ const HTTP_HELPER_METHODS = {
   _patch: 'PATCH',
   _delete: 'DELETE',
   _postMultipart: 'POST',
+  _putMultipart: 'PUT',
   _downloadFile: 'GET',
 };
 

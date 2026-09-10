@@ -101,6 +101,15 @@ class LiferayRestService {
   _postMultipart(...args) {
     return this.multipart._postMultipart(...args);
   }
+  _putMultipart(...args) {
+    return this.multipart._putMultipart(...args);
+  }
+  uploadSiteInitializer(...args) {
+    return this.multipart.uploadSiteInitializer(...args);
+  }
+  createSiteFromInitializer(...args) {
+    return this.multipart.createSiteFromInitializer(...args);
+  }
   addProductImageMultipart(...args) {
     return this.multipart.addProductImageMultipart(...args);
   }
