@@ -693,6 +693,24 @@ class LiferayService {
   async addProductDocumentAttachmentByBase64(...args) {
     return this.commerce.addProductDocumentAttachmentByBase64(...args);
   }
+  async getProductImages(...args) {
+    return this.commerce.getProductImages(...args);
+  }
+  async getProductAttachments(...args) {
+    return this.commerce.getProductAttachments(...args);
+  }
+  async getProductImageContent(...args) {
+    return this.commerce.getProductImageContent(...args);
+  }
+  async getProductAttachmentContent(...args) {
+    return this.commerce.getProductAttachmentContent(...args);
+  }
+  async getProductImageContentByBase64(...args) {
+    return this.commerce.getProductImageContentByBase64(...args);
+  }
+  async getProductAttachmentContentByBase64(...args) {
+    return this.commerce.getProductAttachmentContentByBase64(...args);
+  }
   async addProductImageMultipart(...args) {
     return this.commerce.addProductImageMultipart(...args);
   }

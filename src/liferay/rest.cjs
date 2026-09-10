@@ -1745,6 +1745,239 @@ class LiferayRestService {
     return asItems(data);
   }
 
+  /**
+   * Collects an attachment collection across every page and narrows each entry
+   * to the fields a consumer of the media needs.
+   *
+   * The paging is the point: Liferay serves 20 per page by default, and a
+   * product with 21 images would otherwise export 20 and report success.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string} listUrl The attachment collection to read.
+   * @param {number} pageSize Items requested per page.
+   * @param {string} op Operation name used for error reporting.
+   * @param {string} friendly Friendly operation name used for error reporting.
+   * @returns {Promise<Array<object>>} Attachment metadata.
+   */
+  async _collectAttachments(config, listUrl, pageSize, op, friendly) {
+    const items = await this._collectPagedItems(config, {
+      listUrl,
+      pageSize,
+      op,
+      friendly,
+    });
+
+    return items.map((item) => ({
+      id: item.id,
+      externalReferenceCode: item.externalReferenceCode,
+      title: item.title,
+      priority: item.priority,
+      contentType: item.contentType,
+      src: item.src,
+    }));
+  }
+
+  /**
+   * Reads a product's images.
+   *
+   * Liferay keeps images and document attachments in separate collections even
+   * though both are Attachment records, so this and getProductAttachments stay
+   * separate rather than taking a kind flag (#181).
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string} productERC External reference code of the product.
+   * @param {object} [opts] Options.
+   * @param {number} [opts.pageSize=200] Items requested per page. Every page is
+   *   collected regardless; this only trades request count against page size.
+   * @returns {Promise<Array<object>>} `id`, `externalReferenceCode`, `title`
+   *   (the localized map Liferay returns), `priority`, `contentType` and `src`.
+   *   `src` is relative to the portal root - pass it to getProductImageContent
+   *   rather than to a bare HTTP client.
+   */
+  async getProductImages(config, productERC, { pageSize = 200 } = {}) {
+    return this._collectAttachments(
+      config,
+      PATH.PRODUCT_IMAGES_BY_ERC(productERC),
+      pageSize,
+      'get-product-images',
+      'Failed to read product images'
+    );
+  }
+
+  /**
+   * Reads a product's document attachments.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string} productERC External reference code of the product.
+   * @param {object} [opts] Options.
+   * @param {number} [opts.pageSize=200] Items requested per page. Every page is
+   *   collected regardless; this only trades request count against page size.
+   * @returns {Promise<Array<object>>} The same shape as getProductImages.
+   */
+  async getProductAttachments(config, productERC, { pageSize = 200 } = {}) {
+    return this._collectAttachments(
+      config,
+      PATH.PRODUCT_ATTACHMENTS_BY_ERC(productERC),
+      pageSize,
+      'get-product-attachments',
+      'Failed to read product attachments'
+    );
+  }
+
+  /**
+   * Turns whatever a caller held on to into the `src` the bytes live behind.
+   *
+   * A caller that listed the collection has the `src`; one that only kept an
+   * identifier has the ERC. There is deliberately no numeric-id form: the
+   * catalog API serves /attachment/{id} for DELETE alone, and exposes a GET
+   * only under /attachment/by-externalReferenceCode (#181).
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string} srcOrERC An attachment `src`, or its external reference code.
+   * @param {string} op Operation name used for error reporting.
+   * @param {string} friendly Friendly operation name used for error reporting.
+   * @returns {Promise<string>} The attachment's `src`.
+   */
+  async _resolveAttachmentSrc(config, srcOrERC, op, friendly) {
+    if (typeof srcOrERC !== 'string' || srcOrERC.trim() === '') {
+      throw new Error(
+        `${friendly}: expected an attachment src or external reference code, got ${this._stringifySafe(srcOrERC)}`
+      );
+    }
+
+    if (/^[a-z][a-z0-9+.-]*:/i.test(srcOrERC) || srcOrERC.startsWith('/')) {
+      return srcOrERC;
+    }
+
+    const attachment = await this.httpCore._get(
+      config,
+      PATH.ATTACHMENT_BY_ERC(srcOrERC),
+      op,
+      friendly
+    );
+
+    if (!attachment?.src) {
+      throw new Error(
+        `${friendly}: attachment '${srcOrERC}' has no src to read bytes from`
+      );
+    }
+
+    return attachment.src;
+  }
+
+  /**
+   * Fetches an attachment's bytes into memory.
+   *
+   * The buffer is the primitive rather than base64 because the first consumer
+   * writes it straight into a zip; encoding here would cost a third more memory
+   * per file for the caller to undo (#181).
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string} srcOrERC An attachment `src`, or its external reference code.
+   * @param {string} op Operation name used for error reporting.
+   * @param {string} friendly Friendly operation name used for error reporting.
+   * @returns {Promise<{buffer: Buffer, contentType: (string|null)}>} The bytes
+   *   and the Content-Type the server served them as.
+   */
+  async _getAttachmentContent(config, srcOrERC, op, friendly) {
+    const src = await this._resolveAttachmentSrc(
+      config,
+      srcOrERC,
+      op,
+      friendly
+    );
+
+    const response = await this.httpCore._get(
+      config,
+      this.httpCore._resolveUrl(config, src),
+      op,
+      friendly,
+      { responseType: 'arraybuffer' },
+      true
+    );
+
+    return {
+      buffer: Buffer.from(response.data),
+      contentType: response.headers?.['content-type'] || null,
+    };
+  }
+
+  /**
+   * Fetches the bytes behind a product image.
+   *
+   * Product images are usually served anonymously, but the fetch still goes
+   * through the authenticated client: harmless when the resource is public, and
+   * correct when it is not.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string} srcOrERC The `src` from getProductImages, or the image's
+   *   external reference code.
+   * @returns {Promise<{buffer: Buffer, contentType: (string|null)}>} The bytes
+   *   and the Content-Type the server served them as.
+   */
+  async getProductImageContent(config, srcOrERC) {
+    return this._getAttachmentContent(
+      config,
+      srcOrERC,
+      'get-product-image-content',
+      'Failed to read product image content'
+    );
+  }
+
+  /**
+   * Fetches the bytes behind a product document attachment.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string} srcOrERC The `src` from getProductAttachments, or the
+   *   attachment's external reference code.
+   * @returns {Promise<{buffer: Buffer, contentType: (string|null)}>} The bytes
+   *   and the Content-Type the server served them as.
+   */
+  async getProductAttachmentContent(config, srcOrERC) {
+    return this._getAttachmentContent(
+      config,
+      srcOrERC,
+      'get-product-attachment-content',
+      'Failed to read product attachment content'
+    );
+  }
+
+  /**
+   * getProductImageContent, base64-encoded.
+   *
+   * Liferay has no base64 GET to mirror - this is composition over the byte
+   * read, and exists because the import leg takes base64, so a round trip back
+   * through addProductImageByBase64 needs no work from the caller (#181).
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string} srcOrERC The `src` from getProductImages, or the image's
+   *   external reference code.
+   * @returns {Promise<{base64: string, contentType: (string|null)}>}
+   */
+  async getProductImageContentByBase64(config, srcOrERC) {
+    const { buffer, contentType } = await this.getProductImageContent(
+      config,
+      srcOrERC
+    );
+    return { base64: buffer.toString('base64'), contentType };
+  }
+
+  /**
+   * getProductAttachmentContent, base64-encoded.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string} srcOrERC The `src` from getProductAttachments, or the
+   *   attachment's external reference code.
+   * @returns {Promise<{base64: string, contentType: (string|null)}>}
+   */
+  async getProductAttachmentContentByBase64(config, srcOrERC) {
+    const { buffer, contentType } = await this.getProductAttachmentContent(
+      config,
+      srcOrERC
+    );
+    return { base64: buffer.toString('base64'), contentType };
+  }
+
   async createSpecificationCategory(config, categoryData) {
     // Both legacy and modern DXP endpoints use 'title' and 'key'.
     // Do not attempt to map to 'name' as Jackson will strictly reject it.

@@ -411,6 +411,29 @@ class HttpCoreService {
     return this.createAxiosInstance(effective);
   }
 
+  /**
+   * Resolves a URL Liferay itself handed back - an attachment's `src`, say -
+   * against the connection this client would use. Those come back rooted at the
+   * portal ("/o/commerce-media/..."), so they only address anything once they
+   * carry the host the rest of the SDK is pointed at (#181). Resolution goes
+   * through the same `resolveEffectiveLiferayConnection` as `_client`, so a
+   * caller cannot end up fetching bytes from a different Liferay than the one
+   * the metadata came from. An already-absolute URL is returned unchanged,
+   * which is what keeps a CDN-hosted `src` reachable.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string} url An absolute URL, or one relative to the portal root.
+   * @returns {string} The absolute URL to request.
+   */
+  _resolveUrl(config, url) {
+    const { liferayUrl } = resolveEffectiveLiferayConnection(
+      { ...this.ctx, ...config },
+      this.ctx.oauth,
+      this.ctx.persistence
+    );
+    return new URL(url, liferayUrl).toString();
+  }
+
   async _get(config, url, op, friendly, opts = {}, fullResponse = false) {
     const { params, headers, responseType, maxRetries } = opts || {};
 

@@ -205,8 +205,18 @@ const PATH = {
     `${byERC(BASE.PRODUCTS, erc, VARIANT.products)}/images/by-base64`,
   PRODUCT_ATTACHMENTS_BY_BASE64: (erc) =>
     `${byERC(BASE.PRODUCTS, erc, VARIANT.products)}/attachments/by-base64`,
+  // The read side is keyed by ERC because that is what a dataset export carries
+  // for a product; the numeric id form above stays for the write path (#181).
+  PRODUCT_IMAGES_BY_ERC: (erc) =>
+    `${byERC(BASE.PRODUCTS, erc, VARIANT.products)}/images`,
+  PRODUCT_ATTACHMENTS_BY_ERC: (erc) =>
+    `${byERC(BASE.PRODUCTS, erc, VARIANT.products)}/attachments`,
 
   ATTACHMENT: (id) => `${BASE.CATALOG_API}/attachment/${id}`,
+  // ATTACHMENT above serves DELETE only - the catalog API exposes no GET for a
+  // numeric attachment id, so an attachment is re-read by its ERC (#181).
+  ATTACHMENT_BY_ERC: (erc) =>
+    byERC(`${BASE.CATALOG_API}/attachment`, erc, VARIANT.products),
 
   OPTIONS: BASE.OPTIONS,
   OPTION_BY_ERC: (erc) => byERC(BASE.OPTIONS, erc, VARIANT.options),
