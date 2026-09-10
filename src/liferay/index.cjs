@@ -3,7 +3,12 @@ const LiferayGraphQLService = require('./graphql.cjs');
 const GeneratedLiferayClient = require('./GeneratedLiferayClient.cjs');
 const CatalogAdapterFactory = require('./adapters/CatalogAdapterFactory.cjs');
 const ExtractionFacade = require('../services/extractionFacade.cjs');
-const { asItems } = require('../utils/liferayUtils.cjs');
+const { asItems, asCount } = require('../utils/liferayUtils.cjs');
+const {
+  DEFAULT_MAX_ITEMS,
+  DEFAULT_MAX_PAGES,
+  warnTruncated,
+} = require('../utils/paging.cjs');
 const { PATH } = require('../utils/liferayPaths.cjs');
 const { delay, fromI18n } = require('../utils/misc.cjs');
 class LiferayService {
@@ -31,29 +36,134 @@ class LiferayService {
   async getCatalogAdapter(...args) {
     return this.commerce.getCatalogAdapter(...args);
   }
-  async _collectAllItems(config, fetcherFn, maxItems = 5000, pageSize = 200) {
+  /**
+   * Read every page of a collection, up to a ceiling, and say what was left.
+   *
+   * Before #203 this returned `totalCount: allItems.length` - the count of what
+   * it kept, presented as the count of what exists. A caller handed
+   * `{ items: [5000], totalCount: 5000 }` could not tell a collection of
+   * exactly 5000 from one of 40,000, and nothing was logged when the cap bit.
+   * Liferay's own `totalCount` is in every page envelope, so it is now carried
+   * out alongside a `truncated` flag, and a short read warns in the same shape
+   * as every other truncated read in the SDK (#200).
+   *
+   * @param {object} config Liferay connection config.
+   * @param {Function} fetcherFn Fetches one page: `(config, page, pageSize)`.
+   * @param {number|null} [maxItems] Row ceiling; `null`/`Infinity` for none.
+   *   May also be an options object, which is the shape new callers should use.
+   * @param {number} [pageSize] Rows per request.
+   * @param {object} [options]
+   * @param {string} [options.op] Operation name, for correlating with logs.
+   * @param {number} [options.maxPages] Request ceiling; see DEFAULT_MAX_PAGES.
+   * @param {'warn'|'throw'} [options.onTruncate] What an incomplete read does.
+   *   `warn` (the default) logs and returns `truncated: true`; `throw` is for a
+   *   caller whose work is wrong unless it saw every row.
+   * @returns {Promise<{items: Array, totalCount: number, truncated: boolean}>}
+   *   `totalCount` is Liferay's count of the collection, not the rows returned.
+   */
+  async _collectAllItems(config, fetcherFn, maxItems, pageSize, options) {
+    // The positional (maxItems, pageSize) form is what the existing callers
+    // use; an options object in the third position keeps a caller that wants
+    // `op` or `onTruncate` from having to write `undefined, undefined` (#203).
+    if (maxItems !== null && typeof maxItems === 'object') {
+      options = maxItems;
+      maxItems = options.maxItems;
+      pageSize = options.pageSize ?? pageSize;
+    }
+    const {
+      op = 'collect-all-items',
+      maxPages = DEFAULT_MAX_PAGES,
+      onTruncate = 'warn',
+      logger = this.ctx.logger,
+    } = options || {};
+    // `undefined` takes the default ceiling; `null` is an explicit opt-out, and
+    // is still bounded by maxPages. The ceiling is no longer silent either way.
+    const ceiling =
+      maxItems === undefined ? DEFAULT_MAX_ITEMS : (maxItems ?? Infinity);
+    const rowsPerPage = pageSize ?? 200;
+
     let allItems = [];
+    // Liferay's count of the collection, taken from the page envelopes rather
+    // than from how many rows we chose to keep (#203).
+    let reportedTotal = 0;
+    let pagesRead = 0;
+    let stoppedBy = null;
+
     for await (const pageRes of this.rest.iteratePages(
       config,
       fetcherFn,
       null,
       null,
       {
-        pageSize,
+        pageSize: rowsPerPage,
       }
     )) {
       const items = asItems(pageRes);
       allItems.push(...items);
-      if (allItems.length >= maxItems) {
+      // A soft-failed page answers with totalCount 0; keep the highest total
+      // any page reported rather than letting the last one erase it.
+      reportedTotal = Math.max(reportedTotal, asCount(pageRes));
+      pagesRead += 1;
+
+      if (allItems.length >= ceiling) {
+        stoppedBy = 'maxItems';
+        break;
+      }
+      // iteratePages ends on a short page, so an instance that ignores `page`
+      // would otherwise be read forever. Same ceiling as collectAllPages (#200).
+      if (pagesRead >= maxPages) {
+        stoppedBy = 'maxPages';
         break;
       }
     }
-    if (allItems.length > maxItems) {
-      allItems = allItems.slice(0, maxItems);
+
+    if (allItems.length > ceiling) {
+      allItems = allItems.slice(0, ceiling);
     }
+
+    // asCount falls back to the page length for a response with no envelope,
+    // so the running total can sit below what we actually hold; never claim a
+    // collection is smaller than the rows already read from it.
+    const totalCount = Math.max(reportedTotal, allItems.length);
+    const truncated = allItems.length < totalCount;
+
+    if (truncated) {
+      const detail =
+        stoppedBy === 'maxItems'
+          ? `returned ${allItems.length} of ${totalCount}; the ${ceiling}-row ceiling stopped the read. ` +
+            'Raise maxItems, or filter the collection, if the whole set is required.'
+          : stoppedBy === 'maxPages'
+            ? `returned ${allItems.length} of ${totalCount} after ${pagesRead} pages. ` +
+              'The instance may be ignoring the page parameter.'
+            : `returned ${allItems.length} of ${totalCount}; paging stopped on a short page. ` +
+              'Liferay reported more rows than it served.';
+
+      if (onTruncate === 'throw') {
+        const error = new Error(`Truncated read (${op}): ${detail}`);
+        Object.assign(error, {
+          op,
+          returned: allItems.length,
+          totalCount,
+          truncated: true,
+          code: 'TRUNCATED_READ',
+        });
+        throw error;
+      }
+
+      warnTruncated({
+        op,
+        returned: allItems.length,
+        totalCount,
+        detail,
+        logger,
+        meta: { maxItems: ceiling, pagesRead },
+      });
+    }
+
     return {
       items: allItems,
-      totalCount: allItems.length,
+      totalCount,
+      truncated,
     };
   }
 
