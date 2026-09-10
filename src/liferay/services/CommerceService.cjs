@@ -1,6 +1,10 @@
 const { asItems, asCount } = require('../../utils/liferayUtils.cjs');
 const { delay, fromI18n } = require('../../utils/misc.cjs');
 const { PATH } = require('../../utils/liferayPaths.cjs');
+const {
+  DEFAULT_PAGE_SIZE,
+  warnIfTruncated,
+} = require('../../utils/paging.cjs');
 class CommerceService {
   constructor(liferay) {
     this.liferay = liferay;
@@ -630,20 +634,22 @@ class CommerceService {
 
   // --- Exclusion Helpers ---
 
+  /**
+   * List every catalog, with localized names flattened.
+   *
+   * Asked for `page: 1, pageSize: 100` until #200 and returned that as the
+   * whole set. The cap matters because this is the discovery entry point a
+   * total delete crawls: AICA's delete coordinator calls it under a comment
+   * asserting the SDK already pages (AICA #865), so a silent cap here decided
+   * what got deleted and what was quietly missed.
+   */
   async getCatalogs(config) {
-    const res = await this.liferay.rest._get(
-      config,
-      PATH.CATALOGS,
-      'get-catalogs-bulk',
-      'Get Catalogs Bulk',
-      {
-        params: {
-          page: 1,
-          pageSize: 100,
-        },
-      }
-    );
-    const items = asItems(res);
+    const items = await this.liferay.rest._collectPagedItems(config, {
+      listUrl: PATH.CATALOGS,
+      pageSize: DEFAULT_PAGE_SIZE,
+      op: 'get-catalogs-bulk',
+      friendly: 'Get Catalogs Bulk',
+    });
     return items.map((item) => ({
       ...item,
       name: fromI18n(item.name),
@@ -672,6 +678,14 @@ class CommerceService {
       }
     );
     let items = asItems(res);
+    // #200 stops at the catalog readers it has evidence for, so this one still
+    // returns a single page. Say when that page is short of what Liferay
+    // reported rather than passing 100 of 340 off as the whole set; the fix is
+    // the same as getCatalogs above when somebody needs it.
+    warnIfTruncated(res, {
+      op: 'get-channels-bulk',
+      logger: this.liferay.ctx?.logger,
+    });
     // Self-Healing: If there are no active Commerce Channels, auto-scaffold a Guest Web Store Channel
     let siteGroupId = parseInt(config.siteGroupId, 10);
     if (!siteGroupId || isNaN(siteGroupId)) {

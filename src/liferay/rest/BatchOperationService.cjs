@@ -8,7 +8,7 @@ const {
 } = require('../../utils/contractValidationPolicy.cjs');
 const { getBatchCacheTTLms } = require('../../utils/ttl.cjs');
 const { ErrorHandler } = require('../../utils/expressErrorHandler.cjs');
-const { asItems, asCount } = require('../../utils/liferayUtils.cjs');
+const { collectAllPages } = require('../../utils/paging.cjs');
 
 class BatchOperationService {
   constructor(ctx, http) {
@@ -391,67 +391,52 @@ class BatchOperationService {
     throw lastError;
   }
 
+  /**
+   * Read every page of a collection and return the items.
+   *
+   * The loop itself lives in utils/paging.cjs (#200) so that the collecting
+   * readers added there and the ones already here run the same termination
+   * rules, including the ceiling that keeps an instance which ignores `page`
+   * from being read forever.
+   */
   async _collectPagedItems(
     config,
     { listUrl, pageSize, filter, search, fields, op, friendly }
   ) {
-    let allItems = [];
-    let page = 1;
-    let hasMore = true;
+    const { items } = await collectAllPages(
+      ({ page, pageSize: size }) =>
+        this.http._get(config, listUrl, op, friendly, {
+          params: {
+            page,
+            pageSize: size,
+            filter,
+            search,
+            fields,
+          },
+        }),
+      { pageSize, op, logger: this.ctx?.logger }
+    );
 
-    while (hasMore) {
-      const res = await this.http._get(config, listUrl, op, friendly, {
-        params: {
-          page,
-          pageSize,
-          filter,
-          search,
-          fields,
-        },
-      });
-
-      const items = asItems(res);
-      allItems = allItems.concat(items);
-
-      const totalCount = asCount(res);
-      hasMore = allItems.length < totalCount && items.length > 0;
-      page++;
-    }
-
-    return allItems;
+    return items;
   }
 
   async _collectPagedIds(
     config,
     { listUrl, pageSize, filter, search, fields, op, friendly, idKey = 'id' }
   ) {
-    let allIds = [];
-    let page = 1;
-    let hasMore = true;
+    const items = await this._collectPagedItems(config, {
+      listUrl,
+      pageSize,
+      filter,
+      search,
+      fields,
+      op,
+      friendly,
+    });
 
-    while (hasMore) {
-      const res = await this.http._get(config, listUrl, op, friendly, {
-        params: {
-          page,
-          pageSize,
-          filter,
-          search,
-          fields,
-        },
-      });
-
-      const items = asItems(res);
-      const ids = items
-        .map((it) => it[idKey])
-        .filter((id) => id !== undefined && id !== null);
-      allIds = allIds.concat(ids);
-
-      const totalCount = asCount(res);
-      hasMore = allIds.length < totalCount && items.length > 0;
-      page++;
-    }
-
-    return allIds;
+    return items
+      .map((it) => it[idKey])
+      .filter((id) => id !== undefined && id !== null);
   }
 }
 module.exports = BatchOperationService;

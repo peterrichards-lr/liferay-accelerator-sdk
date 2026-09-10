@@ -31,6 +31,7 @@ const {
   SKU_COMMERCE_CONSTRAINTS,
 } = require('../utils/commerceConstants.cjs');
 const { asItems, asCount } = require('../utils/liferayUtils.cjs');
+const { DEFAULT_PAGE_SIZE } = require('../utils/paging.cjs');
 
 const HttpCoreService = require('./rest/HttpCoreService.cjs');
 const BatchOperationService = require('./rest/BatchOperationService.cjs');
@@ -422,13 +423,20 @@ class LiferayRestService {
     return asItems(data);
   }
 
+  /**
+   * List every catalog on the instance.
+   *
+   * Sent no paging parameters at all until #200, so Liferay applied its own
+   * default page size of 20 and this answered with the first 20 catalogs as
+   * though they were all of them.
+   */
   async getCatalogs(config) {
-    const data = await this.httpCore._get(
-      config,
-      PATH.CATALOGS,
-      'get-catalogs'
-    );
-    return asItems(data);
+    return await this._collectPagedItems(config, {
+      listUrl: PATH.CATALOGS,
+      pageSize: DEFAULT_PAGE_SIZE,
+      op: 'get-catalogs',
+      friendly: 'Get Catalogs',
+    });
   }
 
   async getCatalog(config, catalogId) {
