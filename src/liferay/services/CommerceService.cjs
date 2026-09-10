@@ -26,17 +26,22 @@ class CommerceService {
    * @param {object} [options] Discovery options.
    * @param {string|number} [options.catalogId] Restrict to one catalogue.
    * @param {number} [options.pageSize] Products requested per page.
-   * @returns {Promise<{items: Array<object>, totalCount: number}>} Products,
-   *   each carrying a `skus` array.
+   * @returns {Promise<{items: Array<object>, totalCount: number,
+   *   truncated: boolean}>} Products, each carrying a `skus` array.
+   *   `truncated` is true when the product read did not reach the end of the
+   *   collection (#203).
    * @throws {Error} When the SKUs cannot be read. Products without their SKUs
    *   are not an answer to this question (#199).
    */
   async getProductsWithSkus(config, { catalogId, pageSize = 200 } = {}) {
     // 1. Fetch all products
-    const { items: products } = await this.liferay.getProducts(config, {
-      catalogId,
-      pageSize,
-    });
+    const { items: products, truncated } = await this.liferay.getProducts(
+      config,
+      {
+        catalogId,
+        pageSize,
+      }
+    );
 
     // 2. Read the SKUs from the catalogue-wide collection in one sweep rather
     //    than a call per product. Liferay serves every SKU in the instance
@@ -98,6 +103,7 @@ class CommerceService {
     return {
       items,
       totalCount: items.length,
+      truncated,
     };
   }
 
@@ -120,15 +126,22 @@ class CommerceService {
       );
       const allCatalogs = await this.liferay.getCatalogs(config);
       const allItems = [];
+      // A sweep is as complete as its least complete leg: one truncated
+      // catalogue, or one that threw and was skipped, makes the whole answer
+      // partial, and the caller has to be able to see that (#203).
+      let sweepTruncated = false;
       for (const cat of allCatalogs) {
         try {
-          const { items } = await this.liferay.getProducts(config, {
-            catalogId: cat.id,
-            pageSize,
-            fields,
-          });
+          const { items, truncated: catalogTruncated } =
+            await this.liferay.getProducts(config, {
+              catalogId: cat.id,
+              pageSize,
+              fields,
+            });
           allItems.push(...items);
+          sweepTruncated = sweepTruncated || Boolean(catalogTruncated);
         } catch (err) {
+          sweepTruncated = true;
           this.liferay.ctx.logger.warn(
             `Skipping products for catalog ${cat.id}: ${err.message}`
           );
@@ -142,6 +155,7 @@ class CommerceService {
       return {
         items: filteredItems,
         totalCount: filteredItems.length,
+        truncated: sweepTruncated,
       };
     }
 
@@ -151,9 +165,13 @@ class CommerceService {
     if (providedFilter) filters.push(providedFilter);
     const filter = filters.length > 0 ? filters.join(' and ') : null;
     const adapter = await this.liferay.getCatalogAdapter(config);
-    const { items } = await this.liferay._collectAllItems(
+    const { items, truncated } = await this.liferay._collectAllItems(
       config,
-      (cfg, p, size) => adapter.getProductsRaw(cfg, filter, p, size, fields)
+      (cfg, p, size) => adapter.getProductsRaw(cfg, filter, p, size, fields),
+      // Deliberately not the caller's pageSize: this read has always used the
+      // default, and an adapter served a page smaller than the one asked for
+      // ends the paging loop early. Only `op` is new here (#203).
+      { op: 'get-products-bulk' }
     );
     const filteredItems = items.filter(
       (it) => !this.liferay._shouldExclude(it, exclusions)
@@ -161,6 +179,7 @@ class CommerceService {
     return {
       items: filteredItems,
       totalCount: filteredItems.length,
+      truncated,
     };
   }
 
@@ -183,7 +202,7 @@ class CommerceService {
 
     // REMOVAL: Do not use OData for name exclusions (unreliable)
     const filter = filters.length > 0 ? filters.join(' and ') : null;
-    const { items: allItems } = await this.liferay._collectAllItems(
+    const { items: allItems, truncated } = await this.liferay._collectAllItems(
       config,
       (cfg, p, size) =>
         this.liferay.rest._get(
@@ -200,7 +219,8 @@ class CommerceService {
           }
         ),
       undefined,
-      pageSize
+      pageSize,
+      { op: 'get-option-categories-bulk' }
     );
     let items = allItems;
 
@@ -220,6 +240,7 @@ class CommerceService {
     return {
       items: filteredItems,
       totalCount: filteredItems.length,
+      truncated,
     };
   }
 
@@ -242,7 +263,7 @@ class CommerceService {
 
     // REMOVAL: Do not use OData for name exclusions (unreliable)
     const filter = filters.length > 0 ? filters.join(' and ') : null;
-    const { items: allItems } = await this.liferay._collectAllItems(
+    const { items: allItems, truncated } = await this.liferay._collectAllItems(
       config,
       (cfg, p, size) =>
         this.liferay.rest._get(
@@ -259,7 +280,8 @@ class CommerceService {
           }
         ),
       undefined,
-      pageSize
+      pageSize,
+      { op: 'get-specifications-bulk' }
     );
     let items = allItems;
 
@@ -279,6 +301,7 @@ class CommerceService {
     return {
       items: filteredItems,
       totalCount: filteredItems.length,
+      truncated,
     };
   }
 
@@ -298,7 +321,7 @@ class CommerceService {
 
     // REMOVAL: Do not use OData for name exclusions (unreliable)
     const filter = filters.length > 0 ? filters.join(' and ') : null;
-    const { items: allItems } = await this.liferay._collectAllItems(
+    const { items: allItems, truncated } = await this.liferay._collectAllItems(
       config,
       (cfg, p, size) =>
         this.liferay.rest._get(
@@ -315,7 +338,8 @@ class CommerceService {
           }
         ),
       undefined,
-      pageSize
+      pageSize,
+      { op: 'get-options-bulk' }
     );
     let items = allItems;
 
@@ -335,6 +359,7 @@ class CommerceService {
     return {
       items: filteredItems,
       totalCount: filteredItems.length,
+      truncated,
     };
   }
 
@@ -354,7 +379,7 @@ class CommerceService {
     const filter = filters.length > 0 ? filters.join(' and ') : null;
 
     // Brute force discovery
-    const { items } = await this.liferay._collectAllItems(
+    const { items, truncated } = await this.liferay._collectAllItems(
       config,
       (cfg, p, size) =>
         this.liferay.rest._get(
@@ -371,7 +396,8 @@ class CommerceService {
           }
         ),
       undefined,
-      pageSize
+      pageSize,
+      { op: 'get-warehouses-bulk' }
     );
 
     // HARDENING: Perform all exclusions in JS memory
@@ -381,6 +407,7 @@ class CommerceService {
     return {
       items: filteredItems,
       totalCount: filteredItems.length,
+      truncated,
     };
   }
 

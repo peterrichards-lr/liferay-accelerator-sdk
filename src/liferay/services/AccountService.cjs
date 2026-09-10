@@ -19,7 +19,7 @@ class AccountService {
       config,
       'account-group'
     );
-    let { items } = await this.liferay._collectAllItems(
+    let { items, truncated } = await this.liferay._collectAllItems(
       config,
       (cfg, p, size) =>
         this.liferay.rest._get(
@@ -36,7 +36,8 @@ class AccountService {
           }
         ),
       undefined,
-      pageSize
+      pageSize,
+      { op: 'get-account-groups-bulk' }
     );
     if (providedFilter) {
       const idMatch = providedFilter.match(/id eq (\d+)/);
@@ -65,6 +66,7 @@ class AccountService {
     return {
       items: filteredItems,
       totalCount: filteredItems.length,
+      truncated,
     };
   }
 
@@ -82,7 +84,7 @@ class AccountService {
 
     // HARDENING: Fetch all accounts without OData filters
     // (Liferay's Account API rejects 'id' and 'name' filters in many environments)
-    let { items } = await this.liferay._collectAllItems(
+    let { items, truncated } = await this.liferay._collectAllItems(
       config,
       (cfg, p, size) =>
         this.liferay.rest._get(
@@ -99,7 +101,8 @@ class AccountService {
           }
         ),
       undefined,
-      pageSize
+      pageSize,
+      { op: 'get-accounts-bulk' }
     );
 
     // Filter 1: Provided OData filter (Simulated in JS memory)
@@ -136,6 +139,7 @@ class AccountService {
     return {
       items: finalItems,
       totalCount: finalItems.length,
+      truncated,
     };
   }
 
