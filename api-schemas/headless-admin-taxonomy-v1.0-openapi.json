@@ -2,7 +2,7 @@
   "openapi": "3.0.1",
   "info": {
     "title": "Headless Admin Taxonomy",
-    "description": "A Java client JAR is available for use with the group ID 'com.liferay', artifact ID 'com.liferay.headless.admin.taxonomy.client', and version '4.0.46'.",
+    "description": "A Java client JAR is available for use with the group ID 'com.liferay', artifact ID 'com.liferay.headless.admin.taxonomy.client', and version '4.0.50'.",
     "license": {
       "name": "Apache 2.0",
       "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
@@ -2243,6 +2243,9 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "projects": {
+                  "type": "id"
                 }
               }
             }
@@ -2402,6 +2405,9 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "projects": {
+                  "type": "id"
                 }
               }
             }
@@ -2726,6 +2732,9 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "projects": {
+                  "type": "id"
                 }
               }
             }
@@ -2885,6 +2894,9 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "projects": {
+                  "type": "id"
                 }
               }
             }
@@ -3036,6 +3048,9 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "projects": {
+                  "type": "id"
                 }
               }
             }
@@ -3165,6 +3180,9 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "projects": {
+                  "type": "id"
                 }
               }
             }
@@ -3294,6 +3312,9 @@
                 },
                 "name": {
                   "type": "string"
+                },
+                "projects": {
+                  "type": "id"
                 }
               }
             }
@@ -3928,7 +3949,8 @@
               "type": "string",
               "x-filterable": {
                 "assetLibraries": {
-                  "type": "id"
+                  "type": "array",
+                  "items": "integer"
                 },
                 "assetTypes": {
                   "type": "id"
@@ -3949,6 +3971,12 @@
                   "type": "string"
                 },
                 "numberOfTaxonomyCategories": {
+                  "type": "integer"
+                },
+                "siteId": {
+                  "type": "integer"
+                },
+                "visibilityType": {
                   "type": "integer"
                 }
               }
@@ -4194,7 +4222,8 @@
               "type": "string",
               "x-filterable": {
                 "assetLibraries": {
-                  "type": "id"
+                  "type": "array",
+                  "items": "integer"
                 },
                 "assetTypes": {
                   "type": "id"
@@ -4215,6 +4244,12 @@
                   "type": "string"
                 },
                 "numberOfTaxonomyCategories": {
+                  "type": "integer"
+                },
+                "siteId": {
+                  "type": "integer"
+                },
+                "visibilityType": {
                   "type": "integer"
                 }
               }
@@ -4551,7 +4586,8 @@
               "type": "string",
               "x-filterable": {
                 "assetLibraries": {
-                  "type": "id"
+                  "type": "array",
+                  "items": "integer"
                 },
                 "assetTypes": {
                   "type": "id"
@@ -4572,6 +4608,12 @@
                   "type": "string"
                 },
                 "numberOfTaxonomyCategories": {
+                  "type": "integer"
+                },
+                "siteId": {
+                  "type": "integer"
+                },
+                "visibilityType": {
                   "type": "integer"
                 }
               }
@@ -4683,7 +4725,8 @@
               "type": "string",
               "x-filterable": {
                 "assetLibraries": {
-                  "type": "id"
+                  "type": "array",
+                  "items": "integer"
                 },
                 "assetTypes": {
                   "type": "id"
@@ -4704,6 +4747,12 @@
                   "type": "string"
                 },
                 "numberOfTaxonomyCategories": {
+                  "type": "integer"
+                },
+                "siteId": {
+                  "type": "integer"
+                },
+                "visibilityType": {
                   "type": "integer"
                 }
               }
@@ -4895,7 +4944,7 @@
             "default": "com.liferay.headless.admin.taxonomy.dto.v1_0.Creator"
           }
         },
-        "description": "The vocabulary's creator.",
+        "description": "Represents the user who created the content. Properties follow the [creator](https://schema.org/creator) specification.",
         "xml": {
           "name": "Creator"
         },
@@ -5042,12 +5091,6 @@
       "PagePermission": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Permission"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -5055,6 +5098,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Permission"
+            }
           },
           "actions": {
             "type": "object",
@@ -5109,12 +5158,6 @@
       "PageKeyword": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Keyword"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -5122,6 +5165,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Keyword"
+            }
           },
           "actions": {
             "type": "object",
@@ -5152,12 +5201,6 @@
       "PageTaxonomyCategory": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TaxonomyCategory"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -5165,6 +5208,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaxonomyCategory"
+            }
           },
           "actions": {
             "type": "object",
@@ -5315,6 +5364,16 @@
             "type": "string",
             "description": "The category's external reference code"
           },
+          "friendlyUrlPath": {
+            "type": "string",
+            "description": "The category's relative URL."
+          },
+          "friendlyUrlPath_i18n": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "id": {
             "type": "string",
             "description": "The category's ID.",
@@ -5363,6 +5422,10 @@
             "description": "The ID of the site to which this category is scoped.",
             "format": "int64",
             "readOnly": true
+          },
+          "system": {
+            "type": "boolean",
+            "description": "Whether this is a system category, which cannot be renamed, modified, or deleted."
           },
           "taxonomyCategoryProperties": {
             "type": "array",
@@ -5421,6 +5484,9 @@
           },
           "name": {
             "type": "string"
+          },
+          "projects": {
+            "type": "id"
           }
         }
       },
@@ -5478,7 +5544,7 @@
             "default": "com.liferay.headless.admin.taxonomy.dto.v1_0.AssetType"
           }
         },
-        "description": "A list of asset types that can be associated with this vocabulary.",
+        "description": "Represents the asset type associated with a `TaxonomyCategory`.",
         "xml": {
           "name": "AssetType"
         },
@@ -5487,12 +5553,6 @@
       "PageTaxonomyVocabulary": {
         "type": "object",
         "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TaxonomyVocabulary"
-            }
-          },
           "totalCount": {
             "type": "integer",
             "format": "int64"
@@ -5500,6 +5560,12 @@
           "lastPage": {
             "type": "integer",
             "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaxonomyVocabulary"
+            }
           },
           "actions": {
             "type": "object",
@@ -5524,6 +5590,48 @@
             "type": "integer",
             "format": "int64"
           }
+        },
+        "x-filterable": {}
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "externalReferenceCode": {
+            "type": "string",
+            "description": "The project's external reference code."
+          },
+          "id": {
+            "type": "integer",
+            "description": "The project's site ID.",
+            "format": "int64"
+          },
+          "name": {
+            "type": "string",
+            "description": "The project's name.",
+            "readOnly": true
+          },
+          "name_i18n": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "description": "The localized project's name."
+            },
+            "description": "The localized project's name.",
+            "readOnly": true
+          },
+          "scopeKey": {
+            "type": "string",
+            "description": "The project's scope key."
+          },
+          "x-class-name": {
+            "type": "string",
+            "readOnly": true,
+            "default": "com.liferay.headless.admin.taxonomy.dto.v1_0.Project"
+          }
+        },
+        "description": "A list of projects that this vocabulary is associated with.",
+        "xml": {
+          "name": "Project"
         },
         "x-filterable": {}
       },
@@ -5629,6 +5737,13 @@
               "$ref": "#/components/schemas/Permission"
             }
           },
+          "projects": {
+            "type": "array",
+            "description": "A list of projects that this vocabulary is associated with.",
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            }
+          },
           "siteExternalReferenceCode": {
             "type": "string",
             "description": "The external reference code of the site to which this vocabulary is scoped.",
@@ -5639,6 +5754,10 @@
             "description": "The ID of the site to which this vocabulary is scoped.",
             "format": "int64",
             "readOnly": true
+          },
+          "system": {
+            "type": "boolean",
+            "description": "Whether this is a system vocabulary, which cannot be renamed or deleted."
           },
           "uuid": {
             "type": "string",
@@ -5666,7 +5785,8 @@
         },
         "x-filterable": {
           "assetLibraries": {
-            "type": "id"
+            "type": "array",
+            "items": "integer"
           },
           "assetTypes": {
             "type": "id"
@@ -5687,6 +5807,12 @@
             "type": "string"
           },
           "numberOfTaxonomyCategories": {
+            "type": "integer"
+          },
+          "siteId": {
+            "type": "integer"
+          },
+          "visibilityType": {
             "type": "integer"
           }
         }

@@ -127,10 +127,11 @@ const APIS = [
     path: '/o/data-engine/v2.0/openapi.json',
   },
   // LDM #61 also asked for /o/client-extension-admin/v1.0. It is deliberately
-  // absent: no such JAX-RS context is registered on DXP 2026.q1.12-lts - it is
-  // missing from /o/api and every openapi.json under it 404s - so listing it
-  // here would only make every sync report a failure it cannot fix. Add it if
-  // and when Liferay ships the context.
+  // absent: no such JAX-RS context is registered on DXP - it is missing from
+  // /o/api and every openapi.json under it 404s - so listing it here would only
+  // make every sync report a failure it cannot fix. Checked on both
+  // 2026.q1.12-lts and 2026.Q3.2, so this is not a one-release accident. Add it
+  // if and when Liferay ships the context.
 ];
 
 /**
