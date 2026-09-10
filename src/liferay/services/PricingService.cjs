@@ -18,7 +18,7 @@ class PricingService {
     const filter = filters.length > 0 ? filters.join(' and ') : null;
 
     // Brute force discovery
-    const { items } = await this.liferay._collectAllItems(
+    const { items, truncated } = await this.liferay._collectAllItems(
       config,
       (cfg, p, size) =>
         this.liferay.rest._get(
@@ -35,7 +35,8 @@ class PricingService {
           }
         ),
       undefined,
-      pageSize
+      pageSize,
+      { op: 'get-orders-bulk' }
     );
 
     // HARDENING: Perform all exclusions in JS memory
@@ -45,6 +46,7 @@ class PricingService {
     return {
       items: filteredItems,
       totalCount: filteredItems.length,
+      truncated,
     };
   }
 
