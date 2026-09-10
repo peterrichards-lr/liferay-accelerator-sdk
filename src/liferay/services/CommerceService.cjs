@@ -15,6 +15,18 @@ class CommerceService {
 
   // --- Discovery Methods (Standardized Entry Points with Exclusions) ---
 
+  /**
+   * Reads products together with their SKUs.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {object} [options] Discovery options.
+   * @param {string|number} [options.catalogId] Restrict to one catalogue.
+   * @param {number} [options.pageSize] Products requested per page.
+   * @returns {Promise<{items: Array<object>, totalCount: number}>} Products,
+   *   each carrying a `skus` array.
+   * @throws {Error} When the SKUs cannot be read. Products without their SKUs
+   *   are not an answer to this question (#199).
+   */
   async getProductsWithSkus(config, { catalogId, pageSize = 200 } = {}) {
     // 1. Fetch all products
     const { items: products } = await this.liferay.getProducts(config, {
@@ -22,25 +34,36 @@ class CommerceService {
       pageSize,
     });
 
-    // 2. Fetch all SKUs globally from SQL to ensure real-time consistency
-    let allSkus = [];
+    // 2. Read the SKUs from the catalogue-wide collection in one sweep rather
+    //    than a call per product. Liferay serves every SKU in the instance
+    //    from PATH.SKUS, and each item carries the productId this maps by.
+    //
+    //    This named PATH.SKUS before any profile defined it, so the argument
+    //    was undefined, _resolveUrl coerced it, and every call requested
+    //    `<liferay>/undefined` (#199). It also called _get with pageSize
+    //    directly, reading one page and truncating at 250 SKUs even had the
+    //    path been right; _collectPagedItems walks every page.
+    //
+    //    Sku declares catalogId filterable, so a catalogue-scoped run reads
+    //    only its own SKUs instead of the whole instance.
+    let allSkus;
     try {
-      const res = await this.liferay.rest._get(
-        config,
-        PATH.SKUS,
-        'get-skus-bulk',
-        'Get SKUs Bulk',
-        {
-          params: {
-            pageSize: 250,
-          },
-        }
-      );
-      allSkus = asItems(res);
+      allSkus = await this.liferay.rest._collectPagedItems(config, {
+        listUrl: PATH.SKUS,
+        pageSize: 250,
+        filter: catalogId ? `catalogId eq ${catalogId}` : undefined,
+        op: 'get-skus-bulk',
+        friendly: 'Get SKUs Bulk',
+      });
     } catch (err) {
-      this.liferay.ctx.logger.warn(
-        `Failed to fetch SKUs globally: ${err.message}`
-      );
+      // This used to warn and carry on with an empty list, so the method
+      // answered with products carrying no SKUs and reported success - a
+      // caller could not tell an empty catalogue from a request that went
+      // nowhere (#199). Callers that want the products alone have
+      // getProducts; anyone calling this is asking for the SKUs.
+      throw new Error(`Failed to fetch SKUs for products: ${err.message}`, {
+        cause: err,
+      });
     }
 
     // 3. Map SKUs by productId in memory
