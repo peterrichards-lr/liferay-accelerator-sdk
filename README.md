@@ -175,6 +175,32 @@ walking the pages themselves does not need telling. Truncation is therefore
 always on the record: an incomplete read is never silent, whichever reader
 produced it.
 
+### Ceilings, and what a collecting reader reports
+
+A collecting reader is bounded so an unbounded read cannot exhaust the heap: at
+most 50,000 rows and at most 1000 requests. Neither number is a claim about how
+many rows a collection has - which is the mistake `_collectAllItems` used to
+make, returning its own 5000-row cap as `totalCount` so that a collection of
+exactly 5000 and one of 40,000 looked identical (#203).
+
+The readers built on it (`getProducts`, `getProductsWithSkus`, `getAccounts`,
+`getAccountGroups`, `getWarehouses`, `getOptions`, `getOptionCategories`,
+`getSpecifications`, `getOrders`) now return a `truncated` flag alongside
+`items` and `totalCount`, so a caller can act on a partial read rather than
+waiting for an operator to notice the warning:
+
+```js
+const { items, totalCount, truncated } = await liferay.getWarehouses(config);
+if (truncated) {
+  // items is a prefix of the collection, not the collection
+}
+```
+
+`_collectAllItems` takes `maxItems`, `pageSize`, `maxPages` and `onTruncate`.
+`onTruncate: 'throw'` raises a `TRUNCATED_READ` error instead of warning, for a
+caller whose work is wrong unless it saw every row; `maxItems: null` opts out of
+the row ceiling entirely and leaves the read bounded only by `maxPages`.
+
 ## Contract Validation
 
 Outbound payloads, batch items and inbound responses can be validated against
