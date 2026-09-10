@@ -418,8 +418,24 @@ class HttpCoreService {
    * carry the host the rest of the SDK is pointed at (#181). Resolution goes
    * through the same `resolveEffectiveLiferayConnection` as `_client`, so a
    * caller cannot end up fetching bytes from a different Liferay than the one
-   * the metadata came from. An already-absolute URL is returned unchanged,
-   * which is what keeps a CDN-hosted `src` reachable.
+   * the metadata came from.
+   *
+   * The origin on an absolute URL is discarded and only the path, query and
+   * fragment are kept (#189). Liferay builds these from its own configuration
+   * rather than from the request, so behind a proxy, a load balancer or PaaS
+   * routing it advertises an origin no caller can reach - `lctsolara-uat`
+   * returned `https://webserver-...lfr.cloud:8080/...` when the public host
+   * serves https on 443 and 8080 is the internal listener. The origin is a fact
+   * about Liferay's configuration; `liferayUrl` is how the caller actually got
+   * here, and only one of those two can be dialled. The query survives because
+   * the commerce-media servlet reads `?download=true` from it.
+   *
+   * This rewrites unconditionally rather than exempting a CDN origin, because
+   * the exemption needs a fact this function cannot see: whether the attachment
+   * set `cdnEnabled`. A URL string carries no way to tell an origin Liferay
+   * misreported from one that is genuinely elsewhere. That decision belongs to
+   * whoever holds the attachment - see `_resolveAttachmentSrc` in rest.cjs,
+   * which skips this call for a CDN-hosted `src`.
    *
    * @param {object} config Liferay connection config.
    * @param {string} url An absolute URL, or one relative to the portal root.
@@ -431,7 +447,24 @@ class HttpCoreService {
       this.ctx.oauth,
       this.ctx.persistence
     );
-    return new URL(url, liferayUrl).toString();
+
+    const resolved = new URL(url, liferayUrl);
+
+    // Only an http(s) origin is Liferay's to misreport. Anything else - a
+    // data: src, say - has no host to rewrite and would be destroyed by
+    // treating its opaque body as a path.
+    if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
+      return resolved.toString();
+    }
+
+    // Idempotent: a `src` already reduced to a path resolves to liferayUrl's
+    // own origin on the first pass, so re-running changes nothing. Consumers
+    // normalise before calling (AICA's mediaExtractor) and must not be
+    // punished for it.
+    return new URL(
+      `${resolved.pathname}${resolved.search}${resolved.hash}`,
+      liferayUrl
+    ).toString();
   }
 
   async _get(config, url, op, friendly, opts = {}, fullResponse = false) {

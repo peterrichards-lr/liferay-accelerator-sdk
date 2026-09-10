@@ -233,21 +233,116 @@ describe('product media reads', () => {
       expect(content.contentType).toBe('image/png');
     });
 
-    it('leaves an already-absolute src alone, so a CDN-hosted image stays reachable', async () => {
+    // The exact string lctsolara-uat returned on 2026-09-10 (#189). Liferay
+    // advertises its internal listener - https on 8080 - while the public host
+    // serves 443, so as returned this URL connects to nothing.
+    it('rewrites the origin on an absolute src, because the one Liferay advertises need not be reachable', async () => {
       const getSpy = vi.spyOn(restService.httpCore, '_get').mockResolvedValue({
-        data: Buffer.from('cdn'),
-        headers: {},
+        data: Buffer.from('png-bytes'),
+        headers: { 'content-type': 'image/png' },
       });
 
-      const content = await restService.getProductImageContent(
+      await restService.getProductImageContent(
         config,
-        'https://cdn.example.com/images/1.png'
+        'https://webserver-lctsolara-uat.lfr.cloud:8080/o/commerce-media/accounts/-9223372036854775808/images/90623?download=true'
       );
 
       expect(getSpy.mock.calls[0][1]).toBe(
+        'http://localhost:8080/o/commerce-media/accounts/-9223372036854775808/images/90623?download=true'
+      );
+    });
+
+    it('keeps the query string, which is what the commerce-media servlet reads', async () => {
+      const getSpy = vi.spyOn(restService.httpCore, '_get').mockResolvedValue({
+        data: Buffer.from('png-bytes'),
+        headers: {},
+      });
+
+      await restService.getProductImageContent(
+        config,
+        'https://internal.example.com:8080/o/commerce-media/images/1?download=true&foo=bar%20baz'
+      );
+
+      expect(getSpy.mock.calls[0][1]).toBe(
+        'http://localhost:8080/o/commerce-media/images/1?download=true&foo=bar%20baz'
+      );
+    });
+
+    it('is a no-op on a src the consumer already reduced to a path, so normalising twice does not compound', async () => {
+      const getSpy = vi.spyOn(restService.httpCore, '_get').mockResolvedValue({
+        data: Buffer.from('png-bytes'),
+        headers: {},
+      });
+
+      const absolute =
+        'https://webserver-lctsolara-uat.lfr.cloud:8080/o/commerce-media/accounts/-9223372036854775808/images/90623?download=true';
+      const once = restService.httpCore._resolveUrl(config, absolute);
+      const twice = restService.httpCore._resolveUrl(config, once);
+
+      expect(twice).toBe(once);
+
+      // And what AICA's mediaExtractor actually passes - path plus query -
+      // lands on the same URL as the raw src it was derived from.
+      await restService.getProductImageContent(
+        config,
+        '/o/commerce-media/accounts/-9223372036854775808/images/90623?download=true'
+      );
+
+      expect(getSpy.mock.calls[0][1]).toBe(once);
+    });
+
+    it('dials a CDN-hosted src as-is, because the attachment says that origin is genuinely elsewhere', async () => {
+      const getSpy = vi
+        .spyOn(restService.httpCore, '_get')
+        .mockResolvedValueOnce({
+          src: 'https://cdn.example.com/images/1.png',
+          cdnEnabled: true,
+          cdnURL: 'https://cdn.example.com',
+        })
+        .mockResolvedValueOnce({ data: Buffer.from('cdn'), headers: {} });
+
+      const content = await restService.getProductImageContent(
+        config,
+        'IMG-CDN'
+      );
+
+      expect(getSpy.mock.calls[1][1]).toBe(
         'https://cdn.example.com/images/1.png'
       );
       expect(content.contentType).toBeNull();
+    });
+
+    it('rewrites a src the attachment did not flag as CDN-hosted, even when it is absolute', async () => {
+      const getSpy = vi
+        .spyOn(restService.httpCore, '_get')
+        .mockResolvedValueOnce({
+          src: 'https://webserver-lctsolara-uat.lfr.cloud:8080/o/commerce-media/images/9?download=true',
+          cdnEnabled: false,
+        })
+        .mockResolvedValueOnce({ data: Buffer.from('bytes'), headers: {} });
+
+      await restService.getProductImageContent(config, 'IMG-9');
+
+      expect(getSpy.mock.calls[1][1]).toBe(
+        'http://localhost:8080/o/commerce-media/images/9?download=true'
+      );
+    });
+
+    it('resolves a portal-rooted src even when the attachment claims a CDN, there being no origin on it to trust', async () => {
+      const getSpy = vi
+        .spyOn(restService.httpCore, '_get')
+        .mockResolvedValueOnce({
+          src: '/o/commerce-media/images/4',
+          cdnEnabled: true,
+          cdnURL: 'https://cdn.example.com',
+        })
+        .mockResolvedValueOnce({ data: Buffer.from('bytes'), headers: {} });
+
+      await restService.getProductImageContent(config, 'IMG-4');
+
+      expect(getSpy.mock.calls[1][1]).toBe(
+        'http://localhost:8080/o/commerce-media/images/4'
+      );
     });
 
     it('looks an external reference code up through the attachment endpoint first', async () => {

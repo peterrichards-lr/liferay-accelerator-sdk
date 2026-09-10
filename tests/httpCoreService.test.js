@@ -392,6 +392,70 @@ describe('liferay/rest/HttpCoreService', () => {
       await expect(service.getConfig({}, 'FOO')).rejects.toThrow('boom');
     });
   });
+
+  describe('_resolveUrl', () => {
+    const config = {
+      liferayUrl: 'https://public.example.com',
+      clientId: 'id',
+      clientSecret: 'secret',
+    };
+
+    // Verbatim from lctsolara-uat, 2026-09-10 (#189): the public host serves
+    // https on 443, and 8080 is the internal listener, so the origin Liferay
+    // put on this connects to nothing.
+    const OBSERVED_SRC =
+      'https://webserver-lctsolara-uat.lfr.cloud:8080/o/commerce-media/accounts/-9223372036854775808/images/90623?download=true';
+
+    it('keeps resolving a relative path against the configured base', () => {
+      expect(service._resolveUrl(config, '/o/commerce-media/images/1')).toBe(
+        'https://public.example.com/o/commerce-media/images/1'
+      );
+    });
+
+    it('replaces the origin an absolute src carries with the configured one', () => {
+      expect(service._resolveUrl(config, OBSERVED_SRC)).toBe(
+        'https://public.example.com/o/commerce-media/accounts/-9223372036854775808/images/90623?download=true'
+      );
+    });
+
+    it('carries the query through, download=true being what the media servlet reads', () => {
+      expect(
+        service._resolveUrl(
+          config,
+          'https://internal:8080/o/commerce-media/images/1?download=true&a=b%20c'
+        )
+      ).toBe(
+        'https://public.example.com/o/commerce-media/images/1?download=true&a=b%20c'
+      );
+
+      expect(
+        service._resolveUrl(config, '/o/commerce-media/images/1?download=true')
+      ).toBe(
+        'https://public.example.com/o/commerce-media/images/1?download=true'
+      );
+    });
+
+    it('is idempotent, so a consumer that already normalised its src is not punished', () => {
+      const once = service._resolveUrl(config, OBSERVED_SRC);
+
+      expect(service._resolveUrl(config, once)).toBe(once);
+      expect(
+        service._resolveUrl(config, service._resolveUrl(config, once))
+      ).toBe(once);
+    });
+
+    it('keeps the fragment', () => {
+      expect(
+        service._resolveUrl(config, 'https://internal:8080/a/b?c=d#e')
+      ).toBe('https://public.example.com/a/b?c=d#e');
+    });
+
+    it('leaves a non-http URL alone, having no origin to rewrite', () => {
+      expect(service._resolveUrl(config, 'data:text/plain;base64,aGk=')).toBe(
+        'data:text/plain;base64,aGk='
+      );
+    });
+  });
 });
 
 describe('HttpCoreService - Contract Validation Error Handling', () => {
