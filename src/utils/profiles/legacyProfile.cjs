@@ -26,6 +26,7 @@ const API_ROOT = {
   OBJECT: '/o/c',
   ORDER: '/o/headless-commerce-admin-order/v1.0',
   PRICING: '/o/headless-commerce-admin-pricing/v2.0',
+  SITE: '/o/headless-admin-site/v1.0',
   USER: '/o/headless-admin-user/v1.0',
   TAXONOMY: '/o/headless-admin-taxonomy/v1.0',
 };
@@ -40,6 +41,7 @@ const BASE = {
   C_OBJECT: API_ROOT.OBJECT,
   ORDER_API: API_ROOT.ORDER,
   PRICING_API: API_ROOT.PRICING,
+  SITE_ADMIN_API: API_ROOT.SITE,
   USER_ADMIN_API: API_ROOT.USER,
 
   ACCOUNTS: `${API_ROOT.USER}/accounts`,
@@ -54,6 +56,7 @@ const BASE = {
   POSTAL_ADDRESSES: `${API_ROOT.USER}/postal-addresses`,
   PRICE_LISTS: `${API_ROOT.PRICING}/price-lists`,
   PRODUCTS: `${API_ROOT.CATALOG}/products`,
+  SITES: `${API_ROOT.SITE}/sites`,
   SPECIFICATION_CATEGORIES: `${API_ROOT.CATALOG}/optionCategories`,
   SPECIFICATIONS: `${API_ROOT.CATALOG}/specifications`,
 };
@@ -378,6 +381,32 @@ const PATH = {
     `${BASE.BATCH_ENGINE_API}/import-task/${enc(batchId)}/failed-items/report`,
   TAXONOMY_CATEGORIES: (vocabularyId) =>
     `${API_ROOT.TAXONOMY}/taxonomy-vocabularies/${vocabularyId}/taxonomy-categories`,
+
+  /**
+   * Upserts a site from a site-initializer bundle, keyed by external reference
+   * code (peterrichards-lr/liferay-demo-accelerator#65).
+   *
+   * The issue asks for `PUT /sites/by-external-reference-code/{erc}`. No such
+   * template exists: headless-admin-site v1.0 declares the ERC inline as
+   * `/sites/{siteExternalReferenceCode}/site-initializer`, with GET (download
+   * the bundle) and PUT (upload it). The `by-external-reference-code` form the
+   * issue reaches for is a Commerce convention - see `byERC` above - and
+   * headless-admin-site does not follow it. The spec wins; the gate in
+   * scripts/validate-rest-paths.cjs would reject the issue's path anyway,
+   * which is #184 doing its job.
+   */
+  SITE_INITIALIZER: (siteERC) =>
+    `${BASE.SITES}/${enc(siteERC)}/site-initializer`,
+
+  /**
+   * Creates a site from a site-initializer bundle.
+   *
+   * This, not the PUT above, is the operation whose multipart body declares the
+   * `site` metadata part the issue asks for: `PutSiteSiteInitializerRequestBody`
+   * declares `file` alone, while `PostSiteSiteInitializerRequestBody` declares
+   * `file` and `site`. Metadata therefore only reaches Liferay on creation.
+   */
+  SITE_INITIALIZER_CREATE: `${BASE.SITES}/site-initializer`,
 };
 
 module.exports = {
