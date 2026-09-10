@@ -827,6 +827,33 @@ class CommerceService {
     );
   }
 
+  getProductImages(config, productERC, opts) {
+    return this.liferay.rest.getProductImages(config, productERC, opts);
+  }
+
+  getProductAttachments(config, productERC, opts) {
+    return this.liferay.rest.getProductAttachments(config, productERC, opts);
+  }
+
+  getProductImageContent(config, srcOrERC) {
+    return this.liferay.rest.getProductImageContent(config, srcOrERC);
+  }
+
+  getProductAttachmentContent(config, srcOrERC) {
+    return this.liferay.rest.getProductAttachmentContent(config, srcOrERC);
+  }
+
+  getProductImageContentByBase64(config, srcOrERC) {
+    return this.liferay.rest.getProductImageContentByBase64(config, srcOrERC);
+  }
+
+  getProductAttachmentContentByBase64(config, srcOrERC) {
+    return this.liferay.rest.getProductAttachmentContentByBase64(
+      config,
+      srcOrERC
+    );
+  }
+
   addProductImageMultipart(config, productId, data) {
     return this.liferay.rest.addProductImageMultipart(config, productId, data);
   }
