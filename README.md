@@ -101,6 +101,19 @@ Paths fall into four buckets, all reported:
   taxonomy API, and anything served by a placeholder spec
 - **failures** - paths that exist in no spec, which fail the build
 
+Existing is not the same as being callable the way the SDK calls it, so the call
+sites are checked as well: every `_get`/`_post`/`_put`/`_patch`/`_delete` in
+`src/` is paired with the concrete path its second argument resolves to, and the
+verb is asserted against the methods that path's template declares. Sending a
+`GET` to a `DELETE`-only endpoint fails the build rather than 405ing on a live
+DXP.
+
+The verb comes from the call rather than from the `PATH` constant because paths
+are routinely composed at the call site - `` `${PATH.WAREHOUSES}/${warehouseId}` ``
+is a `DELETE` against `/warehouses/{id}`, not against `/warehouses`. A call whose
+path is assembled at run time (a URL held in a variable, a ternary) is counted
+and reported as unverifiable rather than guessed at.
+
 `yarn validate` runs both gates.
 
 ## Contract Validation
@@ -227,4 +240,4 @@ build it never affects callback processing.
 
 ---
 
-_Last Updated: 2026-09-08_ | _Last Reviewed: 2026-09-08_
+_Last Updated: 2026-09-10_ | _Last Reviewed: 2026-09-10_
