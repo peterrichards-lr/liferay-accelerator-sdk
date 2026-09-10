@@ -52,7 +52,6 @@ const SENTINEL = '12345';
  * gap stays visible.
  */
 const ROOTS_WITHOUT_SPECS = {
-  '/o/headless-admin-taxonomy': 'no taxonomy spec is synced into api-schemas',
   // Unverifiable in principle, not merely unsynced: the segment under /o/c is
   // an object definition created when the instance is provisioned, so no
   // published spec can describe it. That stays true now the SDK's own
@@ -76,9 +75,12 @@ const ROOTS_WITHOUT_SPECS = {
     'shared modules repository and its names were made generic. Only the ' +
     'default base is checked here; a deployment elsewhere is named by ' +
     'ENV.LIFERAY_REINDEX_BASE_PATH and never appears as a literal in src',
-  '/o/object-admin': 'no object-admin spec is synced into api-schemas',
   '/o/headless-form': 'no headless-form spec is synced into api-schemas',
-  '/o/workflow-admin': 'no workflow-admin spec is synced into api-schemas',
+  // /o/workflow-admin was excused here as unsynced until LDM #61 synced the
+  // workflow spec and showed there is no such context to sync: the API is
+  // headless-admin-workflow, and the one call under /o/workflow-admin was a
+  // standing 404. The excuse is gone so the root can never be quietly
+  // reintroduced.
 };
 
 /**
