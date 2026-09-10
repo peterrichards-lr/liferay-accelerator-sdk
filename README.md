@@ -116,6 +116,40 @@ and reported as unverifiable rather than guessed at.
 
 `yarn validate` runs both gates.
 
+## Reading Collections
+
+Liferay answers every collection request with one page and a `totalCount`. Two
+kinds of reader sit on top of that, and the difference is in the name (#200).
+
+**Collecting readers** return the whole set and page until `totalCount` is
+reached. `liferay.getCatalogs()`, `liferay.rest.getCatalogs()`,
+`getAccounts`/`getAccountGroups` and everything built on
+`rest._collectPagedItems` are in this group. `getCatalogs` used to cap silently -
+at 20 through `rest`, at 100 through the commerce service - which is how a
+downstream total-delete path came to run over a truncated catalog list.
+
+**Page readers** return exactly one page and end in `Page`. Every collection
+method on `ExtractionFacade` is one of these, because it passes `queryParams`
+straight to Liferay: the caller chooses `page` and `pageSize`, and the envelope
+they get back carries `totalCount` next to `items`. The un-suffixed names
+(`getCommerceCatalogs`, `getDocuments`, ...) still work and still return a page,
+but they are deprecated in favour of the `...Page` spelling.
+
+To read every page from a page reader, wrap it in `collectAll`:
+
+```js
+const { items, totalCount } = await liferay.extraction.collectAll(
+  (params) => liferay.extraction.getCommerceCatalogsPage(config, params),
+  { pageSize: 100 }
+);
+```
+
+A page reader that returns fewer rows than `totalCount` logs a warning naming
+the operation and both counts, unless the caller passed `page` - somebody
+walking the pages themselves does not need telling. Truncation is therefore
+always on the record: an incomplete read is never silent, whichever reader
+produced it.
+
 ## Contract Validation
 
 Outbound payloads, batch items and inbound responses can be validated against
