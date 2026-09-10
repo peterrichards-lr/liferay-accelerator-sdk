@@ -2,6 +2,15 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 const LiferayRestService = require('../src/liferay/rest.cjs');
 const { PATH } = require('../src/utils/liferayPaths.cjs');
+const { ATTACHMENT_PROJECTION } = require('../src/utils/commerceConstants.cjs');
+const catalogSchema = require('../api-schemas/headless-commerce-admin-catalog-v1.0-openapi.json');
+
+// Taken from the spec rather than hand-listed, so that a read which quietly
+// stops returning a field the schema declares fails here (#187). The `x-`
+// entries are OpenAPI vendor extensions, not attachment fields.
+const ATTACHMENT_FIELDS = Object.keys(
+  catalogSchema.components.schemas.Attachment.properties
+).filter((field) => !field.startsWith('x-'));
 
 /**
  * Read side of product media (#181). The two cases that would otherwise fail
@@ -28,6 +37,27 @@ describe('product media reads', () => {
     fileEntryId: 9000 + id,
   });
 
+  // Every field the Attachment schema declares, each with a value that is not
+  // the one a caller would assume if the field went missing - galleryEnabled
+  // and neverExpire are false, so a dropped field reads as a different
+  // attachment rather than the same one.
+  const fullAttachment = (id) => ({
+    ...attachment(id),
+    attachment: null,
+    cdnEnabled: true,
+    cdnURL: `https://cdn.example.com/images/${id}`,
+    customFields: [{ name: 'photographer', value: 'A. Nother' }],
+    displayDate: '2026-01-01T00:00:00Z',
+    expirationDate: '2027-01-01T00:00:00Z',
+    fileEntryExternalReferenceCode: `DL-IMG-${id}`,
+    fileEntryGroupExternalReferenceCode: `DL-GROUP-${id}`,
+    galleryEnabled: false,
+    neverExpire: false,
+    options: { color: 'yellow' },
+    tags: ['hero', 'seasonal'],
+    type: 1,
+  });
+
   beforeEach(() => {
     mockCtx = {
       logger: {
@@ -43,16 +73,46 @@ describe('product media reads', () => {
   });
 
   describe('getProductImages', () => {
-    it('reads the ERC-keyed images collection and narrows each entry', async () => {
+    it('reads the ERC-keyed images collection and returns the whole attachment', async () => {
       const getSpy = vi
         .spyOn(restService.httpCore, '_get')
-        .mockResolvedValue({ items: [attachment(1)], totalCount: 1 });
+        .mockResolvedValue({ items: [fullAttachment(1)], totalCount: 1 });
 
       const images = await restService.getProductImages(config, 'PROD-1');
 
       expect(getSpy.mock.calls[0][1]).toBe(
         PATH.PRODUCT_IMAGES_BY_ERC('PROD-1')
       );
+      expect(images).toEqual([fullAttachment(1)]);
+      expect(Object.keys(images[0]).sort()).toEqual(
+        [...ATTACHMENT_FIELDS].sort()
+      );
+    });
+
+    it('carries galleryEnabled through, so an image hidden from the gallery is not read back as a visible one', async () => {
+      vi.spyOn(restService.httpCore, '_get').mockResolvedValue({
+        items: [fullAttachment(1)],
+        totalCount: 1,
+      });
+
+      const images = await restService.getProductImages(config, 'PROD-1');
+
+      expect(images[0].galleryEnabled).toBe(false);
+      expect(images[0].neverExpire).toBe(false);
+      expect(images[0].displayDate).toBe('2026-01-01T00:00:00Z');
+      expect(images[0].tags).toEqual(['hero', 'seasonal']);
+    });
+
+    it('narrows to exactly the requested fields when the caller asks for the media projection', async () => {
+      vi.spyOn(restService.httpCore, '_get').mockResolvedValue({
+        items: [fullAttachment(1)],
+        totalCount: 1,
+      });
+
+      const images = await restService.getProductImages(config, 'PROD-1', {
+        fields: ATTACHMENT_PROJECTION.MEDIA,
+      });
+
       expect(images).toEqual([
         {
           id: 1,
@@ -63,6 +123,25 @@ describe('product media reads', () => {
           src: '/o/commerce-media/images/1',
         },
       ]);
+      expect(Object.keys(images[0]).sort()).toEqual(
+        [...ATTACHMENT_PROJECTION.MEDIA].sort()
+      );
+    });
+
+    it('sets every projected field even when the attachment lacks it, so the shape does not vary per item', async () => {
+      vi.spyOn(restService.httpCore, '_get').mockResolvedValue({
+        items: [{ id: 1 }],
+        totalCount: 1,
+      });
+
+      const images = await restService.getProductImages(config, 'PROD-1', {
+        fields: ATTACHMENT_PROJECTION.MEDIA,
+      });
+
+      expect(Object.keys(images[0]).sort()).toEqual(
+        [...ATTACHMENT_PROJECTION.MEDIA].sort()
+      );
+      expect(images[0].src).toBeUndefined();
     });
 
     it('collects every page, so a product with more images than fit one page keeps its tail', async () => {
@@ -109,6 +188,25 @@ describe('product media reads', () => {
         PATH.PRODUCT_ATTACHMENTS_BY_ERC('PROD-2')
       );
       expect(attachments).toEqual([]);
+    });
+
+    it('takes the same fields projection as getProductImages', async () => {
+      vi.spyOn(restService.httpCore, '_get').mockResolvedValue({
+        items: [fullAttachment(3)],
+        totalCount: 1,
+      });
+
+      const whole = await restService.getProductAttachments(config, 'PROD-2');
+      const narrowed = await restService.getProductAttachments(
+        config,
+        'PROD-2',
+        { fields: ATTACHMENT_PROJECTION.MEDIA }
+      );
+
+      expect(whole).toEqual([fullAttachment(3)]);
+      expect(Object.keys(narrowed[0]).sort()).toEqual(
+        [...ATTACHMENT_PROJECTION.MEDIA].sort()
+      );
     });
   });
 
