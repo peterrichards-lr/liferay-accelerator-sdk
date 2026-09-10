@@ -256,7 +256,7 @@ describe('ExtractionFacade', () => {
     });
     expect(mockRest._get).toHaveBeenCalledWith(
       config,
-      '/o/workflow-admin/v1.0/workflow-definitions',
+      '/o/headless-admin-workflow/v1.0/workflow-definitions',
       'get-workflow-definitions',
       'Get Workflow Definitions',
       { params: { fields: 'id' } }

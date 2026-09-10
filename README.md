@@ -37,7 +37,7 @@ selection and made `getWarehouseItems` reject a filter argument.
 
 The `files` allowlist in `package.json` bounds what a published tarball
 contains: `src` (minus `src/logs`), `bin`, and `api-schemas/*.json`, which
-`ContractValidator` reads at runtime. That comes to 69 files.
+`ContractValidator` reads at runtime. That comes to 84 files.
 
 > **Pack with npm, not yarn.** `npm pack` honours `files` exactly. `yarn pack`
 > in yarn 1.22 ignores both `files` and `.npmignore` - measured at 285 files and
@@ -97,8 +97,8 @@ Paths fall into four buckets, all reported:
 - **verified** - the path exists in a spec, with its supported methods listed
 - **prefixes** - API roots and collection bases that longer paths are built
   from, which are not endpoints in their own right
-- **unverifiable** - Liferay Objects (`/o/c`), the API explorer, the unsynced
-  taxonomy API, and anything served by a placeholder spec
+- **unverifiable** - Liferay Objects (`/o/c`), the API explorer, roots with no
+  synced spec, and anything served by a placeholder spec
 - **failures** - paths that exist in no spec, which fail the build
 
 Existing is not the same as being callable the way the SDK calls it, so the call
@@ -115,6 +115,31 @@ path is assembled at run time (a URL held in a variable, a ternary) is counted
 and reported as unverifiable rather than guessed at.
 
 `yarn validate` runs both gates.
+
+## Syncing Schemas
+
+```bash
+yarn sync                      # every API in the list, plus GraphQL introspection
+yarn sync object-admin-v1.0    # only the named APIs, no GraphQL
+```
+
+`scripts/sync-schemas.js` fetches the OpenAPI documents in `api-schemas/` from a
+running instance, reading `LIFERAY_API_URL`, `LIFERAY_API_USERNAME` and
+`LIFERAY_API_PASSWORD` (or `LIFERAY_API_COOKIE`) from the environment or a `.env`
+three directories above the repository. Naming APIs on the command line narrows
+the run: a blanket sync rewrites every committed document, so an issue that adds
+one spec would otherwise bury it in unrelated drift.
+
+Which instance a document came from is the thing an OpenAPI document does not
+record: no release, and a `servers` entry that only names the host it was fetched
+from. Since these documents are what `validate-rest-paths.cjs` treats as the
+authoritative contract for calls that go to production, a spec captured from the
+wrong DXP line is a gate that looks authoritative and silently is not.
+`api-schemas/PROVENANCE.json` carries that missing fact - source URL, DXP release
+and timestamp per document - written on every sync, so it stays beside the specs
+without editing them. Set `LIFERAY_DXP_RELEASE` when syncing: DXP usually trims
+its `Liferay-Portal` header to the bare product name, and an unset release is
+recorded honestly as `unknown` rather than guessed.
 
 ## Reading Collections
 

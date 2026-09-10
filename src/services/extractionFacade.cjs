@@ -490,12 +490,19 @@ class ExtractionFacade {
 
   /**
    * Fetch one page of workflow definitions.
+   *
+   * The root is `headless-admin-workflow`, not `workflow-admin`: no JAX-RS
+   * context named `workflow-admin` is registered on DXP, so this call 404'd
+   * every time it was made. Nothing caught it because no workflow spec was
+   * synced, so validate-rest-paths.cjs excused the whole root - and the unit
+   * test asserted the broken path back at itself. Syncing the spec (LDM #61)
+   * made it visible.
    */
   async getWorkflowDefinitionsPage(config, queryParams = {}) {
     return await this._readPage('get-workflow-definitions', queryParams, () =>
       this.rest._get(
         config,
-        '/o/workflow-admin/v1.0/workflow-definitions',
+        '/o/headless-admin-workflow/v1.0/workflow-definitions',
         'get-workflow-definitions',
         'Get Workflow Definitions',
         { params: queryParams }
