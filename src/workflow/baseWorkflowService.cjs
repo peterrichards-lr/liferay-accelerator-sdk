@@ -298,7 +298,14 @@ class BaseWorkflowService {
       [S.DELETE_OPTION_CATEGORIES]: 'options',
       [S.DELETE_PRICE_LISTS]: 'priceLists',
       [S.DELETE_PROMOTIONS]: 'promotions',
-      [S.RESET_CATALOG_CONFIG]: 'products',
+      // Resetting a catalog's configuration is not work on products, and
+      // reporting it against them made the Products bar answer for it. The
+      // step deletes nothing and reports the single unit it processed, so a
+      // delete run showed "Products 1 Deleted, Done" while delete-products
+      // was still PREPARED at 0 of 50, and the Products bar counted as
+      // finished for the rest of the run (#786). Its generate-side twin,
+      // `update-catalog-config`, has always mapped here.
+      [S.RESET_CATALOG_CONFIG]: 'config',
     };
 
     // If the step matches a known category, return it for grouping.
