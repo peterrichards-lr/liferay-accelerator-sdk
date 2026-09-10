@@ -14,10 +14,25 @@
  * path is stripped of its query string, and the remainder is matched
  * segment-wise against the path templates declared by the specs.
  *
+ * Existing, however, is not the same as being callable the way the SDK calls
+ * it. Until #184 a path could pass this gate and still 405 at run time, because
+ * the methods each template declares were collected and printed but never
+ * asserted - #181 nearly shipped a GET against /v1.0/attachment/{id}, which is
+ * DELETE-only, with `yarn validate` green. So the call sites are harvested too:
+ * every `_get`/`_post`/... call is paired with the concrete path its second
+ * argument resolves to, and the verb is checked against the matched template.
+ *
+ * The verb is taken from the call rather than from the PATH constant on
+ * purpose. Paths are routinely composed at the call site -
+ * `${PATH.WAREHOUSES}/${warehouseId}` is a DELETE against /warehouses/{id}, not
+ * against /warehouses - so a constant-to-verb map would report those
+ * compositions as mismatches every run, forever.
+ *
  * Usage:
  *     node scripts/validate-rest-paths.cjs
  *
- * Exits non-zero when a path does not exist in the authoritative spec.
+ * Exits non-zero when a path does not exist in the authoritative spec, or is
+ * called with a method that spec does not declare.
  */
 const fs = require('fs');
 const path = require('path');
@@ -112,6 +127,46 @@ const SKIPPED_SOURCES =
   /(^|\/)(logs|generated)(\/|$)|GeneratedLiferayClient|utils\/profiles/;
 
 /**
+ * The HttpCoreService helpers that put a request on the wire, and the verb each
+ * one sends. `_postMultipart` and `_downloadFile` are here because they are
+ * requests too, even though they do not read as one.
+ *
+ * `_request` is deliberately absent: it takes its method inside an axios config
+ * object rather than in its name, and every caller of it in src reaches it
+ * through one of the helpers below, so nothing is lost by not parsing it.
+ */
+const HTTP_HELPER_METHODS = {
+  _get: 'GET',
+  _post: 'POST',
+  _put: 'PUT',
+  _patch: 'PATCH',
+  _delete: 'DELETE',
+  _postMultipart: 'POST',
+  _downloadFile: 'GET',
+};
+
+/**
+ * True when a helper call is a request rather than something else wearing the
+ * same name.
+ *
+ * The names are not unique in src: persistenceService has its own
+ * `_get(sql, ...params)` over SQLite, and matching on the name alone would hand
+ * this gate a dozen SQL statements to look up in an OpenAPI document. Every
+ * HTTP helper takes the Liferay connection config first
+ * (`_get(config, url, op, friendly, opts)`), so the discriminator is what that
+ * first argument is, not what it is called - the callers spell it `config`,
+ * `cfg` and `effective`, and an allowlist of those names would silently drop
+ * the next one somebody invents, which is the same overstatement #184 is about.
+ * A SQL statement is always a literal, and `...args` is a delegation to the
+ * helper that really makes the call.
+ */
+function isRequestCall(firstArgument) {
+  const argument = firstArgument.trim();
+  if (!argument || argument.startsWith('...')) return false;
+  return !/^['"`]/.test(argument);
+}
+
+/**
  * Arguments for entries whose parameters are not interchangeable single path
  * segments, so the sentinel alone cannot exercise them.
  */
@@ -192,6 +247,22 @@ function pathMatchesTemplate(concrete, template) {
 
 function findTemplate(concrete, templates) {
   return templates.find((entry) =>
+    pathMatchesTemplate(concrete, entry.template)
+  );
+}
+
+/**
+ * Every template a concrete path satisfies, not just the first.
+ *
+ * One path can satisfy several: headless-batch-engine declares both
+ * /import-task/{className} (DELETE, POST, PUT) and /import-task/{importTaskId}
+ * (GET), and /import-task/12345 is a legal request against either. Checking a
+ * verb against whichever happened to be read first would fail
+ * `getImportTaskStatus` for sending GET when the SDK is right and the check is
+ * merely looking at the wrong one of two equally matching templates.
+ */
+function findTemplates(concrete, templates) {
+  return templates.filter((entry) =>
     pathMatchesTemplate(concrete, entry.template)
   );
 }
@@ -317,6 +388,279 @@ function harvestInlinePaths(srcDir = SRC_DIR) {
   return harvested;
 }
 
+/**
+ * Walks an expression left to right, calling `visit(char, index)` for each
+ * character that sits at the top nesting level and outside a string or a
+ * template literal. Returning false from `visit` stops the walk.
+ *
+ * This is a bracket matcher, not a JavaScript parser. It knows just enough to
+ * find argument boundaries and template interpolations in the call shapes src
+ * actually uses; anything subtler it cannot resolve is reported unverifiable
+ * rather than guessed at. A real parser would mean depending on espree or
+ * acorn, which are only present here transitively through eslint.
+ */
+function scanTopLevel(text, visit) {
+  const stack = [];
+
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    const context = stack[stack.length - 1];
+
+    if (context === "'" || context === '"') {
+      if (char === '\\') index++;
+      else if (char === context) stack.pop();
+      continue;
+    }
+
+    if (context === '`') {
+      if (char === '\\') index++;
+      else if (char === '`') stack.pop();
+      else if (char === '$' && text[index + 1] === '{') {
+        stack.push('${');
+        index++;
+      }
+      continue;
+    }
+
+    if (char === "'" || char === '"' || char === '`') {
+      stack.push(char);
+      continue;
+    }
+
+    if (char === '(' || char === '[' || char === '{') {
+      stack.push(char);
+      continue;
+    }
+
+    if (char === ')' || char === ']' || char === '}') {
+      // An unmatched closer belongs to whatever encloses this expression, so
+      // the caller gets to see it - that is how the end of an argument list is
+      // found.
+      if (stack.length === 0) {
+        if (visit(char, index) === false) return;
+        continue;
+      }
+      stack.pop();
+      continue;
+    }
+
+    if (stack.length === 0 && visit(char, index) === false) return;
+  }
+}
+
+/** Index of the character that closes the bracket opened at `openIndex`. */
+function findClosingBracket(source, openIndex, closer) {
+  let closed = -1;
+
+  scanTopLevel(source.slice(openIndex + 1), (char, index) => {
+    if (char !== closer) return true;
+    closed = openIndex + 1 + index;
+    return false;
+  });
+
+  return closed;
+}
+
+/** Splits an expression on a top-level separator, ignoring nested ones. */
+function splitTopLevel(text, separator) {
+  const parts = [];
+  let start = 0;
+
+  scanTopLevel(text, (char, index) => {
+    if (char !== separator) return true;
+    parts.push(text.slice(start, index));
+    start = index + 1;
+    return true;
+  });
+
+  parts.push(text.slice(start));
+  return parts;
+}
+
+/** Matches `PATH.PRODUCTS`, and `this.paths.PATH.PRODUCTS` in the adapters. */
+const PATH_MEMBER = /^(?:[A-Za-z_$][\w$]*\.)*PATH\.([A-Za-z0-9_$]+)$/;
+const PATH_CALL = /^(?:[A-Za-z_$][\w$]*\.)*PATH\.([A-Za-z0-9_$]+)\(/;
+/** The query-string helper from the same module, `PATH.PRICE_LISTS + q(params)`. */
+const QUERY_HELPER_CALL = /^(?:[A-Za-z_$][\w$]*\.)*q\(/;
+
+/** The PATH member an expression names, whether or not the table defines it. */
+function namedPathMember(expression) {
+  const match =
+    PATH_MEMBER.exec(expression) || PATH_CALL.exec(expression.trim());
+  return match ? match[1] : null;
+}
+
+/** Invokes a PATH member the way harvestPaths does, and returns what it emits. */
+function emitFromTable(name, table) {
+  const value = table[name];
+  if (typeof value === 'string') return value;
+  if (typeof value !== 'function') return null;
+
+  // The first override set is enough here: the overrides exist because the
+  // sentinel is rejected, not because each set reaches a different template,
+  // and harvestPaths still exercises every one of them.
+  const args = (ARG_OVERRIDES[name] || [Array(value.length).fill(SENTINEL)])[0];
+
+  try {
+    const emitted = value(...args);
+    return typeof emitted === 'string' ? emitted : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolves the path argument of a call to the concrete path it emits, or null
+ * when it cannot be resolved statically - a local variable holding a URL built
+ * earlier, a ternary, a path handed in by the caller.
+ *
+ * Null is not a failure. It means this call site cannot be checked, and it is
+ * counted and reported as unverifiable, the same way a spec-less root is.
+ */
+function resolvePathExpression(expression, table = PATH) {
+  let text = expression.trim();
+  while (
+    text.startsWith('(') &&
+    findClosingBracket(text, 0, ')') === text.length - 1
+  ) {
+    text = text.slice(1, -1).trim();
+  }
+  if (!text) return null;
+
+  // `PATH.PRICE_LISTS + q(params)`. normalizePath drops the query string
+  // before matching, so the q() term contributes nothing and resolves to ''.
+  const terms = splitTopLevel(text, '+');
+  if (terms.length > 1) {
+    const resolved = terms.map((term) => resolveTerm(term.trim(), table));
+    return resolved.includes(null) ? null : resolved.join('');
+  }
+
+  return resolveTerm(text, table);
+}
+
+function resolveTerm(text, table) {
+  if (QUERY_HELPER_CALL.test(text) && text.endsWith(')')) return '';
+
+  if (
+    (text.startsWith("'") && text.endsWith("'")) ||
+    (text.startsWith('"') && text.endsWith('"'))
+  ) {
+    return text.slice(1, -1);
+  }
+
+  if (text.startsWith('`') && text.endsWith('`') && text.length > 1) {
+    return resolveTemplateLiteral(text, table);
+  }
+
+  const member = PATH_MEMBER.exec(text);
+  if (member) return emitFromTable(member[1], table);
+
+  const call = PATH_CALL.exec(text);
+  if (
+    call &&
+    findClosingBracket(text, call[0].length - 1, ')') === text.length - 1
+  ) {
+    return emitFromTable(call[1], table);
+  }
+
+  return null;
+}
+
+/**
+ * Rebuilds a template literal, resolving each interpolation that names a PATH
+ * member and substituting the sentinel for the rest.
+ *
+ * That substitution is what makes composition check correctly:
+ * `${PATH.PRICE_ENTRY(result.id)}/tier-prices` resolves to the tier-prices
+ * collection, which allows POST, rather than to the price entry, which does
+ * not. It is also the substitution harvestInlinePaths already makes for inline
+ * literals, on the same assumption - an interpolated id is one path segment.
+ */
+function resolveTemplateLiteral(text, table) {
+  const body = text.slice(1, -1);
+  let resolved = '';
+
+  for (let index = 0; index < body.length; index++) {
+    if (body[index] === '\\') {
+      resolved += body[index + 1] || '';
+      index++;
+      continue;
+    }
+
+    if (body[index] === '$' && body[index + 1] === '{') {
+      const close = findClosingBracket(body, index + 1, '}');
+      if (close === -1) return null;
+      const inner = resolvePathExpression(body.slice(index + 2, close), table);
+      resolved += inner === null ? SENTINEL : inner;
+      index = close;
+      continue;
+    }
+
+    resolved += body[index];
+  }
+
+  return resolved;
+}
+
+/**
+ * Harvests the HTTP calls in src, pairing the verb each one sends with the
+ * concrete path its second argument resolves to.
+ *
+ * @returns {Array<{name: string, method: string, expression: string, path?: string}>}
+ */
+function harvestMethodUsages(srcDir = SRC_DIR, table = PATH) {
+  const usages = [];
+  const helper = new RegExp(
+    `\\.(${Object.keys(HTTP_HELPER_METHODS).join('|')})\\s*\\(`,
+    'g'
+  );
+
+  for (const file of sourceFiles(srcDir)) {
+    const source = fs.readFileSync(file, 'utf8');
+    let match;
+
+    // The leading dot is load-bearing: it keeps the helpers' own declarations
+    // in HttpCoreService out of the harvest, where `url` is only a parameter
+    // name.
+    helper.lastIndex = 0;
+    while ((match = helper.exec(source)) !== null) {
+      const open = match.index + match[0].length - 1;
+      const close = findClosingBracket(source, open, ')');
+      if (close === -1) continue;
+
+      const args = splitTopLevel(source.slice(open + 1, close), ',');
+      if (!isRequestCall(args[0] || '')) continue;
+
+      const line = source.slice(0, match.index).split('\n').length;
+      const expression = (args[1] || '').trim().replace(/\s+/g, ' ');
+      const resolved = resolvePathExpression(args[1] || '', table);
+      const usage = {
+        name: `${path.relative(path.dirname(srcDir), file)}:${line}`,
+        method: HTTP_HELPER_METHODS[match[1]],
+        expression,
+      };
+
+      if (resolved !== null) {
+        usages.push({ ...usage, path: resolved });
+        continue;
+      }
+
+      // Naming a member the table does not define is worth saying out loud
+      // rather than filing under "could not resolve": the call sends undefined
+      // as its URL. src/liferay/services/CommerceService.cjs reaches for
+      // PATH.SKUS, which no profile declares.
+      const undefinedMember = namedPathMember(expression);
+      usages.push(
+        undefinedMember && table[undefinedMember] === undefined
+          ? { ...usage, undefinedMember }
+          : usage
+      );
+    }
+  }
+
+  return usages;
+}
+
 function run({ schemaDir = SCHEMA_DIR, table = PATH, srcDir = SRC_DIR } = {}) {
   const { templates, placeholderRoots } = loadSpecTemplates(schemaDir);
   const harvested = harvestPaths(table);
@@ -414,6 +758,63 @@ function run({ schemaDir = SCHEMA_DIR, table = PATH, srcDir = SRC_DIR } = {}) {
 
   failures.push(...staleAllowlist);
 
+  // The method check (#184). A path that exists is only half the guarantee; the
+  // other half is that the verb the SDK sends is one the spec declares for it.
+  const usages = harvestMethodUsages(srcDir, table);
+  const methodMatched = [];
+  const methodUnverifiable = [];
+
+  for (const usage of usages) {
+    if (usage.path === undefined) {
+      methodUnverifiable.push({
+        ...usage,
+        reason: usage.undefinedMember
+          ? `names PATH.${usage.undefinedMember}, which the path profile does not define, so the call sends undefined as its URL`
+          : `the path argument (${usage.expression}) is not a literal or a PATH member, so nothing can be matched against a template`,
+      });
+      continue;
+    }
+
+    const concrete = normalizePath(usage.path);
+    const reason = unverifiableReason(concrete, placeholderRoots);
+    if (reason) {
+      methodUnverifiable.push({ ...usage, concrete, reason });
+      continue;
+    }
+
+    const matches = findTemplates(concrete, templates);
+    if (matches.length === 0) {
+      // Whether the path itself exists is the other harvesters' business, and
+      // they report it with far better provenance than a call site can. Here it
+      // only means there are no declared methods to check the verb against.
+      methodUnverifiable.push({
+        ...usage,
+        concrete,
+        reason:
+          'no OpenAPI document declares this path, so it declares no methods either',
+      });
+      continue;
+    }
+
+    const allowed = matches.find((entry) =>
+      entry.methods.includes(usage.method)
+    );
+    if (allowed) {
+      methodMatched.push({ ...usage, concrete, ...allowed });
+      continue;
+    }
+
+    failures.push({
+      ...usage,
+      concrete,
+      reason: `sends ${usage.method}, but ${matches
+        .map(
+          (entry) => `${entry.template} declares ${entry.methods.join(', ')}`
+        )
+        .join('; ')} (${matches[0].spec})`,
+    });
+  }
+
   return {
     templates,
     placeholderRoots,
@@ -425,6 +826,9 @@ function run({ schemaDir = SCHEMA_DIR, table = PATH, srcDir = SRC_DIR } = {}) {
     inline,
     inlineMatched,
     inlineUnverified,
+    usages,
+    methodMatched,
+    methodUnverifiable,
   };
 }
 
@@ -438,12 +842,15 @@ function main() {
     failures,
     inlineMatched,
     inlineUnverified,
+    usages,
+    methodMatched,
+    methodUnverifiable,
   } = run();
 
   const total =
     harvested.length + inlineMatched.length + inlineUnverified.length;
   console.log(
-    `Validating ${total} SDK REST paths (${harvested.length} from the path profile, ${total - harvested.length} inline) against ${templates.length} path templates in api-schemas/\n`
+    `Validating ${total} SDK REST paths (${harvested.length} from the path profile, ${total - harvested.length} inline) and ${usages.length} call sites against ${templates.length} path templates in api-schemas/\n`
   );
 
   for (const entry of matched) {
@@ -470,6 +877,21 @@ function main() {
     }
   }
 
+  if (usages.length > 0) {
+    console.log(
+      `\n  Methods (${usages.length} call sites): ${methodMatched.length} checked against the spec, ${methodUnverifiable.length} unverifiable`
+    );
+    for (const entry of methodMatched) {
+      console.log(
+        `    PASS  ${entry.name} ${entry.method} ${entry.concrete} -> ${entry.template} [${entry.methods.join(', ')}]`
+      );
+    }
+    for (const entry of methodUnverifiable) {
+      console.log(`    ${entry.name} ${entry.method} ${entry.concrete || ''}`);
+      console.log(`      ${entry.reason}`);
+    }
+  }
+
   if (unverifiable.length > 0) {
     console.log(`\n  Unverifiable (${unverifiable.length}):`);
     for (const entry of unverifiable) {
@@ -485,17 +907,20 @@ function main() {
       console.log(`      ${entry.reason}`);
     }
     console.error(
-      `\n${failures.length} of ${total} SDK REST paths do not exist in the authoritative specs.`
+      `\n${failures.length} disagreement(s) with the authoritative specs across ${total} SDK REST paths and ${usages.length} call sites.`
     );
     console.error(
-      'Fix the path (or re-sync api-schemas if the API legitimately changed).'
+      'Fix the path or the method (or re-sync api-schemas if the API legitimately changed).'
     );
     process.exitCode = 1;
     return;
   }
 
+  // Say what was checked and what was not. Between #131 and #184 this line read
+  // "All N verifiable REST paths exist", which was true and also more than the
+  // gate proved: nothing had looked at a single method.
   console.log(
-    `\nAll ${matched.length + inlineMatched.length} verifiable REST paths exist in the Liferay OpenAPI specs (${prefixes.length} prefixes, ${unverifiable.length + inlineUnverified.length} unverifiable).`
+    `\nAll ${matched.length + inlineMatched.length} verifiable REST paths exist in the Liferay OpenAPI specs (${prefixes.length} prefixes, ${unverifiable.length + inlineUnverified.length} unverifiable), and all ${methodMatched.length} of ${usages.length} call sites whose path resolves to a spec template use a method it declares (${methodUnverifiable.length} unverifiable).`
   );
 }
 
@@ -505,14 +930,17 @@ if (require.main === module) {
 
 module.exports = {
   ARG_OVERRIDES,
+  HTTP_HELPER_METHODS,
   KNOWN_UNVERIFIED_INLINE,
   ROOTS_WITHOUT_SPECS,
   harvestInlinePaths,
   SENTINEL,
+  harvestMethodUsages,
   harvestPaths,
   isTemplatePrefix,
   loadSpecTemplates,
   normalizePath,
   pathMatchesTemplate,
+  resolvePathExpression,
   run,
 };

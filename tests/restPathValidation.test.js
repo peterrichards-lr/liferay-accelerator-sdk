@@ -1,16 +1,22 @@
-import { describe, it, expect } from 'vitest';
+import { afterAll, describe, it, expect } from 'vitest';
 import { createRequire } from 'module';
+import fs from 'fs';
+import os from 'os';
+import nodePath from 'path';
 const require = createRequire(import.meta.url);
 
 const {
   ARG_OVERRIDES,
+  HTTP_HELPER_METHODS,
   KNOWN_UNVERIFIED_INLINE,
   harvestInlinePaths,
+  harvestMethodUsages,
   harvestPaths,
   isTemplatePrefix,
   loadSpecTemplates,
   normalizePath,
   pathMatchesTemplate,
+  resolvePathExpression,
   run,
 } = require('../scripts/validate-rest-paths.cjs');
 const { PATH } = require('../src/utils/liferayPaths.cjs');
@@ -171,6 +177,140 @@ describe('REST path validation', () => {
     expect(failures).toHaveLength(1);
     expect(failures[0].name).toBe('MADE_UP');
     expect(failures[0].reason).toMatch(/no matching path/);
+  });
+});
+
+/**
+ * Guards against the other half of the same drift (#184): a path can exist and
+ * still not accept the verb the SDK sends it. The verb is taken from the call
+ * site rather than from the PATH constant, because the constant is often only
+ * the base a longer path is composed from.
+ */
+describe('REST method validation', () => {
+  const scratch = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'rest-methods-'));
+
+  afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }));
+
+  /** Writes a source tree holding one call, and validates against it. */
+  const validateCall = (name, call) => {
+    const srcDir = nodePath.join(scratch, name, 'src');
+    fs.mkdirSync(srcDir, { recursive: true });
+    fs.writeFileSync(
+      nodePath.join(srcDir, 'fixture.cjs'),
+      `class Fixture {\n  async call(config, id) {\n    return this.http.${call};\n  }\n}\nmodule.exports = Fixture;\n`
+    );
+    return run({ srcDir });
+  };
+
+  it('checks the verb of every call site whose path resolves', () => {
+    const { failures, methodMatched, methodUnverifiable, usages } = run();
+
+    const reported = failures.map(
+      (entry) => `${entry.name}: ${entry.concrete} - ${entry.reason}`
+    );
+
+    expect(reported).toEqual([]);
+    expect(methodMatched.length).toBeGreaterThan(50);
+    // Every call site is accounted for, either checked or explained.
+    expect(usages.length).toBe(
+      methodMatched.length + methodUnverifiable.length
+    );
+    for (const entry of methodUnverifiable) {
+      expect(entry.reason).toBeTruthy();
+    }
+  });
+
+  it('fails a GET against a DELETE-only template', () => {
+    // /v1.0/attachment/{id} takes DELETE and nothing else, which is exactly
+    // what #181 nearly shipped a read against.
+    const { failures } = validateCall(
+      'delete-only',
+      "_get(config, PATH.ATTACHMENT(id), 'read-attachment')"
+    );
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0].name).toMatch(/fixture\.cjs:3$/);
+    expect(failures[0].concrete).toMatch(/\/v1\.0\/attachment\/\d+$/);
+    expect(failures[0].reason).toMatch(/sends GET/);
+    expect(failures[0].reason).toMatch(/declares DELETE/);
+  });
+
+  it('passes the DELETE that template does declare', () => {
+    const { failures, methodMatched } = validateCall(
+      'delete-allowed',
+      "_delete(config, PATH.ATTACHMENT(id), 'delete-attachment')"
+    );
+
+    expect(failures).toEqual([]);
+    expect(methodMatched.some((entry) => entry.method === 'DELETE')).toBe(true);
+  });
+
+  it('resolves a path composed at the call site, not the constant it starts from', () => {
+    // Keyed on the constant these read as mismatches: /warehouses takes no
+    // DELETE and /price-entries/{id} takes no POST. Keyed on what is actually
+    // requested, both are correct.
+    expect(resolvePathExpression('`${PATH.WAREHOUSES}/${warehouseId}`')).toBe(
+      `${PATH.WAREHOUSES}/12345`
+    );
+    expect(
+      resolvePathExpression('`${PATH.PRICE_ENTRY(result.id)}/tier-prices`')
+    ).toBe(`${PATH.PRICE_ENTRY('12345')}/tier-prices`);
+    // The query string is stripped before matching, so q() adds nothing.
+    expect(resolvePathExpression('PATH.PRICE_LISTS + q(params)')).toBe(
+      PATH.PRICE_LISTS
+    );
+    expect(
+      resolvePathExpression("'/o/headless-admin-user/v1.0/accounts'")
+    ).toBe('/o/headless-admin-user/v1.0/accounts');
+    // A URL assembled earlier cannot be recovered, and is reported unverifiable
+    // rather than guessed at.
+    expect(resolvePathExpression('listUrl')).toBeNull();
+    expect(resolvePathExpression('ops.getPath(id)')).toBeNull();
+  });
+
+  it('accepts a verb declared by any template the path matches', () => {
+    // headless-batch-engine declares /import-task/{className} (DELETE, POST,
+    // PUT) and /import-task/{importTaskId} (GET). /import-task/42 is a legal
+    // request against either, so reading the first one found would fail a GET
+    // the spec plainly allows.
+    const { failures, methodMatched } = validateCall(
+      'ambiguous',
+      "_get(config, PATH.IMPORT_TASK(id), 'get-import-task')"
+    );
+
+    expect(failures).toEqual([]);
+    expect(
+      methodMatched.some((entry) => entry.template.endsWith('/{importTaskId}'))
+    ).toBe(true);
+  });
+
+  it('leaves the SQLite _get out of the harvest', () => {
+    // persistenceService has its own _get(sql, ...params). A SQL statement is
+    // not a REST path, and matching on the helper name alone would send a
+    // dozen of them looking for an OpenAPI template.
+    const usages = harvestMethodUsages();
+
+    expect(usages.length).toBeGreaterThan(50);
+    expect(
+      usages.some((entry) => entry.name.includes('persistenceService'))
+    ).toBe(false);
+    for (const entry of usages) {
+      expect(entry.name).toMatch(/\.(cjs|js):\d+$/);
+      expect(Object.values(HTTP_HELPER_METHODS)).toContain(entry.method);
+    }
+  });
+
+  it('says so when a call names a PATH member the profile does not define', () => {
+    const { methodUnverifiable } = validateCall(
+      'undefined-member',
+      "_get(config, PATH.NOT_A_REAL_MEMBER, 'nonsense')"
+    );
+
+    expect(
+      methodUnverifiable.some((entry) =>
+        /does not define/.test(entry.reason || '')
+      )
+    ).toBe(true);
   });
 });
 
