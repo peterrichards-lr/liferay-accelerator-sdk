@@ -9,6 +9,7 @@
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const { isPlausibleRelease } = require('./spec-provenance.cjs');
 
 // Target directory for schemas
 const SCHEMA_DIR = path.join(__dirname, '../api-schemas');
@@ -33,7 +34,12 @@ const PROVENANCE_FILE = path.join(SCHEMA_DIR, 'PROVENANCE.json');
  * Basic ENV loader for scripts
  */
 function loadEnv() {
-  const envPath = path.join(__dirname, '../../../.env');
+  // Two levels too high until #231: this script lived at
+  // client-extensions/liferay-accelerator-sdk/scripts/ in the AICA monorepo,
+  // where '../../../.env' reached the repository root. After the extraction in
+  // #198 it resolved above the checkout entirely, so `yarn sync` silently
+  // loaded no environment at all and every variable had to be exported by hand.
+  const envPath = path.join(__dirname, '../.env');
   if (!fs.existsSync(envPath)) return;
 
   const content = fs.readFileSync(envPath, 'utf8');
@@ -194,7 +200,10 @@ function readProvenance() {
 function describeRelease(response) {
   const configured = process.env.LIFERAY_DXP_RELEASE;
   if (configured) {
-    return { release: configured, source: 'LIFERAY_DXP_RELEASE' };
+    return {
+      release: configured,
+      source: 'LIFERAY_DXP_RELEASE (operator-asserted, not measured)',
+    };
   }
 
   const header = response?.headers?.['liferay-portal'];
@@ -396,8 +405,31 @@ async function syncGraphQL(baseUrl, auth) {
   }
 }
 
+/**
+ * Refuses an implausible LIFERAY_DXP_RELEASE before a single document is
+ * written.
+ *
+ * The variable is free text, it is the only source of a release in practice on
+ * DXP, and nothing compared it to the instance - which is how the manifest came
+ * to record `2026.Q3.2` for documents captured from a `2026.q3.0` box, and how
+ * `banana` was accepted as a DXP line (#231). A shape check cannot tell a wrong
+ * release from a right one. It can refuse a typo, a placeholder and a joke, and
+ * it can do so before the mislabelled specs are on disk.
+ */
+function assertReleaseIsPlausible(release = process.env.LIFERAY_DXP_RELEASE) {
+  if (!release || isPlausibleRelease(release)) return;
+
+  throw new Error(
+    `LIFERAY_DXP_RELEASE is set to "${release}", which is not a DXP release ` +
+      'line. Expected a quarterly line such as 2026.q3.0 or dxp-2025.q1.17-lts. ' +
+      'Nothing else records the release, so a wrong value here labels every ' +
+      'document this run captures'
+  );
+}
+
 async function main() {
   loadEnv();
+  assertReleaseIsPlausible();
 
   const baseUrl = process.env.LIFERAY_API_URL || 'http://localhost:8080';
   const username = process.env.LIFERAY_API_USERNAME || 'test@liferay.com';
@@ -432,7 +464,15 @@ async function main() {
   console.log('\n--- Sync Complete ---');
 }
 
-main().catch((err) => {
-  console.error('Fatal error during sync:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('Fatal error during sync:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  assertReleaseIsPlausible,
+  describeRelease,
+  loadEnv,
+};

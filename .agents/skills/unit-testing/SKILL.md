@@ -32,8 +32,11 @@ To maintain high code quality and prevent regression, the following testing rule
   every path in the profile table against the OpenAPI documents in
   `api-schemas/`, and since #204 also checks the provenance of those documents:
   it fails when a spec has no entry in `api-schemas/PROVENANCE.json`, when an
-  entry names a spec that is gone, or when the set spans two DXP releases. An
-  `unknown` release is reported, not failed - only a re-sync can establish it.
+  entry names a spec that is gone, or when the set spans two DXP releases.
+  Since #231 it also fails on a recorded release that is not a DXP release line,
+  on a spec whose release is unrecorded unless it is named in
+  `TOLERATED_UNRECORDED_SPECS`, and on a tolerance that names a spec which has
+  since been re-synced or removed.
 
 ## 2. Test-Driven Alignment & Gates
 

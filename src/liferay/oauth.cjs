@@ -428,10 +428,69 @@ class OAuthService {
     }
   }
 
+  /**
+   * Obtains a token for whichever identity the caller specified.
+   *
+   * The three arguments used to be tested together - `!liferayUrl ||
+   * !clientId || !clientSecret` - so any incomplete set fell through to
+   * `getAccessTokenFromRoute`, which discards the caller's URL and uses
+   * `this.liferayUrl` with this environment's own credentials. A caller whose
+   * secret came back empty from a config read therefore received a valid token
+   * for the instance this process is deployed beside, and found out as a 401
+   * from the host it did name: #227's failure arriving by a different door
+   * (#234). The missing argument was the diagnostic, and it was thrown away.
+   *
+   * The credentials decide, and the pair is indivisible:
+   *
+   * - **both supplied** - a named identity. `getAccessTokenWithCredentials`
+   *   takes it, and raises its own 400 naming `liferayUrl` when no instance was
+   *   named, rather than quietly minting a token from different credentials.
+   * - **neither supplied** - the ambient identity, which is the only sense a
+   *   credential-less call can be given. `getAccessTokenFromRoute` takes it,
+   *   whatever `liferayUrl` says, because the colocated deployment legitimately
+   *   names its own portal and sends no credentials at all.
+   * - **one supplied** - a half credential, which is nobody's intent. It is
+   *   reported here rather than answered, because the only available answer is
+   *   a token for somebody else.
+   *
+   * A caller that wants the ambient identity for an instance it also names can
+   * say so by calling `getAccessTokenFromRoute` directly.
+   *
+   * @throws {Error} 400, naming the credential that is missing.
+   */
   async getAccessToken(liferayUrl, clientId, clientSecret) {
-    return !liferayUrl || !clientId || !clientSecret
-      ? this.getAccessTokenFromRoute()
-      : this.getAccessTokenWithCredentials(liferayUrl, clientId, clientSecret);
+    const { logger } = this.ctx;
+    const hasClientId = Boolean(clientId);
+    const hasClientSecret = Boolean(clientSecret);
+
+    if (hasClientId !== hasClientSecret) {
+      const missing = hasClientId ? 'clientSecret' : 'clientId';
+      const errorRef = createERC(ERC_PREFIX.ERROR);
+      logger?.error?.(
+        `OAuth Error [${errorRef}]: Incomplete credentials for ${liferayUrl || 'an unnamed instance'}`,
+        {
+          liferayUrl: liferayUrl || 'undefined',
+          clientId: clientId || 'undefined',
+          clientSecret: clientSecret ? '[PROVIDED]' : 'undefined',
+          missing,
+          timestamp: new Date().toISOString(),
+        }
+      );
+      const customError = new Error(
+        `OAuth credentials incomplete: ${missing} is missing. Supply both ` +
+          "clientId and clientSecret, or neither to use this environment's " +
+          'own credentials via getAccessTokenFromRoute'
+      );
+      customError.statusCode = 400;
+      customError.errorType = 'auth_error';
+      customError.field = missing;
+      customError.errorReference = errorRef;
+      throw customError;
+    }
+
+    return hasClientId
+      ? this.getAccessTokenWithCredentials(liferayUrl, clientId, clientSecret)
+      : this.getAccessTokenFromRoute();
   }
 
   async getAccessTokenWithCode(

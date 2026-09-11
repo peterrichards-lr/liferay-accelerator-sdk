@@ -12,6 +12,7 @@ configNode.lxcConfig.dxpMainDomain = vi.fn().mockReturnValue('localhost');
 configNode.lxcConfig.dxpProtocol = vi.fn().mockReturnValue('http');
 
 const OAuthService = require('../src/liferay/oauth.cjs');
+const { ENV } = require('../src/utils/constants.cjs');
 
 describe('OAuthService', () => {
   let mockContext;
@@ -274,6 +275,152 @@ describe('OAuthService', () => {
     });
   });
 
+  // `getAccessToken` tested its three arguments together, so any incomplete
+  // set took the route branch and returned a token for the instance this
+  // process is deployed beside. There were no tests at all for this method.
+  describe('Credential completeness (#234)', () => {
+    const NAMED_INSTANCE = 'http://instance-b.example.com:8080';
+
+    function serviceWithBothPathsStubbed() {
+      const service = new OAuthService(mockContext);
+      const viaCredentials = vi
+        .spyOn(service, 'getAccessTokenWithCredentials')
+        .mockResolvedValue('token-via-credentials');
+      const viaRoute = vi
+        .spyOn(service, 'getAccessTokenFromRoute')
+        .mockResolvedValue('token-via-route');
+      return { service, viaCredentials, viaRoute };
+    }
+
+    it('takes the credentials path when all three are supplied', async () => {
+      const { service, viaCredentials, viaRoute } =
+        serviceWithBothPathsStubbed();
+
+      await expect(
+        service.getAccessToken(NAMED_INSTANCE, 'client-id', 'client-secret')
+      ).resolves.toBe('token-via-credentials');
+
+      expect(viaCredentials).toHaveBeenCalledWith(
+        NAMED_INSTANCE,
+        'client-id',
+        'client-secret'
+      );
+      expect(viaRoute).not.toHaveBeenCalled();
+    });
+
+    it('takes the route when nothing at all is supplied', async () => {
+      const { service, viaCredentials, viaRoute } =
+        serviceWithBothPathsStubbed();
+
+      await expect(service.getAccessToken()).resolves.toBe('token-via-route');
+
+      expect(viaRoute).toHaveBeenCalled();
+      expect(viaCredentials).not.toHaveBeenCalled();
+    });
+
+    // The colocated deployment names its own portal and sends no credentials:
+    // the AICA fragment hardcodes themeDisplay.portalURL with none, and that
+    // config reaches this method unnormalised through the GraphQL client. A
+    // credential-less call has only one meaning, so the URL does not change it.
+    it('takes the route when a URL is named but no credentials are', async () => {
+      const { service, viaCredentials, viaRoute } =
+        serviceWithBothPathsStubbed();
+
+      await expect(service.getAccessToken(NAMED_INSTANCE)).resolves.toBe(
+        'token-via-route'
+      );
+
+      expect(viaRoute).toHaveBeenCalled();
+      expect(viaCredentials).not.toHaveBeenCalled();
+    });
+
+    // Both credentials but no instance used to take the route too, which does
+    // not merely substitute a host: it substitutes the credentials as well.
+    it('lets the credentials path name the absent URL', async () => {
+      const service = new OAuthService(mockContext);
+      const viaRoute = vi.spyOn(service, 'getAccessTokenFromRoute');
+
+      await expect(
+        service.getAccessToken(null, 'client-id', 'client-secret')
+      ).rejects.toThrow('OAuth configuration missing');
+
+      expect(viaRoute).not.toHaveBeenCalled();
+    });
+
+    const halfCredentials = [
+      {
+        label: 'a URL and a client id, with the secret unread',
+        args: [NAMED_INSTANCE, 'client-id', undefined],
+        missing: 'clientSecret',
+      },
+      {
+        label: 'a URL and a secret, with the id unread',
+        args: [NAMED_INSTANCE, undefined, 'client-secret'],
+        missing: 'clientId',
+      },
+      {
+        label: 'a client id alone',
+        args: [undefined, 'client-id', undefined],
+        missing: 'clientSecret',
+      },
+      {
+        label: 'a secret alone',
+        args: [undefined, undefined, 'client-secret'],
+        missing: 'clientId',
+      },
+      {
+        label: 'an empty secret, as a config read that returned nothing gives',
+        args: [NAMED_INSTANCE, 'client-id', ''],
+        missing: 'clientSecret',
+      },
+    ];
+
+    for (const { label, args, missing } of halfCredentials) {
+      it(`refuses ${label}, naming ${missing}`, async () => {
+        const { service, viaCredentials, viaRoute } =
+          serviceWithBothPathsStubbed();
+
+        await expect(service.getAccessToken(...args)).rejects.toThrow(
+          `OAuth credentials incomplete: ${missing} is missing`
+        );
+
+        expect(viaRoute).not.toHaveBeenCalled();
+        expect(viaCredentials).not.toHaveBeenCalled();
+      });
+    }
+
+    it('names the missing field on the error, as the 400 path does', async () => {
+      const service = new OAuthService(mockContext);
+
+      await expect(
+        service.getAccessToken(NAMED_INSTANCE, 'client-id', undefined)
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        field: 'clientSecret',
+        errorType: 'auth_error',
+      });
+    });
+
+    // The defect itself: no token must be minted anywhere, least of all by the
+    // configured instance, for a caller that named a different one.
+    it('mints no token from the configured instance for a half credential', async () => {
+      const service = new OAuthService(mockContext);
+      const requestedUrls = [];
+      vi.spyOn(service, '_createAccessTokenOnce').mockImplementation(
+        async (tokenUrl) => {
+          requestedUrls.push(tokenUrl);
+          return { data: { access_token: 'token', expires_in: 3600 } };
+        }
+      );
+
+      await expect(
+        service.getAccessToken(NAMED_INSTANCE, 'client-id', undefined)
+      ).rejects.toThrow('OAuth credentials incomplete');
+
+      expect(requestedUrls).toEqual([]);
+    });
+  });
+
   describe('Authorize URL Generation', () => {
     it('should correctly generate auth URLs without state', () => {
       const service = new OAuthService(mockContext);
@@ -322,9 +469,30 @@ describe('OAuthService', () => {
       ).toThrow('Missing OAuth configuration: clientSecret');
     });
 
-    it('should get default client credentials properties', () => {
+    // `liferayUrl` is a two-branch expression, and #227 showed that where this
+    // value comes from has consequences. The assertion this replaces was
+    // `toBeDefined()`, which the empty string, the wrong host, or a URL built
+    // from an unexpected domain all satisfy, and which pinned neither branch
+    // (#235).
+    it('builds the default Liferay URL from the LXC domain and protocol', () => {
       const service = new OAuthService(mockContext);
-      expect(service.getDefaultLiferayUrl()).toBeDefined();
+      expect(service.getDefaultLiferayUrl()).toBe('http://localhost');
+    });
+
+    it('falls back to LIFERAY_API_URL when config-node names no DXP', () => {
+      const previous = ENV.LIFERAY_API_URL;
+      configNode.lxcConfig.dxpMainDomain.mockReturnValueOnce(null);
+      configNode.lxcConfig.dxpProtocol.mockReturnValueOnce(null);
+      ENV.LIFERAY_API_URL = 'https://named.example:8443';
+
+      try {
+        const service = new OAuthService(mockContext);
+        expect(service.getDefaultLiferayUrl()).toBe(
+          'https://named.example:8443'
+        );
+      } finally {
+        ENV.LIFERAY_API_URL = previous;
+      }
     });
 
     it('should throw 400 when missing credentials parameters during retrieval', async () => {
