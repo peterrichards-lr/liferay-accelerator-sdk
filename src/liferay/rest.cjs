@@ -508,26 +508,49 @@ class LiferayRestService {
     return asCount(data);
   }
 
+  /**
+   * The account this request's user defaults to, or `null` when it has none.
+   *
+   * `null` means one thing only: the call reached Liferay, was authenticated,
+   * and the user account it came back with names no account. That is the case
+   * the two `return null`s below already cover, and it arrives as a 200.
+   *
+   * Every other outcome - a 401, a 404, a DNS failure, a timeout - throws the
+   * `LiferayRequestError` `httpCore` raises. This method used to end in a bare
+   * `catch { return null }`, which reported all four as the same value a
+   * genuinely account-less user produces, so no caller could tell absence from
+   * failure and the live suite passed against a host that did not resolve
+   * (#228). The swallow was never load-bearing: it sat outside the only path
+   * that legitimately yields `null`.
+   *
+   * A status that should be tolerated for this op belongs in
+   * `SOFT_STATUS_BY_OP`, where it is declared per op and visible, rather than
+   * in a catch that cannot say which status it meant. No status is listed for
+   * `get-primary-account-id`: `/my-user-account` answering 404 means the
+   * headless-admin-user API is absent or the token maps to no user, and both
+   * are failures rather than an empty answer.
+   *
+   * @param {object} config Liferay connection config.
+   * @returns {Promise<number|null>} The account id, or `null` if the
+   *   authenticated user has none.
+   * @throws {Error} `LiferayRequestError` on any transport or HTTP failure.
+   */
   async getPrimaryAccountId(config) {
-    try {
-      const me = await this.httpCore._get(
-        config,
-        PATH.ME,
-        'get-primary-account-id'
-      );
-      if (me && typeof me.defaultAccountId === 'number') {
-        return me.defaultAccountId;
-      }
-      if (Array.isArray(me?.accountBriefs) && me.accountBriefs.length > 0) {
-        const first = me.accountBriefs[0];
-        if (first && typeof first.id === 'number') {
-          return first.id;
-        }
-      }
-      return null;
-    } catch {
-      return null;
+    const me = await this.httpCore._get(
+      config,
+      PATH.ME,
+      'get-primary-account-id'
+    );
+    if (me && typeof me.defaultAccountId === 'number') {
+      return me.defaultAccountId;
     }
+    if (Array.isArray(me?.accountBriefs) && me.accountBriefs.length > 0) {
+      const first = me.accountBriefs[0];
+      if (first && typeof first.id === 'number') {
+        return first.id;
+      }
+    }
+    return null;
   }
 
   async getAccountCount(config) {
