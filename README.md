@@ -141,6 +141,25 @@ without editing them. Set `LIFERAY_DXP_RELEASE` when syncing: DXP usually trims
 its `Liferay-Portal` header to the bare product name, and an unset release is
 recorded honestly as `unknown` rather than guessed.
 
+`yarn validate:rest` reads that record back (#204). It prints the lines the
+contracts were captured from before it prints a single result, ends its summary
+with which DXP line the gate just proved agreement with, and fails the build
+when the record stops being true of the directory:
+
+- a document in `api-schemas/` with no entry in the manifest - added by hand,
+  never synced, provenance unknown to everyone including the gate
+- an entry naming a document that is no longer there
+- **two different recorded releases across the set**, which is the case the
+  record exists for: Q1 and Q3 are a real API boundary in this ecosystem, so a
+  call validated against one proves nothing about the other
+
+An `unknown` release is reported on every run but never fails the build. Eleven
+of the sixteen committed documents are in that state - every commerce spec among
+them - and only a re-sync against a live instance can move them out of it;
+failing on them would mean a red gate nobody can fix from the repository.
+Comparing the recorded line against the line a configured target actually
+reports is the follow-up #204 describes, and needs an instance to ask.
+
 ## Reading Collections
 
 Liferay answers every collection request with one page and a `totalCount`. Two
@@ -325,4 +344,4 @@ build it never affects callback processing.
 
 ---
 
-_Last Updated: 2026-09-10_ | _Last Reviewed: 2026-09-10_
+_Last Updated: 2026-09-11_ | _Last Reviewed: 2026-09-11_
