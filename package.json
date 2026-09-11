@@ -25,16 +25,16 @@
     "@rotty3000/config-node": "^0.4.1",
     "ajv": "^8.12.0",
     "ajv-formats": "^3.0.1",
-    "axios": "^1.18.0",
-    "better-sqlite3": "12.11.1",
+    "axios": "^1.20.0",
+    "better-sqlite3": "13.0.3",
     "csv-parse": "^7.0.2",
-    "fast-uri": "^3.1.4",
+    "fast-uri": "^4.1.4",
     "form-data": "^4.0.6",
     "lodash": "^4.18.1",
     "memory-cache": "^0.2.0",
-    "node-stream-zip": "^1.15.0",
-    "ws": "^8.20.0",
-    "zod": "^4.4.3"
+    "node-stream-zip": "^1.16.0",
+    "ws": "^8.21.3",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -49,7 +49,7 @@
   },
   "resolutions": {
     "@hono/node-server": "^2.0.5",
-    "fast-uri": "^3.1.4",
+    "fast-uri": "^4.1.4",
     "hono": "^4.13.5",
     "postcss": "^8.5.18",
     "qs": "^6.16.0"
