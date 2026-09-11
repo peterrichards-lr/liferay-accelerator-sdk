@@ -52,20 +52,23 @@ describe.skipIf(!isIntegrationTest)('DXP Integration Suite (Opt-in)', () => {
 
   const restClient = new LiferayRestService(createServiceContext());
 
-  // Both assertions below are shape checks that cannot fail for any reason a
-  // caller would care about, and the first is worse than useless:
-  // `getPrimaryAccountId` ends in `catch { return null }`, and `null` is one of
-  // the two values this accepts, so it passes on a 401, a 404 or a DNS failure
-  // alike. Run against `http://nonexistent-host.invalid:9999` with mocks
-  // removed, it still passes while the second test fails with ENOTFOUND.
+  // `null` is still accepted here, but it no longer means what it used to.
+  // Before #228 this method ended in `catch { return null }`, so it passed
+  // against `http://nonexistent-host.invalid:9999` and against a rejected
+  // client secret alike, while the account-count test below failed - inside the
+  // file whose purpose is catching exactly that (#199, #189). The swallow is
+  // gone, so reaching this assertion at all now proves the call authenticated
+  // and was answered; `null` can only mean the service account names no
+  // account.
   //
-  // Replacing them with values from a named fixture is #208, and needs an
-  // instance holding that fixture. Whether `null` is a legitimate answer for
-  // the service account the suite authenticates as is a fact about the fixture,
-  // not about the code, so the assertion cannot be tightened before one exists.
+  // Pinning the id to a value from a named fixture is #208 and needs an
+  // instance holding one. Whether this service account has an account is a fact
+  // about that fixture, not about the code, so the disjunction stays until it
+  // exists - but both of its branches are now facts about a live answer.
   it('fetches primary account id from live DXP instance', async () => {
     const accountId = await restClient.getPrimaryAccountId(config);
-    expect(accountId === null || typeof accountId === 'number').toBe(true);
+    expect(accountId === null || Number.isInteger(accountId)).toBe(true);
+    if (accountId !== null) expect(accountId).toBeGreaterThan(0);
   });
 
   it('fetches account count from live DXP instance', async () => {

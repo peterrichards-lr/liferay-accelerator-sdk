@@ -235,8 +235,72 @@ class OAuthService {
     return `${liferayUrl}/o/oauth2/token`;
   }
 
+  /**
+   * `null` when the value is absent or not a parseable absolute URL, which is
+   * distinct from every origin a success can produce, so the caller can treat
+   * "could not be read" as "not the configured instance" rather than as a
+   * match.
+   */
+  _toOrigin(value) {
+    if (!value || typeof value !== 'string') return null;
+    try {
+      return new URL(value).origin;
+    } catch {
+      return null;
+    }
+  }
+
+  _isConfiguredInstance(liferayUrl) {
+    const configured = this._toOrigin(this.liferayUrl);
+    return configured !== null && configured === this._toOrigin(liferayUrl);
+  }
+
+  /**
+   * Where to ask for a token for `liferayUrl`.
+   *
+   * The caller's instance wins. `tokenEndpoint` is fixed at construction from
+   * `lxcConfig.dxpMainDomain()` or `ENV.LIFERAY_API_URL`, and taking it
+   * unconditionally meant a caller naming instance B, in an environment
+   * configured for A, got a token issued by A and presented it to B - a 401
+   * from B holding a perfectly valid token, which is a hard failure to read
+   * (#227).
+   *
+   * It is still consulted, because it is not merely `liferayUrl` plus the
+   * default path: an LXC-registered OAuth application can declare its own
+   * `tokenUri`, and `getAccessTokenFromRoute` has no URL of its own to derive
+   * one from. That path is a fact about this environment's DXP alone, so
+   * applying it to a host the caller named would be a guess. It is therefore
+   * used when, and only when, the caller is asking for the very instance it
+   * was derived from.
+   *
+   * @param {string} liferayUrl The instance a token is wanted for.
+   * @returns {string} The token endpoint to POST to.
+   * @throws {Error} When neither a caller URL nor a configured endpoint names
+   *   an instance, rather than posting to the string "undefined".
+   */
+  _resolveTokenUrl(liferayUrl) {
+    if (
+      liferayUrl &&
+      !(this.tokenEndpoint && this._isConfiguredInstance(liferayUrl))
+    ) {
+      return this._getTokenUrl(liferayUrl);
+    }
+
+    if (this.tokenEndpoint) return this.tokenEndpoint;
+
+    const customError = new Error(
+      'OAuth token endpoint unknown: no Liferay URL was supplied and none is configured'
+    );
+    customError.statusCode = 500;
+    throw customError;
+  }
+
   async _createOrGetAccessToken(liferayUrl, clientId, clientSecret) {
-    const cacheKey = this._generateCacheKey(liferayUrl, clientId);
+    // Keyed on the endpoint that issues the token rather than on the URL the
+    // caller asked about, so a token can never be served from cache for a host
+    // that did not mint it (#227).
+    const tokenUrl = this._resolveTokenUrl(liferayUrl);
+    const cacheKey = this._generateCacheKey(tokenUrl, clientId);
     const cached = this._getAccessTokenFromCache(cacheKey);
     if (cached) return cached;
 
@@ -244,7 +308,6 @@ class OAuthService {
       return this.pendingTokenPromises.get(cacheKey);
     }
 
-    const tokenUrl = this.tokenEndpoint ?? this._getTokenUrl(liferayUrl);
     const promise = (async () => {
       try {
         const response = await this._createAccessTokenWithRetry(

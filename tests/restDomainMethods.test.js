@@ -101,3 +101,95 @@ describe('rest.cjs Domain Methods (Table-Driven Op & Shape Verification)', () =>
     expect(result).toBeNull();
   });
 });
+
+describe('getPrimaryAccountId failure contract (#228)', () => {
+  let restClient;
+  let mockConfig;
+
+  beforeEach(() => {
+    restClient = new LiferayRestService({});
+    mockConfig = { liferayUrl: 'http://localhost:8080' };
+    vi.spyOn(restClient.httpCore, '_get');
+  });
+
+  it('returns the default account id when the user has one', async () => {
+    restClient.httpCore._get.mockResolvedValueOnce({ defaultAccountId: 20124 });
+
+    await expect(restClient.getPrimaryAccountId(mockConfig)).resolves.toBe(
+      20124
+    );
+  });
+
+  it('falls back to the first account brief when there is no default', async () => {
+    restClient.httpCore._get.mockResolvedValueOnce({
+      accountBriefs: [{ id: 30301 }, { id: 30302 }],
+    });
+
+    await expect(restClient.getPrimaryAccountId(mockConfig)).resolves.toBe(
+      30301
+    );
+  });
+
+  // The only outcome that may still be reported as `null`: the request
+  // succeeded, and the account it came back with names no account.
+  it('returns null when an authenticated response names no account', async () => {
+    restClient.httpCore._get.mockResolvedValueOnce({
+      id: 20126,
+      accountBriefs: [],
+    });
+
+    await expect(
+      restClient.getPrimaryAccountId(mockConfig)
+    ).resolves.toBeNull();
+  });
+
+  // Each of these used to return `null` - the same value a genuinely
+  // account-less user produces - so no caller could tell absence from failure,
+  // and the live suite passed against a host that did not resolve (#228).
+  const failures = [
+    {
+      name: 'a 401 from a rejected credential',
+      error: Object.assign(new Error('Unauthorized'), {
+        name: 'LiferayRequestError',
+        status: 401,
+      }),
+    },
+    {
+      name: 'a 404 from a missing headless-admin-user API',
+      error: Object.assign(new Error('Not Found'), {
+        name: 'LiferayRequestError',
+        status: 404,
+      }),
+    },
+    {
+      name: 'a 500 from the instance',
+      error: Object.assign(new Error('Internal Server Error'), {
+        name: 'LiferayRequestError',
+        status: 500,
+      }),
+    },
+    {
+      name: 'a host that does not resolve',
+      error: Object.assign(new Error('getaddrinfo ENOTFOUND'), {
+        name: 'LiferayRequestError',
+        networkCode: 'ENOTFOUND',
+      }),
+    },
+  ];
+
+  for (const { name, error } of failures) {
+    it(`propagates ${name} rather than reporting it as no account`, async () => {
+      restClient.httpCore._get.mockRejectedValueOnce(error);
+
+      await expect(restClient.getPrimaryAccountId(mockConfig)).rejects.toThrow(
+        error.message
+      );
+    });
+  }
+
+  it('declares no soft status for its op, so no status is tolerated', () => {
+    const { SOFT_STATUS_BY_OP } = require('../src/liferay/rest/config.cjs');
+
+    expect(SOFT_STATUS_BY_OP['get-primary-account-id']).toBeUndefined();
+  });
+});

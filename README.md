@@ -95,6 +95,13 @@ need - `Liferay.Headless.Admin.User.everything` for the account reads, and the
 `...Channel.everything` / `...Pricing.everything` scopes as commerce coverage
 is added.
 
+Every test in the suite fails when authentication fails. That was not true
+until #228: `getPrimaryAccountId` ended in a bare `catch { return null }`, and
+the assertion accepted `null`, so with a rejected client secret the account-id
+test passed while only the account-count test failed. The swallow is gone, so
+`null` from that method now means one thing - the call authenticated and the
+service account names no account.
+
 The suite runs under `vitest.integration.config.mjs`, which deliberately does
 **not** load `tests/setup.mjs`. That file installs `msw` handlers matching on
 path with a wildcard host, so they answer for any origin - including a live
