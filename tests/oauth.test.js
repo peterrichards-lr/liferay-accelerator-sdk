@@ -130,6 +130,150 @@ describe('OAuthService', () => {
     });
   });
 
+  // The environment is configured for `localhost`: the module-level mock makes
+  // `lxcConfig.dxpMainDomain()` report it, so `this.liferayUrl` is
+  // `http://localhost` and `tokenEndpoint` is `http://localhost/o/oauth2/token`.
+  // Every case below names a different instance as the caller would.
+  describe('Token endpoint targeting (#227)', () => {
+    const OTHER_INSTANCE = 'http://instance-b.example.com:8080';
+    const OTHER_TOKEN_URL = `${OTHER_INSTANCE}/o/oauth2/token`;
+    const CONFIGURED_INSTANCE = 'http://localhost';
+    const CONFIGURED_TOKEN_URL = `${CONFIGURED_INSTANCE}/o/oauth2/token`;
+
+    const customApplication = {
+      tokenUri: () => '/o/custom-app/token',
+      clientId: () => 'app-client-id',
+      clientSecret: () => 'app-client-secret',
+    };
+
+    /**
+     * Spies on the single-shot POST rather than the retry wrapper, so the
+     * retry and cache paths around it stay real, and records the URL each
+     * token was actually requested from.
+     */
+    function serviceRecordingTokenRequests(ctxOverrides = {}) {
+      const service = new OAuthService({ ...mockContext, ...ctxOverrides });
+      const requestedUrls = [];
+
+      vi.spyOn(service, '_createAccessTokenOnce').mockImplementation(
+        async (tokenUrl) => {
+          requestedUrls.push(tokenUrl);
+          return {
+            data: { access_token: `token-from ${tokenUrl}`, expires_in: 3600 },
+          };
+        }
+      );
+
+      return { service, requestedUrls };
+    }
+
+    it('asks the instance the caller named, not the configured one', async () => {
+      const { service, requestedUrls } = serviceRecordingTokenRequests();
+
+      const token = await service.getAccessTokenWithCredentials(
+        OTHER_INSTANCE,
+        'client-id',
+        'client-secret'
+      );
+
+      expect(requestedUrls).toEqual([OTHER_TOKEN_URL]);
+      expect(token).toBe(`token-from ${OTHER_TOKEN_URL}`);
+    });
+
+    // The cache used to key on the caller's URL while the token came from the
+    // configured host, so instance A's token was stored under instance B's key
+    // and then reused for B.
+    it('never serves one instance a token another instance issued', async () => {
+      const { service, requestedUrls } = serviceRecordingTokenRequests();
+
+      const other = await service.getAccessTokenWithCredentials(
+        OTHER_INSTANCE,
+        'client-id',
+        'client-secret'
+      );
+      const configured = await service.getAccessTokenWithCredentials(
+        CONFIGURED_INSTANCE,
+        'client-id',
+        'client-secret'
+      );
+
+      expect(requestedUrls).toEqual([OTHER_TOKEN_URL, CONFIGURED_TOKEN_URL]);
+      expect(other).not.toBe(configured);
+    });
+
+    it('still caches per instance, so a repeat call issues no second request', async () => {
+      const { service, requestedUrls } = serviceRecordingTokenRequests();
+
+      const first = await service.getAccessTokenWithCredentials(
+        OTHER_INSTANCE,
+        'client-id',
+        'client-secret'
+      );
+      const second = await service.getAccessTokenWithCredentials(
+        OTHER_INSTANCE,
+        'client-id',
+        'client-secret'
+      );
+
+      expect(requestedUrls).toEqual([OTHER_TOKEN_URL]);
+      expect(second).toBe(first);
+    });
+
+    // Why `tokenEndpoint` is kept rather than removed: an LXC-registered
+    // application can declare a token path that is not the default, and
+    // `getAccessTokenFromRoute` has no URL of its own to derive one from.
+    it("keeps the application's own token path for the configured instance", async () => {
+      const { service, requestedUrls } = serviceRecordingTokenRequests({
+        serverOauthApp: customApplication,
+      });
+
+      await service.getAccessTokenFromRoute();
+
+      expect(requestedUrls).toEqual([
+        `${CONFIGURED_INSTANCE}/o/custom-app/token`,
+      ]);
+    });
+
+    // That path is a fact about this environment's DXP. Applying it to a host
+    // the caller named would be a guess.
+    it('does not apply that path to an instance it was not declared for', async () => {
+      const { service, requestedUrls } = serviceRecordingTokenRequests({
+        serverOauthApp: customApplication,
+      });
+
+      await service.getAccessTokenWithCredentials(
+        OTHER_INSTANCE,
+        'client-id',
+        'client-secret'
+      );
+
+      expect(requestedUrls).toEqual([OTHER_TOKEN_URL]);
+    });
+
+    it('treats a URL it cannot parse as a different instance', async () => {
+      const { service, requestedUrls } = serviceRecordingTokenRequests({
+        serverOauthApp: customApplication,
+      });
+
+      await service.getAccessTokenWithCredentials(
+        'not-a-url',
+        'client-id',
+        'client-secret'
+      );
+
+      expect(requestedUrls).toEqual(['not-a-url/o/oauth2/token']);
+    });
+
+    it('says the endpoint is unknown rather than posting to "undefined"', () => {
+      const service = new OAuthService(mockContext);
+      service.tokenEndpoint = null;
+
+      expect(() => service._resolveTokenUrl(null)).toThrow(
+        'OAuth token endpoint unknown'
+      );
+    });
+  });
+
   describe('Authorize URL Generation', () => {
     it('should correctly generate auth URLs without state', () => {
       const service = new OAuthService(mockContext);
