@@ -14,7 +14,7 @@
     "api-schemas/*.json"
   ],
   "engines": {
-    "node": "20.x || >=22"
+    "node": ">=22"
   },
   "bin": {
     "liferay-ldk-mcp": "bin/mcp-server.cjs"
@@ -44,6 +44,7 @@
     "graphql": "^16.13.2",
     "msw": "^2.14.6",
     "prettier": "3.9.1",
+    "vite": "8.1.1",
     "vitest": "4.1.11"
   },
   "resolutions": {

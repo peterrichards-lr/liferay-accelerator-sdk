@@ -18,9 +18,53 @@ describe('SDK Version', () => {
  * These pin the decisions that keep it that way.
  */
 describe('package distribution metadata', () => {
-  it('declares the supported Node range', () => {
-    // better-sqlite3@12 supports 20.x and 22+, but not 21.x.
-    expect(pkg.engines).toEqual({ node: '20.x || >=22' });
+  /**
+   * The previous version of this asserted the literal string
+   * `'20.x || >=22'` and nothing else. That pinned the declaration without
+   * proving anything about it: CI could build on any Node it liked and this
+   * file would still have passed, which is how the repository came to declare
+   * a range whose lower half no longer installs (issue #216). These assert
+   * the floor's consequences instead - what it excludes, what runs the suite,
+   * and what CI builds on.
+   */
+  describe('the supported Node range', () => {
+    const declared = pkg.engines.node;
+    const floor = Number(/^>=(\d+)/.exec(declared)?.[1]);
+
+    it('is a single floor, not an enumeration of majors', () => {
+      // An enumeration is what made the old range wrong: it kept 20.x alive
+      // long after better-sqlite3@13 and @vitest/istanbul-lib-coverage@1 had
+      // moved their own engines to >=22, so every dependency bump failed at
+      // install rather than in a test.
+      expect(declared).toMatch(/^>=\d+(\.\d+){0,2}$/);
+      expect(floor).toBeGreaterThanOrEqual(22);
+    });
+
+    it('is satisfied by the Node actually running this suite', () => {
+      // The behavioural half: a runner on an unsupported Node fails here
+      // rather than quietly producing a green suite on a version the package
+      // does not claim to support.
+      const running = Number(process.versions.node.split('.')[0]);
+
+      expect(running).toBeGreaterThanOrEqual(floor);
+    });
+
+    it('is satisfied by the Node version CI builds on', () => {
+      // Two declarations of the same fact drift apart unless something
+      // compares them. A missing or unreadable workflow is a failure, not a
+      // reason to skip: skipping would make the drift invisible again.
+      const workflow = fs.readFileSync(
+        path.join(__dirname, '..', '.github', 'workflows', 'ci.yml'),
+        'utf8'
+      );
+      const declarations = [...workflow.matchAll(/node-version:\s*'?(\d+)/g)];
+
+      expect(declarations.length).toBeGreaterThan(0);
+
+      for (const [, major] of declarations) {
+        expect(Number(major)).toBeGreaterThanOrEqual(floor);
+      }
+    });
   });
 
   it('declares its repository', () => {
