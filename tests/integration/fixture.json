@@ -1,0 +1,334 @@
+{
+  "$comment": "Recorded from a live instance by scripts/record-integration-fixture.cjs. Do not hand-edit: the external reference codes are minted per run and cannot be reproduced, so a regenerated seed needs re-recording rather than patching. See recipe. This records whatever the instance held at recordedAt, which may be more than one generation run or import - the suite asserts per product, so extra products are harmless and only a missing one fails.",
+  "recordedAt": "2026-09-11T14:56:35.681Z",
+  "instance": {
+    "liferayUrl": "http://localhost:8080",
+    "dxpRelease": "2026.q3.0"
+  },
+  "recipe": {
+    "wipe": "./gradlew resetBundleFull    # in the AICA repo; refuses while 8080 is in use",
+    "seed": "node scripts/aica-cli.cjs generate \\\n  --demo --products 5 --images default --pdfs default \\\n  --catalog-id <id> --channel-id <id> --site-group-id <id> \\\n  --non-interactive",
+    "record": "LIFERAY_API_URL=http://localhost:8080 \\\nLIFERAY_OAUTH_CLIENT_ID=... LIFERAY_OAUTH_CLIENT_SECRET=... \\\nnode scripts/record-integration-fixture.cjs",
+    "notes": [
+      "The seed runs against the AICA microservice (default http://localhost:3001),",
+      "not against Liferay directly, so that has to be up too.",
+      "Nine SKUs per product comes from --demo, not from a flag; there is no --skus.",
+      "The default image and PDF come from the Liferay config object entries",
+      "DEFAULT-IMAGE and DEFAULT-PDF, so their bytes are only stable while those are."
+    ]
+  },
+  "account": {
+    "primaryAccountId": null,
+    "accountCount": 1
+  },
+  "products": [
+    {
+      "externalReferenceCode": "AICA-PRD-1789131919713-0-9b651a66",
+      "skuCount": 9,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-1789131919713-1-b02c76e1",
+      "skuCount": 9,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-1789131919713-2-411584e6",
+      "skuCount": 9,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-1789131919714-0-a83234b1",
+      "skuCount": 9,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-1789131919714-1-94e87385",
+      "skuCount": 9,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-1789135811909-0-a56cbc15",
+      "skuCount": 1,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-1789135811909-1-124a7299",
+      "skuCount": 1,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r1-1789131919713-0-9b651a66",
+      "skuCount": 9,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r1-1789131919713-1-b02c76e1",
+      "skuCount": 9,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r1-1789131919713-2-411584e6",
+      "skuCount": 9,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r1-1789131919714-0-a83234b1",
+      "skuCount": 9,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r1-1789131919714-1-94e87385",
+      "skuCount": 9,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r1-1789135811909-0-a56cbc15",
+      "skuCount": 1,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r1-1789135811909-1-124a7299",
+      "skuCount": 1,
+      "imageCount": 1,
+      "attachmentCount": 1,
+      "image": {
+        "bytes": 954,
+        "sha256": "624862a644791ba1465d43565f83cf148c8b10375772236b3ea347c59429e8d6",
+        "magicHex": "52494646",
+        "contentType": "image/webp"
+      },
+      "attachment": {
+        "bytes": 608,
+        "sha256": "b52a61dc7d66acd36efa38f747bbf616cff287ac6351599b8ea804522d5f9042",
+        "magicHex": "25504446",
+        "contentType": "application/pdf"
+      }
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r2-1789131919713-0-9b651a66",
+      "skuCount": 9,
+      "imageCount": 0,
+      "attachmentCount": 0,
+      "image": null,
+      "attachment": null
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r2-1789131919713-1-b02c76e1",
+      "skuCount": 9,
+      "imageCount": 0,
+      "attachmentCount": 0,
+      "image": null,
+      "attachment": null
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r2-1789131919713-2-411584e6",
+      "skuCount": 9,
+      "imageCount": 0,
+      "attachmentCount": 0,
+      "image": null,
+      "attachment": null
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r2-1789131919714-0-a83234b1",
+      "skuCount": 9,
+      "imageCount": 0,
+      "attachmentCount": 0,
+      "image": null,
+      "attachment": null
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r2-1789131919714-1-94e87385",
+      "skuCount": 9,
+      "imageCount": 0,
+      "attachmentCount": 0,
+      "image": null,
+      "attachment": null
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r2-1789135811909-0-a56cbc15",
+      "skuCount": 1,
+      "imageCount": 0,
+      "attachmentCount": 0,
+      "image": null,
+      "attachment": null
+    },
+    {
+      "externalReferenceCode": "AICA-PRD-r2-1789135811909-1-124a7299",
+      "skuCount": 1,
+      "imageCount": 0,
+      "attachmentCount": 0,
+      "image": null,
+      "attachment": null
+    }
+  ]
+}

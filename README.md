@@ -127,6 +127,65 @@ test passed while only the account-count test failed. The swallow is gone, so
 `null` from that method now means one thing - the call authenticated and the
 service account names no account.
 
+#### The fixture
+
+The suite asserts against **named products**, never against catalogue totals. A
+development instance is not clean and never will be - it holds products from
+more than one generation run, and from imports - so `totalCount === 27` asserts
+a property of the instance's history rather than of the code under test. Named
+products and what each one holds are properties of the seed, and leftovers
+cannot move them.
+
+`tests/integration/fixture.json` is that record: per product, its SKU count, its
+image and attachment counts, and the byte length, leading magic bytes, SHA-256
+and content type of each. It is **recorded, not written**. AICA's `createERC`
+builds a code from `Date.now()`, a within-millisecond collision counter and
+eight random hex characters, so nothing after the `AICA-PRD-` prefix survives a
+regeneration - not even the index, which is a collision counter rather than a
+position.
+
+So the fixture ships as data _and_ as a recipe. When the instance no longer
+holds what was recorded, the suite fails before any assertion runs and prints
+the way back:
+
+```
+Error: http://localhost:8080 no longer holds 1 of the products the fixture
+names, so the recorded expectations cannot be checked:
+  - AICA-PRD-9999999999999-0-deadbeef
+
+Recreate the seed, then re-record the fixture:
+
+  1. wipe (optional):  ./gradlew resetBundleFull
+  2. seed:   node scripts/aica-cli.cjs generate --demo --products 5 \
+               --images default --pdfs default --non-interactive
+  3. record: node scripts/record-integration-fixture.cjs
+```
+
+"The fixture has gone" is an instruction rather than a mystery, because
+`./gradlew resetBundleFull` wipes the bundle and somebody will hit this.
+
+Recording needs the same three variables as the suite:
+
+```bash
+LIFERAY_API_URL=http://localhost:8080 \
+LIFERAY_OAUTH_CLIENT_ID=... LIFERAY_OAUTH_CLIENT_SECRET=... \
+node scripts/record-integration-fixture.cjs
+```
+
+Two things the recipe cannot control, both recorded in the file's `notes`: nine
+SKUs per product is a consequence of `--demo` (there is no `--skus` flag), and
+the default image and PDF come from the Liferay config object entries
+`DEFAULT-IMAGE` and `DEFAULT-PDF`, so their bytes are stable only while those
+are.
+
+#### What it covers
+
+| Covers                                                                                               | Why a unit test cannot                                                                                                                                                                                                                                                                  |
+| :--------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| the media round trip - `getProductImages`/`getProductAttachments` then the content fetch             | this instance advertises `src` as `https://localhost:8080/...`, https on the plaintext port. A unit test supplies a well-formed `src`; only `_resolveUrl` rewriting the origin makes the bytes reachable (#189)                                                                         |
+| products come back carrying their SKUs, and the four fields the projection returns                   | `getProductsWithSkus` named a path no profile defined, so every call requested `<liferay>/undefined` and the failure was swallowed into an empty list. Every unit test passed, because a mock returns what it is told to (#199)                                                         |
+| a multi-page collection returns every row, and a ceiling truncates without moving the reported total | mocks cannot produce a real multi-page envelope. Asserted as relationships - `items.length === totalCount` unbounded, and `items.length === maxItems` with `totalCount` unchanged and `truncated` true - so the assertions hold whatever the collection size happens to be (#200, #203) |
+
 The suite runs under `vitest.integration.config.mjs`, which deliberately does
 **not** load `tests/setup.mjs`. That file installs `msw` handlers matching on
 path with a wildcard host, so they answer for any origin - including a live
