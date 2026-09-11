@@ -11,7 +11,7 @@ this file, and redirect straight back here. Do not duplicate context into them.
 
 - **Repository**: `liferay-accelerator-sdk` - hardened SDK for Liferay Batch,
   Workflow and API orchestration, consumed as a git dependency pinned to a tag.
-- **Toolchain**: Node `20.x || >=22`, yarn 1.x. `yarn test`, `yarn lint`,
+- **Toolchain**: Node `>=22`, yarn 1.x. `yarn test`, `yarn lint`,
   `yarn validate` (GraphQL and REST drift gates) must all pass before a PR.
 - **Publishing**: pack and publish with **npm**, never `yarn pack` - see the
   README, and `package.json`'s `files` allowlist.
@@ -69,4 +69,4 @@ For general rules of engagement, refer to the global rules provided in the paren
 
 ---
 
-_Last Updated: 2026-08-18_ | _Last Reviewed: 2026-08-18_
+_Last Updated: 2026-09-11_ | _Last Reviewed: 2026-09-11_
