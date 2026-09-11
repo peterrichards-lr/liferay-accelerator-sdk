@@ -47,6 +47,31 @@ contains: `src` (minus `src/logs`), `bin`, and `api-schemas/*.json`, which
 > 12 MB, including coverage output, the test suite, and whatever logs happen to
 > sit in `src/logs` on the packing machine.
 
+### Which identity a call authenticates as
+
+Every config that reaches the SDK carries `liferayUrl`, `clientId` and
+`clientSecret`, and `OAuthService.getAccessToken` reads the credentials as an
+indivisible pair:
+
+| Supplied           | Result                                                                                 |
+| :----------------- | :------------------------------------------------------------------------------------- |
+| both credentials   | a token from the instance named by `liferayUrl`, which is required and named if absent |
+| neither credential | a token for this environment's own OAuth application, whatever `liferayUrl` says       |
+| one credential     | **a 400 naming the one that is missing**                                               |
+
+The three arguments used to be tested together, so any incomplete set fell
+through to the route branch - which discards the caller's URL and uses this
+environment's credentials. A caller whose secret came back empty from a config
+read therefore received a valid token for the instance the process is deployed
+beside, and found out as a 401 from the host it did name (#234, the same shape
+as #227).
+
+The credential-less case stays lenient on purpose. A colocated deployment
+legitimately names its own portal and sends no credentials at all - the AICA
+fragment hardcodes `themeDisplay.portalURL` with none - and a call that
+specifies no identity can only mean the ambient one. A caller that wants that
+explicitly can call `getAccessTokenFromRoute` itself.
+
 ## Testing
 
 ```bash
@@ -186,7 +211,10 @@ yarn sync object-admin-v1.0    # only the named APIs, no GraphQL
 `scripts/sync-schemas.js` fetches the OpenAPI documents in `api-schemas/` from a
 running instance, reading `LIFERAY_API_URL`, `LIFERAY_API_USERNAME` and
 `LIFERAY_API_PASSWORD` (or `LIFERAY_API_COOKIE`) from the environment or a `.env`
-three directories above the repository. Naming APIs on the command line narrows
+at the repository root. That loader pointed three directories above the
+repository until #231 - correct while the script lived inside the AICA monorepo,
+outside the checkout entirely after the extraction in #198 - so `yarn sync`
+silently loaded no environment at all. Naming APIs on the command line narrows
 the run: a blanket sync rewrites every committed document, so an issue that adds
 one spec would otherwise bury it in unrelated drift.
 
@@ -201,6 +229,15 @@ without editing them. Set `LIFERAY_DXP_RELEASE` when syncing: DXP usually trims
 its `Liferay-Portal` header to the bare product name, and an unset release is
 recorded honestly as `unknown` rather than guessed.
 
+That variable is free text, it is the only source of a release in practice, and
+nothing compared it to the instance - which is how the manifest came to record
+`2026.Q3.2` for documents captured from a `2026.q3.0` box (#231). A sync now
+refuses a value that is not a DXP release line (`2026.q3.0`,
+`dxp-2025.q1.17-lts`) before it writes a single document, and records it as
+`operator-asserted, not measured`, because that is what it is. A shape check
+cannot tell a wrong release from a right one; it can refuse a typo, a
+placeholder and a joke.
+
 `yarn validate:rest` reads that record back (#204). It prints the lines the
 contracts were captured from before it prints a single result, ends its summary
 with which DXP line the gate just proved agreement with, and fails the build
@@ -209,16 +246,33 @@ when the record stops being true of the directory:
 - a document in `api-schemas/` with no entry in the manifest - added by hand,
   never synced, provenance unknown to everyone including the gate
 - an entry naming a document that is no longer there
+- **a recorded release that is not a release line at all.** The gate asserted
+  the manifest's shape and never a value until #231, so `2099.Q9.9` and `banana`
+  both passed and were reported in the closing sentence as the line the
+  contracts came from
+- **a document whose release is unrecorded**, unless it is named in
+  `TOLERATED_UNRECORDED_SPECS` in `scripts/spec-provenance.cjs` with the reason.
+  `unknown` used to be filtered out before the only value-level check, so a
+  manifest recording nothing at all was fully green
+- **a tolerance that has outlived what it excuses** - naming a document that has
+  since been re-synced, or that is no longer in `api-schemas/`. The two rules
+  together pin the list to exactly the set it describes
 - **two different recorded releases across the set**, which is the case the
   record exists for: Q1 and Q3 are a real API boundary in this ecosystem, so a
   call validated against one proves nothing about the other
 
-An `unknown` release is reported on every run but never fails the build. Eleven
-of the sixteen committed documents are in that state - every commerce spec among
-them - and only a re-sync against a live instance can move them out of it;
-failing on them would mean a red gate nobody can fix from the repository.
-Comparing the recorded line against the line a configured target actually
-reports is the follow-up #204 describes, and needs an instance to ask.
+Eleven of the sixteen committed documents record no release - every commerce spec
+among them - and only a re-sync against a live instance can move them out of it.
+They are tolerated by name rather than by a silent filter, which is the whole
+difference: widening the list is a diff somebody reviews, and a twelfth document
+going unrecorded fails immediately. The list shrinks to nothing when #231's
+re-sync lands.
+
+Conflict is still asserted over recorded releases only. A document whose line is
+unrecorded might be from the same line as the rest, and claiming a conflict that
+has not been measured is the same fault as claiming a line that has not been
+measured. Comparing the recorded line against the line a configured target
+actually reports is the follow-up #204 describes, and needs an instance to ask.
 
 ## Reading Collections
 
