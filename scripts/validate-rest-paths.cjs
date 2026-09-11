@@ -39,6 +39,11 @@ const path = require('path');
 
 const { PATH } = require('../src/utils/liferayPaths.cjs');
 const { DEFAULT_REINDEX_BASE_PATH } = require('../src/utils/constants.cjs');
+const {
+  describeContractLine,
+  describeSpecProvenance,
+  formatProvenanceReport,
+} = require('./spec-provenance.cjs');
 
 const SCHEMA_DIR = path.join(__dirname, '..', 'api-schemas');
 const SRC_DIR = path.join(__dirname, '..', 'src');
@@ -671,6 +676,9 @@ function harvestMethodUsages(srcDir = SRC_DIR, table = PATH) {
 
 function run({ schemaDir = SCHEMA_DIR, table = PATH, srcDir = SRC_DIR } = {}) {
   const { templates, placeholderRoots } = loadSpecTemplates(schemaDir);
+  // Assessed over the same directory listing loadSpecTemplates reads, so the
+  // gate reports the provenance of exactly the documents it trusts (#204).
+  const provenance = describeSpecProvenance(schemaDir);
   const harvested = harvestPaths(table);
 
   const matched = [];
@@ -826,6 +834,7 @@ function run({ schemaDir = SCHEMA_DIR, table = PATH, srcDir = SRC_DIR } = {}) {
   return {
     templates,
     placeholderRoots,
+    provenance,
     harvested,
     matched,
     prefixes,
@@ -843,6 +852,7 @@ function run({ schemaDir = SCHEMA_DIR, table = PATH, srcDir = SRC_DIR } = {}) {
 function main() {
   const {
     templates,
+    provenance,
     harvested,
     matched,
     prefixes,
@@ -858,8 +868,17 @@ function main() {
   const total =
     harvested.length + inlineMatched.length + inlineUnverified.length;
   console.log(
-    `Validating ${total} SDK REST paths (${harvested.length} from the path profile, ${total - harvested.length} inline) and ${usages.length} call sites against ${templates.length} path templates in api-schemas/\n`
+    `Validating ${total} SDK REST paths (${harvested.length} from the path profile, ${total - harvested.length} inline) and ${usages.length} call sites against ${templates.length} path templates in api-schemas/`
   );
+
+  // Printed before the results, because it qualifies every one of them: these
+  // documents are the contract, and until #204 nothing said which DXP line
+  // they were captured from.
+  console.log('\n  Contract provenance:');
+  for (const line of formatProvenanceReport(provenance)) {
+    console.log(line);
+  }
+  console.log('');
 
   for (const entry of matched) {
     console.log(`  PASS  ${entry.name}`);
@@ -924,11 +943,28 @@ function main() {
     return;
   }
 
+  // A green path gate over contracts of unknown or mixed origin is the failure
+  // #204 describes: a sentence that looks authoritative and silently is not.
+  // Reported as a failure of the gate, not a warning beside it.
+  if (provenance.failures.length > 0) {
+    console.error(
+      `\n${provenance.failures.length} problem(s) with the provenance of the specs these ${total} paths were checked against:`
+    );
+    for (const failure of provenance.failures) {
+      console.error(`  ${failure.kind}: ${failure.detail}`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+
   // Say what was checked and what was not. Between #131 and #184 this line read
   // "All N verifiable REST paths exist", which was true and also more than the
   // gate proved: nothing had looked at a single method.
   console.log(
     `\nAll ${matched.length + inlineMatched.length} verifiable REST paths exist in the Liferay OpenAPI specs (${prefixes.length} prefixes, ${unverifiable.length + inlineUnverified.length} unverifiable), and all ${methodMatched.length} of ${usages.length} call sites whose path resolves to a spec template use a method it declares (${methodUnverifiable.length} unverifiable).`
+  );
+  console.log(
+    `Those specs were ${describeContractLine(provenance)}. The gate proves agreement with that line and no other.`
   );
 }
 
@@ -938,6 +974,8 @@ if (require.main === module) {
 
 module.exports = {
   ARG_OVERRIDES,
+  describeContractLine,
+  describeSpecProvenance,
   HTTP_HELPER_METHODS,
   KNOWN_UNVERIFIED_INLINE,
   ROOTS_WITHOUT_SPECS,
