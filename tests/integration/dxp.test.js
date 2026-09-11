@@ -1,10 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import LiferayRestService from '../../src/liferay/rest.cjs';
 import OAuthService from '../../src/liferay/oauth.cjs';
+import {
+  assertIntegrationPreconditions,
+  isIntegrationRunRequested,
+} from './preconditions.mjs';
 
-const isIntegrationTest =
-  process.env.INTEGRATION_TEST === 'true' ||
-  process.env.RUN_INTEGRATION_TESTS === 'true';
+const isIntegrationTest = isIntegrationRunRequested(process.env);
+
+// Thrown at collection, before a single test is registered, so an unrunnable
+// suite is reported as a failed file rather than as skipped tests - which is
+// the shape that let this suite report success for a year without ever
+// reaching a Liferay (#224). Skipping is right only when the suite was not
+// asked to run; once the switch is on, a missing variable is a failure that
+// names itself.
+if (isIntegrationTest) {
+  assertIntegrationPreconditions(process.env);
+}
 
 const silentLogger = {
   debug: () => {},
@@ -41,8 +53,16 @@ describe.skipIf(!isIntegrationTest)('DXP Integration Suite (Opt-in)', () => {
   const restClient = new LiferayRestService(createServiceContext());
 
   // Both assertions below are shape checks that cannot fail for any reason a
-  // caller would care about. Replacing them with values from a named fixture
-  // is #208, and needs an instance holding that fixture.
+  // caller would care about, and the first is worse than useless:
+  // `getPrimaryAccountId` ends in `catch { return null }`, and `null` is one of
+  // the two values this accepts, so it passes on a 401, a 404 or a DNS failure
+  // alike. Run against `http://nonexistent-host.invalid:9999` with mocks
+  // removed, it still passes while the second test fails with ENOTFOUND.
+  //
+  // Replacing them with values from a named fixture is #208, and needs an
+  // instance holding that fixture. Whether `null` is a legitimate answer for
+  // the service account the suite authenticates as is a fact about the fixture,
+  // not about the code, so the assertion cannot be tightened before one exists.
   it('fetches primary account id from live DXP instance', async () => {
     const accountId = await restClient.getPrimaryAccountId(config);
     expect(accountId === null || typeof accountId === 'number').toBe(true);

@@ -73,14 +73,35 @@ the only live coverage in the project that depended on it.
 | `LIFERAY_OAUTH_CLIENT_ID`     | Client id of a headless server OAuth application.          |
 | `LIFERAY_OAUTH_CLIENT_SECRET` | Its client secret.                                         |
 
-None of these have defaults. Register the OAuth application in Liferay under
-**Control Panel &rarr; Security &rarr; OAuth2 Administration** as a _Headless
-Server_ application with the **Client Credentials** grant, and grant it the
-scopes the covered endpoints need - `Liferay.Headless.Admin.User.everything`
-for the account reads, and the
+None of these have defaults, and none of them is optional. With the switch on
+and any of them missing, the suite **fails** and names what is absent:
+
+```
+Error: The integration suite was asked to run, but 2 of its preconditions are
+not met, so there is no live Liferay for it to verify anything against:
+  - LIFERAY_OAUTH_CLIENT_ID is not set - the client id of a headless server
+    OAuth application on that instance
+  - LIFERAY_OAUTH_CLIENT_SECRET is not set - its client secret
+```
+
+Without the switch it still skips, which is the one case where skipping is the
+right answer: the suite was not asked to run.
+
+Register the OAuth application in Liferay under **Control Panel &rarr; Security
+&rarr; OAuth2 Administration** as a _Headless Server_ application with the
+**Client Credentials** grant, and grant it the scopes the covered endpoints
+need - `Liferay.Headless.Admin.User.everything` for the account reads, and the
 `Liferay.Headless.Commerce.Admin.Catalog.everything` /
 `...Channel.everything` / `...Pricing.everything` scopes as commerce coverage
 is added.
+
+The suite runs under `vitest.integration.config.mjs`, which deliberately does
+**not** load `tests/setup.mjs`. That file installs `msw` handlers matching on
+path with a wildcard host, so they answer for any origin - including a live
+one. Run under the unit config, the suite passed in 1.35s against a hostname
+that does not resolve. `tests/setup.mjs` now refuses to load when
+`INTEGRATION_TEST` or `RUN_INTEGRATION_TESTS` is set, so that cannot be
+recreated by running `vitest` directly.
 
 ## Linting & Formatting
 
