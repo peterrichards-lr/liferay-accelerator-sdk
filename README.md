@@ -53,6 +53,35 @@ contains: `src` (minus `src/logs`), `bin`, and `api-schemas/*.json`, which
 yarn test
 ```
 
+### Integration suite
+
+`tests/integration/` runs against a live Liferay and is opt-in:
+
+```bash
+yarn test:integration
+```
+
+It authenticates with **OAuth client credentials**, not Basic auth. The
+username/password fallback in `HttpCoreService` and `graphql.cjs` is scheduled
+for removal (`peterrichards-lr/liferay-demo-accelerator#64`), and this suite is
+the only live coverage in the project that depended on it.
+
+| Variable                      | Purpose                                                    |
+| :---------------------------- | :--------------------------------------------------------- |
+| `INTEGRATION_TEST`            | `true` to run the suite. `yarn test:integration` sets it.  |
+| `LIFERAY_API_URL`             | Absolute origin of the instance, e.g. `https://host:8443`. |
+| `LIFERAY_OAUTH_CLIENT_ID`     | Client id of a headless server OAuth application.          |
+| `LIFERAY_OAUTH_CLIENT_SECRET` | Its client secret.                                         |
+
+None of these have defaults. Register the OAuth application in Liferay under
+**Control Panel &rarr; Security &rarr; OAuth2 Administration** as a _Headless
+Server_ application with the **Client Credentials** grant, and grant it the
+scopes the covered endpoints need - `Liferay.Headless.Admin.User.everything`
+for the account reads, and the
+`Liferay.Headless.Commerce.Admin.Catalog.everything` /
+`...Channel.everything` / `...Pricing.everything` scopes as commerce coverage
+is added.
+
 ## Linting & Formatting
 
 ```bash
