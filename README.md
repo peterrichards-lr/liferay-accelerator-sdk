@@ -17,7 +17,10 @@ Hardened Liferay DXP Integration SDK for Batch, Workflow, and API orchestration.
 yarn install
 ```
 
-Requires Node `20.x` or `>=22` (`better-sqlite3` supports both but not 21.x).
+Requires Node `>=22`. Node 20 is no longer supported: `better-sqlite3` 13
+and the vitest 5 toolchain both declare `engines.node` of `>=22`, so an
+install on Node 20 fails outright rather than degrading. Consumers still on
+Node 20 must stay on a tag at or before `v0.8.22`.
 
 ## Consuming the SDK
 
