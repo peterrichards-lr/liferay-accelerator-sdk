@@ -30,7 +30,10 @@ To maintain high code quality and prevent regression, the following testing rule
   (`scripts/validate-graphql-queries.cjs`), otherwise
   `tests/graphqlSchemaValidation.test.js` fails. `yarn validate:rest` checks
   every path in the profile table against the OpenAPI documents in
-  `api-schemas/`.
+  `api-schemas/`, and since #204 also checks the provenance of those documents:
+  it fails when a spec has no entry in `api-schemas/PROVENANCE.json`, when an
+  entry names a spec that is gone, or when the set spans two DXP releases. An
+  `unknown` release is reported, not failed - only a re-sync can establish it.
 
 ## 2. Test-Driven Alignment & Gates
 
@@ -42,4 +45,4 @@ To maintain high code quality and prevent regression, the following testing rule
 
 ---
 
-_Last Updated: 2026-08-17_ | _Last Reviewed: 2026-08-17_
+_Last Updated: 2026-09-11_ | _Last Reviewed: 2026-09-11_
