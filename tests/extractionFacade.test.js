@@ -48,6 +48,13 @@ describe('ExtractionFacade', () => {
             items: [{ id: 8, name: 'DisplayPageTemplate' }],
           }),
           getSite: vi.fn().mockResolvedValue({ id: 9, name: 'SiteSettings' }),
+          getSitesPage: vi.fn().mockResolvedValue({
+            items: [
+              { id: 20125, externalReferenceCode: 'SITE-ERC-20125' },
+              { id: 20126, externalReferenceCode: 'SITE-ERC-20126' },
+            ],
+            totalCount: 2,
+          }),
         },
       },
       headlessAdminUser: {
@@ -178,18 +185,16 @@ describe('ExtractionFacade', () => {
     expect(result.items[0].name).toBe('ObjectDef');
   });
 
-  it('should extract asset lists via rest._get', async () => {
-    const result = await facade.getAssetLists(config, 'site-123', {
-      fields: 'id',
-    });
-    expect(mockRest._get).toHaveBeenCalledWith(
-      config,
-      '/o/headless-delivery/v1.0/sites/site-123/asset-lists',
-      'get-asset-lists',
-      'Get Asset Lists',
-      { params: { fields: 'id' } }
+  it('should refuse to read asset lists, and put nothing on the wire (#240)', async () => {
+    await expect(
+      facade.getAssetListsPage(config, 'site-123', { fields: 'id' })
+    ).rejects.toThrow(/headless-delivery declares no asset-list collection/);
+
+    await expect(facade.getAssetLists(config, 'site-123')).rejects.toThrow(
+      /asset-list/
     );
-    expect(result.items[0].name).toBe('ObjectDef');
+
+    expect(mockRest._get).not.toHaveBeenCalled();
   });
 
   it('should extract display page templates via client', async () => {
@@ -519,6 +524,63 @@ describe('ExtractionFacade', () => {
         'site-123',
         { pageSize: 5 }
       );
+    });
+  });
+  describe('site-scoped readers take an external reference code (#240)', () => {
+    it('passes a non-numeric reference straight through', async () => {
+      await facade.getStyleBooksPage(config, 'SITE-ERC-20125');
+
+      expect(
+        mockClient.headlessAdminSite.v1_0.getSiteStyleBooksPage
+      ).toHaveBeenCalledWith(config, 'SITE-ERC-20125', null, { params: {} });
+      expect(
+        mockClient.headlessAdminSite.v1_0.getSitesPage
+      ).not.toHaveBeenCalled();
+    });
+
+    it('resolves a numeric site id to the external reference code', async () => {
+      await facade.getStyleBooksPage(config, 20126);
+
+      expect(
+        mockClient.headlessAdminSite.v1_0.getSiteStyleBooksPage
+      ).toHaveBeenCalledWith(config, 'SITE-ERC-20126', null, { params: {} });
+    });
+
+    it('resolves display page templates and site settings the same way', async () => {
+      await facade.getDisplayPageTemplatesPage(config, 20125);
+      await facade.getSiteSettings(config, 20125, { fields: 'id' });
+
+      expect(
+        mockClient.headlessAdminSite.v1_0.getSiteDisplayPageTemplatesPage
+      ).toHaveBeenCalledWith(config, 'SITE-ERC-20125', null, { params: {} });
+      expect(mockClient.headlessAdminSite.v1_0.getSite).toHaveBeenCalledWith(
+        config,
+        'SITE-ERC-20125',
+        null,
+        { params: { fields: 'id' } }
+      );
+    });
+
+    it('reads the site list once for repeated lookups of the same id', async () => {
+      await facade.getStyleBooksPage(config, 20125);
+      await facade.getDisplayPageTemplatesPage(config, 20125);
+
+      expect(
+        mockClient.headlessAdminSite.v1_0.getSitesPage
+      ).toHaveBeenCalledTimes(1);
+    });
+
+    it('names the id when no site carries it', async () => {
+      await expect(facade.getStyleBooksPage(config, 999)).rejects.toThrow(
+        /No site with id 999/
+      );
+    });
+
+    it('refuses an absent site reference rather than requesting undefined', async () => {
+      await expect(facade.getSiteSettings(config)).rejects.toThrow(
+        /A site is required/
+      );
+      expect(mockClient.headlessAdminSite.v1_0.getSite).not.toHaveBeenCalled();
     });
   });
 });
