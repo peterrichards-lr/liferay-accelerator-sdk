@@ -13,6 +13,7 @@ configNode.lxcConfig.dxpProtocol = vi.fn().mockReturnValue('http');
 
 const OAuthService = require('../src/liferay/oauth.cjs');
 const { ENV } = require('../src/utils/constants.cjs');
+const { ErrorHandler } = require('../src/utils/expressErrorHandler.cjs');
 
 describe('OAuthService', () => {
   let mockContext;
@@ -532,6 +533,42 @@ describe('OAuthService', () => {
       expect(() => service._handleException(genericError)).toThrow(
         'OAuth request failed: Some general DXP error'
       );
+    });
+
+    it('should carry the response through, so a 401 is not read as a transport failure (#238)', () => {
+      const service = new OAuthService(mockContext);
+      const authError = new Error('Request failed with status code 401');
+      authError.code = 'ERR_BAD_REQUEST';
+      authError.response = {
+        status: 401,
+        statusText: 'Unauthorized',
+        data: { error: 'invalid_client' },
+      };
+
+      try {
+        service._handleException(authError);
+        throw new Error('expected _handleException to throw');
+      } catch (thrown) {
+        expect(thrown.response).toBe(authError.response);
+        expect(thrown.response.status).toBe(401);
+        expect(thrown.code).toBeUndefined();
+        expect(ErrorHandler.isRetryableError(thrown)).toBe(false);
+      }
+    });
+
+    it('should keep the transport code when there is no response (#238)', () => {
+      const service = new OAuthService(mockContext);
+      const networkError = new Error('socket hang up');
+      networkError.code = 'ECONNRESET';
+
+      try {
+        service._handleException(networkError);
+        throw new Error('expected _handleException to throw');
+      } catch (thrown) {
+        expect(thrown.code).toBe('ECONNRESET');
+        expect(thrown.response).toBeUndefined();
+        expect(ErrorHandler.isRetryableError(thrown)).toBe(true);
+      }
     });
   });
 

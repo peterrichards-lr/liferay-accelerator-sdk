@@ -174,6 +174,19 @@ describe('utils/expressErrorHandler', () => {
         false
       );
     });
+
+    it('treats a rejected credential as non-retryable without a response (#238)', () => {
+      expect(ErrorHandler.isRetryableError({ statusCode: 401 })).toBe(false);
+      expect(ErrorHandler.isRetryableError({ status: 403 })).toBe(false);
+    });
+
+    it('keeps a network failure retryable when its status is zero (#238)', () => {
+      expect(ErrorHandler.isRetryableError({ statusCode: 0 })).toBe(true);
+    });
+
+    it('still retries a rebuilt 5xx that carries no response', () => {
+      expect(ErrorHandler.isRetryableError({ statusCode: 502 })).toBe(true);
+    });
   });
 
   describe('shouldStopBatch', () => {
