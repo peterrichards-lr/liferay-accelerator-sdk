@@ -1491,6 +1491,79 @@ describe('LiferayService', () => {
       expect(result.items).toHaveLength(1);
     });
 
+    it('excludes account groups by name, and keeps them out of a batch delete (#245)', async () => {
+      const service = buildServiceWithoutConfigService();
+      service.ctx.config = {
+        getExcludeLists: vi.fn().mockResolvedValue({
+          excludedAccountGroups: [{ name: 'Test Account Group 1' }],
+        }),
+      };
+
+      const read = await service.getAccountGroups(config);
+      expect(read.items).toHaveLength(0);
+
+      // The delete path filters through the same exclusions and returns before
+      // issuing a request when nothing survives, so the proof is that
+      // _deleteBatchSimulated is never reached - not the summary it returns.
+      service.rest._deleteBatchSimulated = vi
+        .fn()
+        .mockResolvedValue({ count: 0 });
+
+      await service.deleteAccountGroupsBatch(config, {
+        items: [{ id: 42, name: 'Test Account Group 1' }],
+      });
+
+      expect(service.rest._deleteBatchSimulated).not.toHaveBeenCalled();
+    });
+
+    it('still deletes an account group that no exclusion names (#245)', async () => {
+      const service = buildServiceWithoutConfigService();
+      service.ctx.config = {
+        getExcludeLists: vi.fn().mockResolvedValue({
+          excludedAccountGroups: [{ name: 'Some Other Group' }],
+        }),
+      };
+      service.rest._deleteBatchSimulated = vi
+        .fn()
+        .mockResolvedValue({ count: 1 });
+
+      await service.deleteAccountGroupsBatch(config, {
+        items: [{ id: 42, name: 'Test Account Group 1' }],
+      });
+
+      expect(service.rest._deleteBatchSimulated).toHaveBeenCalledWith(
+        config,
+        expect.objectContaining({ entityName: 'account-group', ids: [42] })
+      );
+    });
+
+    it('warns rather than silently excluding nothing for an unmapped entity (#245)', async () => {
+      const service = buildServiceWithoutConfigService();
+      service.ctx.config = {
+        getExcludeLists: vi.fn().mockResolvedValue({ excludedAccounts: [] }),
+      };
+
+      const exclusions = await service._getExclusions(config, 'sprocket');
+
+      expect(exclusions).toEqual([]);
+      expect(service.ctx.logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("No exclusion list is mapped for 'sprocket'"),
+        expect.objectContaining({ entityName: 'sprocket' })
+      );
+    });
+
+    it('stays silent when a mapped entity simply has no list configured', async () => {
+      const service = buildServiceWithoutConfigService();
+      service.ctx.config = {
+        getExcludeLists: vi.fn().mockResolvedValue({}),
+      };
+
+      const exclusions = await service._getExclusions(config, 'account-group');
+
+      expect(exclusions).toEqual([]);
+      expect(service.ctx.logger.warn).not.toHaveBeenCalled();
+    });
+
     it('still applies the exclusions when a config service is wired in', async () => {
       const service = buildServiceWithoutConfigService();
       service.ctx.config = {

@@ -523,6 +523,13 @@ class LiferayService {
     const excludeLists = await configService.getExcludeLists(config);
     const keyMap = {
       account: 'excludedAccounts',
+      // Account groups are named separately from accounts on purpose. Sharing
+      // excludedAccounts would mean a group called X is excluded because an
+      // account is called X, which is a different set of names (#245). No
+      // consumer defines this key yet - neither does it define excludedOrders
+      // or excludedOptions - so the SDK names the key it will read and a
+      // consumer populates it.
+      'account-group': 'excludedAccountGroups',
       product: 'excludedProducts',
       warehouse: 'excludedWarehouses',
       priceList: 'excludedPriceLists',
@@ -533,6 +540,21 @@ class LiferayService {
       option: 'excludedOptions',
       optionCategory: 'excludedOptionCategories',
     };
+
+    // An entity name this map does not carry resolves to
+    // `excludeLists[undefined]`, then to `[]` - indistinguishable from "nothing
+    // was excluded". That is how account groups went unprotected from
+    // deleteAccountGroupsBatch for as long as the name has been spelled with a
+    // hyphen (#245). A configured-but-empty list stays silent; only a name
+    // nothing can ever match is worth saying out loud.
+    if (!Object.prototype.hasOwnProperty.call(keyMap, entityName)) {
+      this.ctx.logger?.warn?.(
+        `No exclusion list is mapped for '${entityName}', so nothing will be excluded from it`,
+        { operation: 'get-exclusions', entityName }
+      );
+      return [];
+    }
+
     const configKey = keyMap[entityName];
     return excludeLists?.[configKey] || [];
   }
