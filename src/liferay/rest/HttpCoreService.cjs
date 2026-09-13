@@ -19,7 +19,7 @@ const {
   resolveConfigObjectName,
 } = require('../../utils/misc.cjs');
 const { ErrorHandler } = require('../../utils/expressErrorHandler.cjs');
-const { SOFT_STATUS_BY_OP } = require('./config.cjs');
+const { SOFT_STATUS_BY_OP, featureFlagForOp } = require('./config.cjs');
 
 class HttpCoreService {
   constructor(ctx) {
@@ -298,12 +298,30 @@ class HttpCoreService {
 
         const errorReference = existingRef || createERC(ERC_PREFIX.ERROR);
 
-        const detailMsg =
-          (hasHTTPResponse && (problem?.detail || problem?.title)) ||
-          friendly ||
-          statusText ||
-          err?.message ||
-          'Request failed';
+        // A 400 naming UnsupportedOperationException is Liferay's resources
+        // reporting a feature flag that is off, not a malformed request: the
+        // gate is the first statement of the method, thrown before anything the
+        // caller sent is looked at. Left as a bare 400 it sends an operator to
+        // check their own arguments (#250).
+        const gatedByFeatureFlag =
+          status === 400 &&
+          (problem?.type === 'UnsupportedOperationException' ||
+            (typeof body === 'object' &&
+              body?.type === 'UnsupportedOperationException'));
+
+        const featureFlag = gatedByFeatureFlag ? featureFlagForOp(op) : null;
+
+        const detailMsg = gatedByFeatureFlag
+          ? `This operation is gated behind a feature flag that is not enabled on ${config?.liferayUrl || 'the target instance'}${
+              featureFlag
+                ? `. Set feature.flag.${featureFlag.flag}=true in portal-ext.properties and restart - it is a ${featureFlag.tier} flag`
+                : '. The response does not name it; check the Feature Flags panel for the capability this endpoint serves'
+            }`
+          : (hasHTTPResponse && (problem?.detail || problem?.title)) ||
+            friendly ||
+            statusText ||
+            err?.message ||
+            'Request failed';
 
         if (hasHTTPResponse && op && SOFT_STATUS_BY_OP[op]?.includes(status)) {
           logger?.info?.('Soft HTTP status treated as empty result', {
@@ -382,6 +400,11 @@ class HttpCoreService {
 
         e.errorReference = errorReference;
         e.problem = problem || null;
+
+        if (gatedByFeatureFlag) {
+          e.featureFlagRequired = featureFlag?.flag || null;
+          e.featureFlagTier = featureFlag?.tier || null;
+        }
         e.operation = op || friendly || 'request';
         e.userMessage = detailMsg;
         e.response = hasHTTPResponse

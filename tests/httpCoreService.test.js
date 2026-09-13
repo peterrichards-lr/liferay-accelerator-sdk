@@ -341,6 +341,77 @@ describe('liferay/rest/HttpCoreService', () => {
     });
   });
 
+  describe('a feature-flagged operation (#250)', () => {
+    // Liferay gates a headless resource either at registration (route absent,
+    // 404) or inside the method as _checkFeatureFlag (UnsupportedOperationException,
+    // surfacing as 400). The second reads as "your request was malformed" when
+    // it means "this capability is switched off".
+    const flagged = {
+      status: 400,
+      statusText: 'Bad Request',
+      data: { status: 'BAD_REQUEST', type: 'UnsupportedOperationException' },
+      headers: {},
+    };
+
+    it('names the flag and its tier for an operation the SDK knows', async () => {
+      service._client = vi.fn().mockResolvedValue({
+        request: vi
+          .fn()
+          .mockRejectedValue(
+            Object.assign(new Error('r'), { response: flagged })
+          ),
+      });
+
+      const thrown = await service
+        ._get({ liferayUrl: 'http://liferay:8080' }, '/x', 'get-style-books')
+        .catch((err) => err);
+
+      expect(thrown.featureFlagRequired).toBe('LPD-56718');
+      expect(thrown.featureFlagTier).toBe('Beta');
+      expect(thrown.userMessage).toMatch(/feature\.flag\.LPD-56718=true/);
+      expect(thrown.userMessage).not.toMatch(/Bad Request/);
+    });
+
+    it('still says it is a flag when the op is not in the table', async () => {
+      service._client = vi.fn().mockResolvedValue({
+        request: vi
+          .fn()
+          .mockRejectedValue(
+            Object.assign(new Error('r'), { response: flagged })
+          ),
+      });
+
+      const thrown = await service
+        ._get({ liferayUrl: 'http://liferay:8080' }, '/x', 'something-else')
+        .catch((err) => err);
+
+      expect(thrown.featureFlagRequired).toBeNull();
+      expect(thrown.userMessage).toMatch(/gated behind a feature flag/);
+    });
+
+    it('leaves an ordinary 400 alone', async () => {
+      service._client = vi.fn().mockResolvedValue({
+        request: vi.fn().mockRejectedValue(
+          Object.assign(new Error('r'), {
+            response: {
+              status: 400,
+              statusText: 'Bad Request',
+              data: { status: 'BAD_REQUEST', title: 'name is required' },
+              headers: {},
+            },
+          })
+        ),
+      });
+
+      const thrown = await service
+        ._get({ liferayUrl: 'http://liferay:8080' }, '/x', 'get-style-books')
+        .catch((err) => err);
+
+      expect(thrown).not.toHaveProperty('featureFlagRequired');
+      expect(thrown.userMessage).toBe('name is required');
+    });
+  });
+
   describe('createAxiosInstance', () => {
     const authEnv = {
       LIFERAY_AUTH_METHOD: ENV.LIFERAY_AUTH_METHOD,

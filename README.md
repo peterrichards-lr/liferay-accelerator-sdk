@@ -430,6 +430,63 @@ instance answers with 404. There is no equivalent collection to redirect it to -
 Liferay addresses a content set by key or uuid, not as a list per site - so it
 throws saying that, rather than issuing a request that cannot succeed.
 
+### Pages, and which API addresses them
+
+The two page APIs disagree about more than the key, and #247 was the cost of not
+noticing. Measured against DXP 2026.Q1.12-LTS and 2026.Q3.2:
+
+| What you want                      | Reader                      | Keyed on                                  |
+| :--------------------------------- | :-------------------------- | :---------------------------------------- |
+| delivery-shaped page content       | `getSitePagesPage`          | site **id**                               |
+| the references the admin API needs | `getAdminSitePagesPage`     | site ERC                                  |
+| a page's specification             | `getPageSpecificationsPage` | site + **site page ERC**                  |
+| its experiences                    | `getPageExperiencesPage`    | site + page specification ERC             |
+| its elements                       | `getPageElementsPage`       | site + specification + **experience** ERC |
+| a page's widget configuration      | `getWidgetInstancesPage`    | site + site page ERC                      |
+
+`getSitePagesPage` reads headless-delivery, whose SitePage carries `id`, `uuid`
+and `friendlyUrlPath` but **no** `externalReferenceCode`. Every admin-site
+resource beneath a page is keyed on that code, so `getAdminSitePagesPage` exists
+to supply it - without it nothing downstream is reachable from the facade at
+all.
+
+Three readers used to ask headless-delivery for page specifications and page
+elements. That API has no such resources - the classes are absent from
+`com.liferay.headless.delivery.impl.jar` - so those calls 404'd whatever the
+feature flags said. `getPageSpecification` and `getWidgetPagePreferencesPage`
+now throw, naming the replacement.
+
+### When a 400 means a feature flag
+
+Liferay gates a headless resource in one of two places, and they look nothing
+alike:
+
+- **at registration** - the route is absent, and the request 404s. `LPD-35443`
+  (Page Management API) works this way, and `testConnection` probes for it.
+- **inside the method**, as `_checkFeatureFlag()`, which throws
+  `UnsupportedOperationException` and surfaces as **400**.
+
+The second is indistinguishable from a malformed request unless you know to look
+for it, which is how #250 was first misdiagnosed as an unimplemented endpoint.
+Style books is implemented; its first instruction is a flag check. The SDK now
+recognises that shape and names the flag and its tier:
+
+```
+This operation is gated behind a feature flag that is not enabled on
+http://localhost:8080. Set feature.flag.LPD-56718=true in
+portal-ext.properties and restart - it is a Beta flag
+```
+
+| Reader                                                                                                                      | Flag        | Tier      |
+| :-------------------------------------------------------------------------------------------------------------------------- | :---------- | :-------- |
+| `getStyleBooksPage`                                                                                                         | `LPD-56718` | Beta      |
+| `getPageSpecificationsPage`, `getPageExperiencesPage`, `getPageElementsPage`, `getWidgetInstancesPage`, `updatePageElement` | `LPD-74328` | Developer |
+
+The mapping is declared in `src/liferay/rest/config.cjs`, because the response
+body names the exception but never the flag. A **Developer** flag is not
+something to switch on in production - if a reader needs one, that is a fact
+about the capability, not a step in a runbook.
+
 ### Accounts can be read either way
 
 Accounts and account groups are the one entity with both kinds of reader, so
