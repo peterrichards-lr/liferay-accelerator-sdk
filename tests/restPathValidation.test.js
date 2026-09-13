@@ -382,6 +382,24 @@ describe('REST method validation', () => {
   });
 });
 
+describe('feature flag mapping (#250)', () => {
+  const { featureFlagForOp } = require('../src/liferay/rest/config.cjs');
+
+  it('maps a known op to its flag and tier', () => {
+    expect(featureFlagForOp('get-style-books')).toEqual({
+      flag: 'LPD-56718',
+      tier: 'Beta',
+    });
+    expect(featureFlagForOp('get-page-elements').flag).toBe('LPD-74328');
+  });
+
+  it('returns null for an unknown or absent op', () => {
+    expect(featureFlagForOp('something-else')).toBeNull();
+    expect(featureFlagForOp(undefined)).toBeNull();
+    expect(featureFlagForOp('')).toBeNull();
+  });
+});
+
 describe('liferayPaths regressions', () => {
   const CATALOG = '/o/headless-commerce-admin-catalog/v1.0';
 
