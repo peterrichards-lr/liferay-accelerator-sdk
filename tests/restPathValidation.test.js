@@ -7,6 +7,7 @@ const require = createRequire(import.meta.url);
 
 const {
   ARG_OVERRIDES,
+  blankComments,
   HTTP_HELPER_METHODS,
   KNOWN_UNVERIFIED_INLINE,
   harvestInlinePaths,
@@ -149,6 +150,73 @@ describe('REST path validation', () => {
           );
         }
       }
+    });
+
+    describe('comments are documentation, not call sites (#246)', () => {
+      // The harvester matched any quoted `/o/...` anywhere in a file, so a doc
+      // comment explaining why a path must never be used failed the build -
+      // and the only remedy offered was to delete the explanation.
+      const source = [
+        '/**',
+        ' * This requested `/o/headless-delivery/v1.0/sites/12345/asset-lists`,',
+        ' * a path no spec declares.',
+        ' */',
+        "const live = '/o/headless-admin-user/v1.0/accounts';",
+        "// const dead = '/o/headless-delivery/v1.0/gone';",
+        "const host = 'https://example.test//o/not-a-comment';",
+      ].join('\n');
+
+      it('blanks comment bodies without moving a single byte', () => {
+        const blanked = blankComments(source);
+
+        expect(blanked).toHaveLength(source.length);
+        expect(blanked.split('\n')).toHaveLength(source.split('\n').length);
+      });
+
+      it('drops paths that appear only in prose', () => {
+        const blanked = blankComments(source);
+
+        expect(blanked).not.toContain('asset-lists');
+        expect(blanked).not.toContain('/o/headless-delivery/v1.0/gone');
+      });
+
+      it('keeps paths in code, and a // inside a string literal', () => {
+        const blanked = blankComments(source);
+
+        expect(blanked).toContain('/o/headless-admin-user/v1.0/accounts');
+        expect(blanked).toContain('https://example.test//o/not-a-comment');
+      });
+
+      it('harvests nothing from a file whose only paths are commented', () => {
+        const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'blank-'));
+        const file = nodePath.join(dir, 'commented.cjs');
+        fs.writeFileSync(
+          file,
+          ["// '/o/headless-delivery/v1.0/gone'", '/* `/o/also-gone` */'].join(
+            '\n'
+          )
+        );
+
+        try {
+          expect(harvestInlinePaths(dir)).toEqual([]);
+        } finally {
+          fs.rmSync(dir, { recursive: true, force: true });
+        }
+      });
+
+      it('still reports the right line for a path below a comment', () => {
+        const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'blank-'));
+        const file = nodePath.join(dir, 'mixed.cjs');
+        fs.writeFileSync(file, source);
+
+        try {
+          const [entry] = harvestInlinePaths(dir);
+          expect(entry.path).toBe('/o/headless-admin-user/v1.0/accounts');
+          expect(entry.name.endsWith(':5')).toBe(true);
+        } finally {
+          fs.rmSync(dir, { recursive: true, force: true });
+        }
+      });
     });
 
     it('keeps the known-unverified list honest', () => {

@@ -372,9 +372,83 @@ function sourceFiles(dir = SRC_DIR, collected = []) {
 }
 
 /**
+ * Blanks out comment bodies, preserving every byte offset and newline.
+ *
+ * The harvester below matches quoted strings anywhere in the file, which meant
+ * a path written in a doc comment was reported as a call site. Explaining why a
+ * path must never be used was therefore indistinguishable, to this gate, from
+ * using it - and the only remedy it offered was to delete the explanation
+ * (#246, found while documenting the dead asset-lists path in #240).
+ *
+ * Replacing rather than removing keeps offsets intact, so the line numbers the
+ * harvester reports still point at the code. It has to track string literals
+ * too: `'https://host//o/x'` contains `//` and is not a comment.
+ *
+ * @param {string} source File contents.
+ * @returns {string} The same length, with comment bodies turned to spaces.
+ */
+function blankComments(source) {
+  let out = '';
+  let index = 0;
+
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (char === "'" || char === '"' || char === '`') {
+      const quote = char;
+      out += char;
+      index++;
+      while (index < source.length) {
+        const inner = source[index];
+        out += inner;
+        index++;
+        if (inner === '\\' && index < source.length) {
+          out += source[index];
+          index++;
+          continue;
+        }
+        if (inner === quote) break;
+      }
+      continue;
+    }
+
+    if (char === '/' && next === '/') {
+      while (index < source.length && source[index] !== '\n') {
+        out += ' ';
+        index++;
+      }
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      while (index < source.length) {
+        const closing = source[index] === '*' && source[index + 1] === '/';
+        out += source[index] === '\n' ? '\n' : ' ';
+        index++;
+        if (closing) {
+          out += ' ';
+          index++;
+          break;
+        }
+      }
+      continue;
+    }
+
+    out += char;
+    index++;
+  }
+
+  return out;
+}
+
+/**
  * Harvests API paths written inline in the source rather than taken from the
  * path profile. Interpolations become the sentinel segment, so
  * `/sites/${siteId}/pages` is checked as `/sites/12345/pages`.
+ *
+ * Comments are blanked first: a path in prose is documentation, and cannot
+ * issue a request (#246).
  *
  * @returns {Array<{name: string, path: string}>}
  */
@@ -383,7 +457,7 @@ function harvestInlinePaths(srcDir = SRC_DIR) {
   const literal = /['`](\/o\/[^'`\n]*)['`]/g;
 
   for (const file of sourceFiles(srcDir)) {
-    const source = fs.readFileSync(file, 'utf8');
+    const source = blankComments(fs.readFileSync(file, 'utf8'));
     let match;
     while ((match = literal.exec(source)) !== null) {
       const withSentinels = match[1].replace(/\$\{[^}]*\}/g, SENTINEL);
@@ -972,6 +1046,7 @@ if (require.main === module) {
 
 module.exports = {
   ARG_OVERRIDES,
+  blankComments,
   describeContractLine,
   describeSpecProvenance,
   HTTP_HELPER_METHODS,
