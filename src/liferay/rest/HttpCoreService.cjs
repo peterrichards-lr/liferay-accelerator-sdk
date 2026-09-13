@@ -1,5 +1,7 @@
 const {
   resolveEffectiveLiferayConnection,
+  isBasicAuthRequested,
+  resolveBasicCredentials,
 } = require('../../utils/liferayEnv.cjs');
 const axios = require('axios');
 const fs = require('fs');
@@ -583,21 +585,11 @@ class HttpCoreService {
     const { oauth } = this.ctx;
     let authHeader;
 
-    // HARDENING: Fallback to Basic Auth if OAuth is not configured or specifically requested
-    const useBasic =
-      config.authMethod === 'basic' ||
-      (!config.clientId &&
-        ENV.LIFERAY_API_USERNAME &&
-        ENV.LIFERAY_API_PASSWORD);
-
-    if (useBasic) {
-      const user = config.username || ENV.LIFERAY_API_USERNAME;
-      const pass = config.password || ENV.LIFERAY_API_PASSWORD;
-      const token = Buffer.from(`${user}:${pass}`).toString('base64');
+    if (isBasicAuthRequested(config)) {
+      const { username, password } = resolveBasicCredentials(config);
+      const token = Buffer.from(`${username}:${password}`).toString('base64');
       authHeader = `Basic ${token}`;
       this.ctx.logger.debug('Using Basic Auth for Liferay connection', {
-        user,
-        passLen: pass ? pass.length : 0,
         liferayUrl: config.liferayUrl,
       });
     } else {
@@ -635,14 +627,10 @@ class HttpCoreService {
       }
 
       // HARDENING: Only validate OAuth if we aren't using Basic Auth
-      const useBasic =
-        effective.authMethod === 'basic' ||
-        ENV.LIFERAY_AUTH_METHOD === 'basic' ||
-        (!effective.clientId &&
-          ENV.LIFERAY_API_USERNAME &&
-          ENV.LIFERAY_API_PASSWORD);
-
-      if (!useBasic && !oauth.isLiferayRouteAvailable()) {
+      if (
+        !isBasicAuthRequested(effective) &&
+        !oauth.isLiferayRouteAvailable()
+      ) {
         oauth.validateOAuthConfig(effective);
       }
 
@@ -711,7 +699,16 @@ class HttpCoreService {
         structuredError.error = `Unable to connect to ${config.liferayUrl}. Please verify the URL is correct and the server is accessible.`;
         structuredError.errorType = 'connection';
         structuredError.field = 'liferayUrl';
-      } else if (error.message.includes('OAuth configuration missing')) {
+      } else if (
+        error.message.includes('OAuth configuration missing') ||
+        // What validateOAuthConfig actually throws. The wording is the mirror
+        // image of the string above, so the branch that exists for this case
+        // never fired for it, and a missing clientId was reported as a
+        // connection failure pointing the operator at the URL - which is the
+        // wrong place, and the reason #236 wanted the guard running again.
+        error.message.includes('Missing OAuth configuration') ||
+        error.problem?.status === 'AUTH_CONFIG_ERROR'
+      ) {
         structuredError.error =
           'OAuth configuration is incomplete. Please provide valid Client ID and Client Secret.';
         structuredError.errorType = 'auth_config';

@@ -28,6 +28,62 @@ function tryBuildColocatedLiferayUrl() {
   return null;
 }
 
+/**
+ * Whether the caller asked for Basic authentication.
+ *
+ * Basic is reachable only by asking for it. It used to be inferred from
+ * `!config.clientId && ENV.LIFERAY_API_USERNAME && ENV.LIFERAY_API_PASSWORD`,
+ * which made the SDK pick the weaker mechanism out of process-wide state the
+ * caller may never have set: a config read that came back without a clientId
+ * produced a successful request authenticated as somebody else rather than the
+ * error `validateOAuthConfig` already knows how to raise (#236).
+ *
+ * @param {object} [config] The connection config.
+ * @returns {boolean} True when Basic was requested, by config or environment.
+ */
+function isBasicAuthRequested(config = {}) {
+  return config?.authMethod === 'basic' || ENV.LIFERAY_AUTH_METHOD === 'basic';
+}
+
+/**
+ * The username and password to send once Basic has been asked for.
+ *
+ * The environment is still read here, because a caller that declared
+ * `authMethod: 'basic'` has said which mechanism it wants and may reasonably
+ * keep the credentials out of its config. What it cannot do is leave the
+ * mechanism to the environment.
+ *
+ * @param {object} [config] The connection config.
+ * @returns {{username: string, password: string}} The resolved pair.
+ * @throws {Error} When either half is missing, naming the half that is - half a
+ *   credential is a configuration error, not a reason to send an empty one.
+ */
+function resolveBasicCredentials(config = {}) {
+  const username = config?.username || ENV.LIFERAY_API_USERNAME;
+  const password = config?.password || ENV.LIFERAY_API_PASSWORD;
+
+  const missing = [
+    username ? null : 'username',
+    password ? null : 'password',
+  ].filter(Boolean);
+
+  if (missing.length > 0) {
+    const e = new Error(
+      `Basic authentication was requested, but ${missing.join(' and ')} ` +
+        'is missing. Supply username and password in the config, or set ' +
+        'LIFERAY_API_USERNAME and LIFERAY_API_PASSWORD.'
+    );
+    e.name = 'LiferayRequestError';
+    e.operation = 'liferay-auth-resolution';
+    e.statusCode = 400;
+    e.errorType = 'auth_config';
+    e.field = missing[0];
+    throw e;
+  }
+
+  return { username, password };
+}
+
 function resolveEffectiveLiferayConnection(
   config = {},
   oauthService,
@@ -99,8 +155,16 @@ function resolveEffectiveLiferayConnection(
   }
 
   // VALIDATION: We either need OAuth credentials OR Basic Auth credentials (checked later in rest.cjs)
+  //
+  // Ambient LIFERAY_API_USERNAME/PASSWORD only count once Basic has been asked
+  // for. Counting them unconditionally let a caller with no OAuth credentials
+  // resolve a connection here and be downgraded to Basic a frame later, which
+  // is the inference #236 removed.
   const hasOAuth = clientId && clientSecret;
-  const hasBasic = ENV.LIFERAY_API_USERNAME && ENV.LIFERAY_API_PASSWORD;
+  const hasBasic =
+    isBasicAuthRequested(config) &&
+    Boolean(config.username || ENV.LIFERAY_API_USERNAME) &&
+    Boolean(config.password || ENV.LIFERAY_API_PASSWORD);
 
   if (!isColocated && !hasOAuth && !hasBasic) {
     const e = new Error('Liferay authentication is not configured');
@@ -124,4 +188,6 @@ module.exports = {
   isValidAbsoluteUrl,
   tryBuildColocatedLiferayUrl,
   resolveEffectiveLiferayConnection,
+  isBasicAuthRequested,
+  resolveBasicCredentials,
 };

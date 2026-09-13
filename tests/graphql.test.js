@@ -50,6 +50,7 @@ describe('LiferayGraphQLService', () => {
     // Reset ENV values to prevent test pollution
     ENV.LIFERAY_API_USERNAME = '';
     ENV.LIFERAY_API_PASSWORD = '';
+    ENV.LIFERAY_AUTH_METHOD = '';
   });
 
   describe('Client and Authorization Resolution (_getClient)', () => {
@@ -80,21 +81,50 @@ describe('LiferayGraphQLService', () => {
       expect(mockCtx.oauth.getAccessToken).not.toHaveBeenCalled();
     });
 
-    it('should fallback to ENV Basic Auth credentials if clientId is missing', async () => {
+    it('should resolve Basic authentication header when the environment declares the method', async () => {
+      ENV.LIFERAY_AUTH_METHOD = 'basic';
       ENV.LIFERAY_API_USERNAME = 'env-user';
       ENV.LIFERAY_API_PASSWORD = 'env-password';
 
-      const fallbackConfig = {
+      const client = await graphqlService._getClient({
         liferayUrl: 'http://localhost:8080',
-      };
+      });
 
-      const client = await graphqlService._getClient(fallbackConfig);
       const expectedToken = Buffer.from('env-user:env-password').toString(
         'base64'
       );
       expect(client.defaults.headers['Authorization']).toBe(
         `Basic ${expectedToken}`
       );
+      expect(mockCtx.oauth.getAccessToken).not.toHaveBeenCalled();
+    });
+
+    it('should ask OAuth for a token when only ambient basic credentials are set (#236)', async () => {
+      ENV.LIFERAY_API_USERNAME = 'env-user';
+      ENV.LIFERAY_API_PASSWORD = 'env-password';
+
+      const client = await graphqlService._getClient({
+        liferayUrl: 'http://localhost:8080',
+      });
+
+      expect(mockCtx.oauth.getAccessToken).toHaveBeenCalledWith(
+        'http://localhost:8080',
+        undefined,
+        undefined
+      );
+      expect(client.defaults.headers['Authorization']).toBe(
+        'Bearer mock-oauth-token'
+      );
+    });
+
+    it('should refuse half a basic credential, naming the half that is missing', async () => {
+      await expect(
+        graphqlService._getClient({
+          liferayUrl: 'http://localhost:8080',
+          authMethod: 'basic',
+          username: 'admin',
+        })
+      ).rejects.toThrow(/password is missing/);
     });
   });
 
