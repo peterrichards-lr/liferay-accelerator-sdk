@@ -11,6 +11,7 @@ const {
 } = require('../utils/paging.cjs');
 const { PATH } = require('../utils/liferayPaths.cjs');
 const { delay, fromI18n } = require('../utils/misc.cjs');
+const { exclusionKeyFor } = require('../utils/exclusionKeys.cjs');
 class LiferayService {
   constructor(ctx) {
     this.ctx = ctx;
@@ -18,6 +19,9 @@ class LiferayService {
     this.graphql = new LiferayGraphQLService(ctx);
     this.client = new GeneratedLiferayClient(this.rest);
     this.catalogAdapterFactory = new CatalogAdapterFactory();
+    // Keys already reported as unsupplied, so the warning in _getExclusions is
+    // one per key rather than one per call (#254).
+    this._unsuppliedExclusionKeys = new Set();
     this.extraction = new ExtractionFacade(this);
     this.ctx.logger.debug(
       'LiferayService: GraphQL, Fluent client, catalogAdapterFactory, and extractionFacade initialized'
@@ -511,6 +515,19 @@ class LiferayService {
    * assert their config service at wiring time, where the failure can name
    * what is missing.
    *
+   * Two silences are worth breaking, and they are not the same (#254):
+   *
+   *   - an **entity name nothing maps** is a defect in the SDK, and warns.
+   *   - a **key no configuration supplies** is the SDK reading a property
+   *     nobody writes. That is what hid #245 for months: `excludedAccountGroups`
+   *     was absent from every consumer's configuration, and an absent property
+   *     and a configured-but-empty list both arrive as `[]`.
+   *
+   * The second warns once per key rather than once per call. Six unsupplied
+   * keys across a paginated delete would otherwise repeat until whoever reads
+   * the logs learns to filter the message out, which is how a warning stops
+   * being a signal.
+   *
    * @param {object} config Liferay connection config.
    * @param {string} entityName The entity being read.
    * @returns {Promise<Array<object>>} The exclusions, empty when none apply.
@@ -521,33 +538,9 @@ class LiferayService {
     if (typeof configService?.getExcludeLists !== 'function') return [];
 
     const excludeLists = await configService.getExcludeLists(config);
-    const keyMap = {
-      account: 'excludedAccounts',
-      // Account groups are named separately from accounts on purpose. Sharing
-      // excludedAccounts would mean a group called X is excluded because an
-      // account is called X, which is a different set of names (#245). No
-      // consumer defines this key yet - neither does it define excludedOrders
-      // or excludedOptions - so the SDK names the key it will read and a
-      // consumer populates it.
-      'account-group': 'excludedAccountGroups',
-      product: 'excludedProducts',
-      warehouse: 'excludedWarehouses',
-      priceList: 'excludedPriceLists',
-      promotion: 'excludedPriceLists',
-      // Promotions are in the PriceLists exclude list
-      order: 'excludedOrders',
-      specification: 'excludedSpecifications',
-      option: 'excludedOptions',
-      optionCategory: 'excludedOptionCategories',
-    };
+    const configKey = exclusionKeyFor(entityName);
 
-    // An entity name this map does not carry resolves to
-    // `excludeLists[undefined]`, then to `[]` - indistinguishable from "nothing
-    // was excluded". That is how account groups went unprotected from
-    // deleteAccountGroupsBatch for as long as the name has been spelled with a
-    // hyphen (#245). A configured-but-empty list stays silent; only a name
-    // nothing can ever match is worth saying out loud.
-    if (!Object.prototype.hasOwnProperty.call(keyMap, entityName)) {
+    if (configKey === undefined) {
       this.ctx.logger?.warn?.(
         `No exclusion list is mapped for '${entityName}', so nothing will be excluded from it`,
         { operation: 'get-exclusions', entityName }
@@ -555,7 +548,18 @@ class LiferayService {
       return [];
     }
 
-    const configKey = keyMap[entityName];
+    const supplied =
+      excludeLists != null &&
+      Object.prototype.hasOwnProperty.call(excludeLists, configKey);
+
+    if (!supplied && !this._unsuppliedExclusionKeys.has(configKey)) {
+      this._unsuppliedExclusionKeys.add(configKey);
+      this.ctx.logger?.warn?.(
+        `The configuration service supplies no '${configKey}', so nothing can be excluded from ${entityName}. Add the key with an empty list to say that deliberately`,
+        { operation: 'get-exclusions', entityName, configKey }
+      );
+    }
+
     return excludeLists?.[configKey] || [];
   }
   _shouldExclude(item, exclusions) {

@@ -25,6 +25,7 @@ const liferayUtils = require('./utils/liferayUtils.cjs');
 const constants = require('./utils/constants.cjs');
 const commerceConstants = require('./utils/commerceConstants.cjs');
 const misc = require('./utils/misc.cjs');
+const exclusionKeys = require('./utils/exclusionKeys.cjs');
 const expressErrorHandler = require('./utils/expressErrorHandler.cjs');
 const serviceErrorHandler = require('./utils/serviceErrorHandler.cjs');
 
@@ -45,12 +46,17 @@ module.exports = {
   BatchProcessorService,
   SchemaCorrelationService,
 
+  // The exclusion-list declaration, exported so a consumer can generate its
+  // configuration surface from it rather than maintaining a second copy (#254).
+  ...exclusionKeys,
+
   // Expose key utilities
   utils: {
     ...liferayPaths,
     ...liferayUtils,
     ...commerceConstants,
     ...misc,
+    ...exclusionKeys,
     ...expressErrorHandler,
     ...serviceErrorHandler,
     constants,
