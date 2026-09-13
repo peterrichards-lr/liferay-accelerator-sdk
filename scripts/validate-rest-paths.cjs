@@ -117,14 +117,12 @@ const NON_PATH_MEMBERS = new Set(['VARIANT', 'CUSTOM_OBJECTS']);
  * the build, and an entry that starts matching must be removed.
  */
 const KNOWN_UNVERIFIED_INLINE = {
-  '/o/headless-delivery/v1.0/site-pages/12345/page-elements':
-    'headless-delivery declares no page-element paths; its site-pages are nested under /sites/{siteId}',
-  '/o/headless-delivery/v1.0/site-pages/12345/page-specification':
-    'the synced specs expose page-specifications (plural) under headless-admin-site, nested beneath /sites/{siteERC}',
-  '/o/headless-delivery/v1.0/page-elements/12345':
-    'headless-delivery declares no page-element paths',
-  '/o/headless-admin-site/v1.0/site-pages/12345/widget-page-preferences':
-    'headless-admin-site declares no widget-page-preferences paths; its site-pages are nested under /sites/{siteERC}',
+  // Empty, and worth keeping empty. Every entry this list carried was a real
+  // defect rather than a stale spec, and a live DXP said so: asset-lists in
+  // #240, and the three page and widget paths in #247. The mechanism the list
+  // exists for is genuine - a spec can lag an endpoint - but nothing currently
+  // qualifies, and an entry that outlives its evidence excuses a broken path
+  // indefinitely.
 };
 
 /** Directories under src/ that hold no hand-written paths worth checking. */

@@ -171,18 +171,138 @@ describe('ExtractionFacade', () => {
     expect(result.items[0].name).toBe('ObjectDef');
   });
 
-  it('should extract page elements via rest._get', async () => {
-    const result = await facade.getPageElements(config, 'page-123', {
-      fields: 'id',
-    });
+  it('reads page elements at the nesting headless-admin-site serves (#247)', async () => {
+    const result = await facade.getPageElementsPage(
+      config,
+      'SITE-ERC-1',
+      'PS-ERC',
+      'PE-ERC',
+      { fields: 'id' }
+    );
     expect(mockRest._get).toHaveBeenCalledWith(
       config,
-      '/o/headless-delivery/v1.0/site-pages/page-123/page-elements',
+      '/o/headless-admin-site/v1.0/sites/SITE-ERC-1/page-specifications/PS-ERC/page-experiences/PE-ERC/page-elements',
       'get-page-elements',
       'Get Page Elements',
       { params: { fields: 'id' } }
     );
     expect(result.items[0].name).toBe('ObjectDef');
+  });
+
+  it('names the reader that supplies a missing reference (#247)', async () => {
+    await expect(
+      facade.getPageElementsPage(config, 'SITE-ERC-1', undefined, 'PE-ERC')
+    ).rejects.toThrow(/page specification .*getPageSpecificationsPage/s);
+
+    await expect(
+      facade.getPageElementsPage(config, 'SITE-ERC-1', 'PS-ERC')
+    ).rejects.toThrow(/page experience .*getPageExperiencesPage/s);
+
+    expect(mockRest._get).not.toHaveBeenCalled();
+  });
+
+  it('refuses the widget-page-preferences reader that never worked (#247)', async () => {
+    await expect(facade.getWidgetPagePreferencesPage()).rejects.toThrow(
+      /getWidgetInstancesPage/
+    );
+    expect(mockRest._get).not.toHaveBeenCalled();
+  });
+
+  it('forwards the deprecated getPageElements alias to the page reader (#247)', async () => {
+    await facade.getPageElements(config, 'SITE-ERC-1', 'PS-ERC', 'PE-ERC');
+
+    expect(mockRest._get).toHaveBeenCalledWith(
+      config,
+      '/o/headless-admin-site/v1.0/sites/SITE-ERC-1/page-specifications/PS-ERC/page-experiences/PE-ERC/page-elements',
+      'get-page-elements',
+      'Get Page Elements',
+      { params: {} }
+    );
+  });
+
+  describe('updatePageElement (#247)', () => {
+    beforeEach(() => {
+      mockRest._patch = vi.fn().mockResolvedValue({ ok: true });
+    });
+
+    it('patches the element at the nesting headless-admin-site declares', async () => {
+      await facade.updatePageElement(
+        config,
+        'SITE-ERC-1',
+        'PS-ERC',
+        'PE-ERC',
+        'EL-ERC',
+        { position: 2 }
+      );
+
+      expect(mockRest._patch).toHaveBeenCalledWith(
+        config,
+        '/o/headless-admin-site/v1.0/sites/SITE-ERC-1/page-specifications/PS-ERC/page-experiences/PE-ERC/page-elements/EL-ERC',
+        { position: 2 },
+        'update-page-element',
+        'Update Page Element'
+      );
+    });
+
+    it('appends query parameters when given', async () => {
+      await facade.updatePageElement(
+        config,
+        'SITE-ERC-1',
+        'PS-ERC',
+        'PE-ERC',
+        'EL-ERC',
+        {},
+        { p_l_mode: 'edit' }
+      );
+
+      expect(mockRest._patch.mock.calls[0][1]).toContain('?p_l_mode=edit');
+    });
+
+    it('refuses a missing element reference rather than patching undefined', async () => {
+      await expect(
+        facade.updatePageElement(config, 'SITE-ERC-1', 'PS-ERC', 'PE-ERC')
+      ).rejects.toThrow(/page element .*getPageElementsPage/s);
+
+      expect(mockRest._patch).not.toHaveBeenCalled();
+    });
+  });
+
+  it('reads site pages from the admin API, which carries the ERC (#247)', async () => {
+    await facade.getAdminSitePagesPage(config, 'SITE-ERC-1', { pageSize: 5 });
+
+    expect(mockRest._get).toHaveBeenCalledWith(
+      config,
+      '/o/headless-admin-site/v1.0/sites/SITE-ERC-1/site-pages',
+      'get-admin-site-pages',
+      'Get Site Pages (admin)',
+      { params: { pageSize: 5 } }
+    );
+  });
+
+  it('reads page specifications and experiences for a site page (#247)', async () => {
+    await facade.getPageSpecificationsPage(config, 'SITE-ERC-1', 'PAGE-ERC');
+    expect(mockRest._get).toHaveBeenCalledWith(
+      config,
+      '/o/headless-admin-site/v1.0/sites/SITE-ERC-1/site-pages/PAGE-ERC/page-specifications',
+      'get-page-specifications',
+      'Get Page Specifications',
+      { params: {} }
+    );
+
+    await facade.getPageExperiencesPage(config, 'SITE-ERC-1', 'PS-ERC');
+    expect(mockRest._get).toHaveBeenCalledWith(
+      config,
+      '/o/headless-admin-site/v1.0/sites/SITE-ERC-1/page-specifications/PS-ERC/page-experiences',
+      'get-page-experiences',
+      'Get Page Experiences',
+      { params: {} }
+    );
+  });
+
+  it('refuses the delivery page-specification reader that never worked (#247)', async () => {
+    await expect(facade.getPageSpecification()).rejects.toThrow(
+      /getPageSpecificationsPage/
+    );
   });
 
   it('should refuse to read asset lists, and put nothing on the wire (#240)', async () => {
@@ -282,15 +402,18 @@ describe('ExtractionFacade', () => {
     expect(result.name).toBe('SiteSettings');
   });
 
-  it('should extract widget page preferences via rest._get', async () => {
-    const result = await facade.getWidgetPagePreferences(config, 'page-123', {
-      fields: 'id',
-    });
+  it('reads widget instances, which carry the configuration (#247)', async () => {
+    const result = await facade.getWidgetInstancesPage(
+      config,
+      'SITE-ERC-1',
+      'PAGE-ERC',
+      { fields: 'id' }
+    );
     expect(mockRest._get).toHaveBeenCalledWith(
       config,
-      '/o/headless-admin-site/v1.0/site-pages/page-123/widget-page-preferences',
-      'get-widget-page-preferences',
-      'Get Widget Page Preferences',
+      '/o/headless-admin-site/v1.0/sites/SITE-ERC-1/site-pages/PAGE-ERC/widget-instances',
+      'get-widget-instances',
+      'Get Widget Instances',
       { params: { fields: 'id' } }
     );
     expect(result.items[0].name).toBe('ObjectDef');

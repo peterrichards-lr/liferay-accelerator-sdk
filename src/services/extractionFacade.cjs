@@ -149,6 +149,27 @@ class ExtractionFacade {
   }
 
   /**
+   * Refuse a missing external reference code, naming the reader that supplies
+   * it.
+   *
+   * headless-admin-site keys its nested resources on external reference codes
+   * the caller has to have read first. Without this the value interpolates as
+   * `undefined` and Liferay answers 404, which reads as "the thing is not
+   * there" rather than "you did not say which thing" (#247).
+   *
+   * @param {string} value The reference supplied.
+   * @param {string} what What it identifies, for the message.
+   * @param {string} source The facade reader that returns it.
+   */
+  _requireReference(value, what, source) {
+    if (!value) {
+      throw new Error(
+        `A ${what} is required: headless-admin-site addresses this resource by external reference code, and ${source} returns it`
+      );
+    }
+  }
+
+  /**
    * Fetch one page of site pages for the specified site.
    */
   async getSitePagesPage(config, siteId, queryParams = {}) {
@@ -171,13 +192,91 @@ class ExtractionFacade {
   }
 
   /**
-   * Fetch one page of page elements for the specified site page.
+   * Fetch one page of site pages from headless-admin-site.
+   *
+   * `getSitePagesPage` reads the same pages through headless-delivery, and that
+   * DTO carries `id`, `uuid` and `friendlyUrlPath` but **no**
+   * `externalReferenceCode`. Every headless-admin-site resource nested under a
+   * site page is keyed on that code, so without this reader the page
+   * specification, page experience, page element and widget instance readers
+   * could not be reached from anywhere in the facade (#247).
+   *
+   * Use `getSitePagesPage` for delivery-shaped page content; use this when you
+   * need the references the admin API addresses pages by.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string|number} site The site's external reference code, or its id.
+   * @param {object} [queryParams] Passed through to Liferay.
+   * @returns {Promise<object>} One page envelope: `items` and `totalCount`.
    */
-  async getPageElementsPage(config, pageId, queryParams = {}) {
+  async getAdminSitePagesPage(config, site, queryParams = {}) {
+    const siteErc = await this.resolveSiteExternalReferenceCode(config, site);
+
+    return await this._readPage('get-admin-site-pages', queryParams, () =>
+      this.rest._get(
+        config,
+        `/o/headless-admin-site/v1.0/sites/${siteErc}/site-pages`,
+        'get-admin-site-pages',
+        'Get Site Pages (admin)',
+        { params: queryParams }
+      )
+    );
+  }
+
+  /**
+   * Fetch one page of page elements.
+   *
+   * The reader this replaces asked headless-delivery for
+   * `site-pages/{pageId}/page-elements`. headless-delivery has no page-element
+   * resource at all - the class does not exist in
+   * `com.liferay.headless.delivery.impl.jar` - so that path answered 404 with
+   * `feature.flag.LPS-168340` on, and the flag named in its old JSDoc was never
+   * what gated it (#247).
+   *
+   * headless-admin-site serves page elements, nested beneath a page
+   * specification and one of its page experiences. Verified against DXP
+   * 2026.Q1.12-LTS: the chain site -> site page -> page specification -> page
+   * experience -> page elements returns 200. Reaching it needs the two
+   * references in this signature, which `getPageSpecificationsPage` and
+   * `getPageExperiencesPage` supply.
+   *
+   * The resource is gated behind `LPD-74328`, a **Developer** feature flag. A
+   * 400 naming `UnsupportedOperationException` means it is off; the SDK says so
+   * rather than passing the bare status up (#250).
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string|number} site The site's external reference code, or its id.
+   * @param {string} pageSpecificationExternalReferenceCode From
+   *   `getPageSpecificationsPage`.
+   * @param {string} pageExperienceExternalReferenceCode From
+   *   `getPageExperiencesPage`.
+   * @param {object} [queryParams] Passed through to Liferay.
+   * @returns {Promise<object>} One page envelope: `items` and `totalCount`.
+   */
+  async getPageElementsPage(
+    config,
+    site,
+    pageSpecificationExternalReferenceCode,
+    pageExperienceExternalReferenceCode,
+    queryParams = {}
+  ) {
+    const siteErc = await this.resolveSiteExternalReferenceCode(config, site);
+
+    this._requireReference(
+      pageSpecificationExternalReferenceCode,
+      'page specification external reference code',
+      'getPageSpecificationsPage'
+    );
+    this._requireReference(
+      pageExperienceExternalReferenceCode,
+      'page experience external reference code',
+      'getPageExperiencesPage'
+    );
+
     return await this._readPage('get-page-elements', queryParams, () =>
       this.rest._get(
         config,
-        `/o/headless-delivery/v1.0/site-pages/${pageId}/page-elements`,
+        `/o/headless-admin-site/v1.0/sites/${siteErc}/page-specifications/${pageSpecificationExternalReferenceCode}/page-experiences/${pageExperienceExternalReferenceCode}/page-elements`,
         'get-page-elements',
         'Get Page Elements',
         { params: queryParams }
@@ -187,46 +286,172 @@ class ExtractionFacade {
 
   /**
    * @deprecated Returns a single page; use `getPageElementsPage`, or
-   * `collectAll` to read every page (#200).
+   * `collectAll` to read every page (#200). Its arguments changed with #247.
    */
-  async getPageElements(config, pageId, queryParams = {}) {
-    return await this.getPageElementsPage(config, pageId, queryParams);
+  async getPageElements(...args) {
+    return await this.getPageElementsPage(...args);
   }
 
   /**
-   * Fetch page specification for the specified site page.
-   * Requires LPS-178642 to be enabled on the target DXP instance.
+   * Fetch one page of page experiences for a page specification.
+   *
+   * Exists because page elements are nested beneath an experience, and nothing
+   * else in the facade could produce one (#247). A page with no personalised
+   * experiences answers 200 with an empty `items`, which is why
+   * `getPageElementsPage` needs the experience passed in rather than guessing
+   * at a default.
+   *
+   * Gated behind `LPD-74328`, a Developer feature flag.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string|number} site The site's external reference code, or its id.
+   * @param {string} pageSpecificationExternalReferenceCode From
+   *   `getPageSpecificationsPage`.
+   * @param {object} [queryParams] Passed through to Liferay.
+   * @returns {Promise<object>} One page envelope: `items` and `totalCount`.
    */
-  async getPageSpecification(config, pageId, queryParams = {}) {
-    return await this.rest._get(
-      config,
-      `/o/headless-delivery/v1.0/site-pages/${pageId}/page-specification`,
-      'get-page-specification',
-      'Get Page Specification',
-      { params: queryParams }
+  async getPageExperiencesPage(
+    config,
+    site,
+    pageSpecificationExternalReferenceCode,
+    queryParams = {}
+  ) {
+    const siteErc = await this.resolveSiteExternalReferenceCode(config, site);
+
+    this._requireReference(
+      pageSpecificationExternalReferenceCode,
+      'page specification external reference code',
+      'getPageSpecificationsPage'
+    );
+
+    return await this._readPage('get-page-experiences', queryParams, () =>
+      this.rest._get(
+        config,
+        `/o/headless-admin-site/v1.0/sites/${siteErc}/page-specifications/${pageSpecificationExternalReferenceCode}/page-experiences`,
+        'get-page-experiences',
+        'Get Page Experiences',
+        { params: queryParams }
+      )
+    );
+  }
+
+  /**
+   * Fetch one page of page specifications for the specified site page.
+   *
+   * The reader this replaces asked headless-delivery for a singular
+   * `page-specification` under a flat `site-pages/{pageId}` root. Probed
+   * against DXP 2026.Q3.2 with `feature.flag.LPS-178642` enabled, that answers
+   * 404. The specification is served by headless-admin-site instead, nested
+   * under the site and keyed on external reference codes throughout, and that
+   * form answers 200 (#247).
+   *
+   * It needs two references the old signature could not supply, which is why
+   * this is a new method rather than a corrected path. The site accepts either
+   * form - a numeric id is resolved to an external reference code, as with the
+   * other site-scoped readers (#240) - but the site page must be named by its
+   * external reference code, which `getSitePagesPage` returns.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string|number} site The site's external reference code, or its id.
+   * @param {string} sitePageExternalReferenceCode The site page's ERC.
+   * @param {object} [queryParams] Passed through to Liferay.
+   * @returns {Promise<object>} One page envelope: `items` and `totalCount`.
+   */
+  async getPageSpecificationsPage(
+    config,
+    site,
+    sitePageExternalReferenceCode,
+    queryParams = {}
+  ) {
+    const siteErc = await this.resolveSiteExternalReferenceCode(config, site);
+
+    this._requireReference(
+      sitePageExternalReferenceCode,
+      'site page external reference code',
+      'getAdminSitePagesPage'
+    );
+
+    return await this._readPage('get-page-specifications', queryParams, () =>
+      this.rest._get(
+        config,
+        `/o/headless-admin-site/v1.0/sites/${siteErc}/site-pages/${sitePageExternalReferenceCode}/page-specifications`,
+        'get-page-specifications',
+        'Get Page Specifications',
+        { params: queryParams }
+      )
+    );
+  }
+
+  /**
+   * @deprecated Never worked: the path it requested answers 404 even with
+   * LPS-178642 enabled. Use `getPageSpecificationsPage`, which takes a site and
+   * a site page external reference code (#247).
+   *
+   * @throws {Error} Always.
+   */
+  async getPageSpecification() {
+    throw new Error(
+      'getPageSpecification requested a headless-delivery path that answers 404 even with LPS-178642 enabled (#247). Use getPageSpecificationsPage(config, site, sitePageExternalReferenceCode), which reads the specification headless-admin-site serves.'
     );
   }
 
   /**
    * Mutate a page element's configuration or content.
-   * Requires LPS-168340 to be enabled on the target DXP instance.
+   *
+   * PATCHed `headless-delivery/v1.0/page-elements/{id}` before #247, which is a
+   * path headless-delivery does not serve - it has no page-element resource, so
+   * every call 404'd whatever `feature.flag.LPS-168340` was set to.
+   *
+   * headless-admin-site declares `delete`, `get`, `patch` and `put` on the page
+   * element, at the full nesting its collection uses. The four references are
+   * therefore all required; `getPageSpecificationsPage`,
+   * `getPageExperiencesPage` and `getPageElementsPage` supply them in that
+   * order.
+   *
+   * Gated behind `LPD-74328`, a Developer feature flag.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string|number} site The site's external reference code, or its id.
+   * @param {string} pageSpecificationExternalReferenceCode Owning specification.
+   * @param {string} pageExperienceExternalReferenceCode Owning experience.
+   * @param {string} pageElementExternalReferenceCode The element to change.
+   * @param {object} payload The partial PageElement to apply.
+   * @param {object} [queryParams] Passed through to Liferay.
    */
-  async updatePageElement(config, pageElementId, payload, queryParams = {}) {
-    // Note: this.rest._patch signature is (config, url, data, op, friendly, fullResponse)
-    // However, depending on the SDK core, some endpoints might require PUT. We use PATCH here as it's standard for partial updates.
-    // Ensure the payload structure matches the OData spec for PageElement.
-    const url = `/o/headless-delivery/v1.0/page-elements/${pageElementId}`;
+  async updatePageElement(
+    config,
+    site,
+    pageSpecificationExternalReferenceCode,
+    pageExperienceExternalReferenceCode,
+    pageElementExternalReferenceCode,
+    payload,
+    queryParams = {}
+  ) {
+    const siteErc = await this.resolveSiteExternalReferenceCode(config, site);
 
-    // Add query params to URL if they exist
-    let finalUrl = url;
-    if (Object.keys(queryParams).length > 0) {
-      const qs = new URLSearchParams(queryParams).toString();
-      finalUrl += `?${qs}`;
-    }
+    this._requireReference(
+      pageSpecificationExternalReferenceCode,
+      'page specification external reference code',
+      'getPageSpecificationsPage'
+    );
+    this._requireReference(
+      pageExperienceExternalReferenceCode,
+      'page experience external reference code',
+      'getPageExperiencesPage'
+    );
+    this._requireReference(
+      pageElementExternalReferenceCode,
+      'page element external reference code',
+      'getPageElementsPage'
+    );
+
+    const url = `/o/headless-admin-site/v1.0/sites/${siteErc}/page-specifications/${pageSpecificationExternalReferenceCode}/page-experiences/${pageExperienceExternalReferenceCode}/page-elements/${pageElementExternalReferenceCode}`;
+
+    const qs = new URLSearchParams(queryParams).toString();
 
     return await this.rest._patch(
       config,
-      finalUrl,
+      qs ? `${url}?${qs}` : url,
       payload,
       'update-page-element',
       'Update Page Element'
@@ -704,26 +929,66 @@ class ExtractionFacade {
   // --- Phase 6: Advanced Layouts ---
 
   /**
-   * Fetch one page of widget page preferences.
+   * Fetch one page of widget instances for a site page.
+   *
+   * This is where a page's widget configuration lives. Each item carries the
+   * widget's id, its position on the page, and its look-and-feel and
+   * configuration - which is what `getWidgetPagePreferences` was reaching for.
+   *
+   * Verified against DXP 2026.Q1.12-LTS. Gated behind `LPD-74328`, a Developer
+   * feature flag: with it off the request answers 400 naming
+   * `UnsupportedOperationException`, which the SDK now reports as a flag rather
+   * than as a bad request (#250).
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string|number} site The site's external reference code, or its id.
+   * @param {string} sitePageExternalReferenceCode From `getAdminSitePagesPage`.
+   * @param {object} [queryParams] Passed through to Liferay.
+   * @returns {Promise<object>} One page envelope: `items` and `totalCount`.
    */
-  async getWidgetPagePreferencesPage(config, pageId, queryParams = {}) {
-    return await this._readPage(
-      'get-widget-page-preferences',
-      queryParams,
-      () =>
-        this.rest._get(
-          config,
-          `/o/headless-admin-site/v1.0/site-pages/${pageId}/widget-page-preferences`,
-          'get-widget-page-preferences',
-          'Get Widget Page Preferences',
-          { params: queryParams }
-        )
+  async getWidgetInstancesPage(
+    config,
+    site,
+    sitePageExternalReferenceCode,
+    queryParams = {}
+  ) {
+    const siteErc = await this.resolveSiteExternalReferenceCode(config, site);
+
+    this._requireReference(
+      sitePageExternalReferenceCode,
+      'site page external reference code',
+      'getAdminSitePagesPage'
+    );
+
+    return await this._readPage('get-widget-instances', queryParams, () =>
+      this.rest._get(
+        config,
+        `/o/headless-admin-site/v1.0/sites/${siteErc}/site-pages/${sitePageExternalReferenceCode}/widget-instances`,
+        'get-widget-instances',
+        'Get Widget Instances',
+        { params: queryParams }
+      )
     );
   }
 
   /**
-   * @deprecated Returns a single page; use `getWidgetPagePreferencesPage`, or
-   * `collectAll` to read every page (#200).
+   * @deprecated Never worked. It requested a flat
+   * `headless-admin-site/v1.0/site-pages/{pageId}/widget-page-preferences`
+   * root, and that API has no flat site-pages root and no
+   * widget-page-preferences resource - 404 both as written and at the corrected
+   * nesting. Use `getWidgetInstancesPage`, whose items carry the widget
+   * configuration this was after (#247).
+   *
+   * @throws {Error} Always.
+   */
+  async getWidgetPagePreferencesPage() {
+    throw new Error(
+      'getWidgetPagePreferencesPage requested a path that does not exist: headless-admin-site serves no widget-page-preferences resource, and nests site-page resources under sites/{siteExternalReferenceCode}/site-pages/{sitePageExternalReferenceCode} (#247). Use getWidgetInstancesPage(config, site, sitePageExternalReferenceCode) - its items carry the widget configuration.'
+    );
+  }
+
+  /**
+   * @deprecated Not available; see `getWidgetPagePreferencesPage` (#247).
    */
   async getWidgetPagePreferences(config, pageId, queryParams = {}) {
     return await this.getWidgetPagePreferencesPage(config, pageId, queryParams);
