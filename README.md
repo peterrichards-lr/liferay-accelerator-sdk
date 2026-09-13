@@ -72,6 +72,35 @@ fragment hardcodes `themeDisplay.portalURL` with none - and a call that
 specifies no identity can only mean the ambient one. A caller that wants that
 explicitly can call `getAccessTokenFromRoute` itself.
 
+### Basic authentication is opt-in
+
+Basic auth is reachable only by asking for it, in one of two ways:
+
+| Declaration                 | Where                                   |
+| :-------------------------- | :-------------------------------------- |
+| `authMethod: 'basic'`       | on the config passed to the call        |
+| `LIFERAY_AUTH_METHOD=basic` | in the environment, for a whole process |
+
+The credentials then come from `username`/`password` on the config, or from
+`LIFERAY_API_USERNAME`/`LIFERAY_API_PASSWORD`. Half a pair is refused, naming
+the half that is missing.
+
+Until #236, neither declaration was needed: any config without a `clientId`
+authenticated as Basic if those two variables happened to be set in the
+process. That is a silent downgrade from OAuth to Basic, decided by ambient
+state the caller may not have set and cannot see at the call site - so a
+config read that came back without a `clientId` produced a successful request
+authenticated as somebody else, rather than the `Missing OAuth configuration`
+error `validateOAuthConfig` already knew how to raise. REST and GraphQL each
+carried their own copy of the inference, and `resolveEffectiveLiferayConnection`
+counted the same variables as sufficient credentials; all three now go through
+one declaration.
+
+A deployment that relied on the inference needs `LIFERAY_AUTH_METHOD=basic`
+added to its environment. Without it, a caller with no OAuth credentials now
+fails with `Liferay authentication is not configured` instead of connecting as
+whoever those variables name.
+
 ## Testing
 
 ```bash
@@ -87,9 +116,9 @@ yarn test:integration
 ```
 
 It authenticates with **OAuth client credentials**, not Basic auth. The
-username/password fallback in `HttpCoreService` and `graphql.cjs` is scheduled
-for removal (`peterrichards-lr/liferay-demo-accelerator#64`), and this suite is
-the only live coverage in the project that depended on it.
+username/password fallback in `HttpCoreService` and `graphql.cjs` is gone as of
+#236 (`peterrichards-lr/liferay-demo-accelerator#64`): Basic is still reachable,
+but only for a caller that declares it.
 
 | Variable                      | Purpose                                                    |
 | :---------------------------- | :--------------------------------------------------------- |
@@ -367,6 +396,49 @@ walking the pages themselves does not need telling. Truncation is therefore
 always on the record: an incomplete read is never silent, whichever reader
 produced it.
 
+### Which reference a site-scoped reader takes
+
+Liferay's two site-scoped APIs disagree about how a site is addressed:
+`headless-delivery` keys its paths on `{siteId}`, `headless-admin-site` keys
+every one of its own on `{siteExternalReferenceCode}`. The facade's readers used
+to take a `siteId` either way, which is structurally well-formed and wrong for
+the second kind: `getStyleBooksPage` and `getDisplayPageTemplatesPage` answered
+400, and `getSiteSettings` answered 404, on every call ever made against a live
+instance (#240). The path gate could not see it - the URL is well-formed, the
+value in the slot is simply the wrong kind of thing.
+
+Those three now accept either form. A non-numeric value is taken as an external
+reference code; a numeric one is resolved to the site's ERC by reading
+`getSitesPage`, cached per instance and id, so three readers over one site read
+the site list once:
+
+```js
+await liferay.extraction.getStyleBooksPage(config, 'SITE-ERC-1');
+await liferay.extraction.getStyleBooksPage(config, 20125); // resolved for you
+
+const { items } = await liferay.extraction.collectAll((params) =>
+  liferay.extraction.getSitesPage(config, params)
+);
+```
+
+`getAssetListsPage` is the exception: it asked for
+`sites/{siteId}/asset-lists`, which no synced spec declares and which a live
+instance answers with 404. There is no equivalent collection to redirect it to -
+Liferay addresses a content set by key or uuid, not as a list per site - so it
+throws saying that, rather than issuing a request that cannot succeed.
+
+### Exclusions are optional
+
+`getAccounts`, `getAccountGroups`, `getProducts`, `getWarehouses`, `getOrders`
+and the other discovery readers filter their results through an exclusion list
+read from `ctx.config.getExcludeLists`. That service is supplied by the
+consumer; the SDK neither provides nor defaults one. A `LiferayService` built
+the way this README shows has no `ctx.config`, and until #239 every one of those
+readers threw `Cannot read properties of undefined (reading 'getExcludeLists')`
+four frames into a paginated read - which downstream extractors, catching per
+section, reported as an empty collection. An absent config service now means no
+exclusions, which is what it means.
+
 ### Ceilings, and what a collecting reader reports
 
 A collecting reader is bounded so an unbounded read cannot exhaust the heap: at
@@ -517,4 +589,4 @@ build it never affects callback processing.
 
 ---
 
-_Last Updated: 2026-09-11_ | _Last Reviewed: 2026-09-11_
+_Last Updated: 2026-09-13_ | _Last Reviewed: 2026-09-13_

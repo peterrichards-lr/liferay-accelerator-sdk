@@ -340,6 +340,7 @@ describe('utils/misc', () => {
       it('should resolve correctly when auth method is basic authentication via environment variables', () => {
         process.env.LIFERAY_API_USERNAME = 'test-user';
         process.env.LIFERAY_API_PASSWORD = 'test-password';
+        process.env.LIFERAY_AUTH_METHOD = 'basic';
 
         // Bust require cache to pick up the username/password
         delete require.cache[require.resolve('../src/utils/constants.cjs')];
@@ -354,6 +355,42 @@ describe('utils/misc', () => {
 
         expect(connection.liferayUrl).toBe('http://localhost:8080');
         expect(connection.isColocated).toBe(false);
+
+        delete process.env.LIFERAY_API_USERNAME;
+        delete process.env.LIFERAY_API_PASSWORD;
+        delete process.env.LIFERAY_AUTH_METHOD;
+      });
+
+      it('should resolve when basic is declared with credentials on the config (#236)', () => {
+        const connection = liferayEnv.resolveEffectiveLiferayConnection(
+          {
+            liferayUrl: 'http://localhost:8080',
+            authMethod: 'basic',
+            username: 'admin',
+            password: 'secret',
+          },
+          { isLiferayRouteAvailable: () => false },
+          {}
+        );
+
+        expect(connection.liferayUrl).toBe('http://localhost:8080');
+      });
+
+      it('should refuse to resolve on ambient basic credentials alone (#236)', () => {
+        process.env.LIFERAY_API_USERNAME = 'test-user';
+        process.env.LIFERAY_API_PASSWORD = 'test-password';
+
+        delete require.cache[require.resolve('../src/utils/constants.cjs')];
+        delete require.cache[require.resolve('../src/utils/liferayEnv.cjs')];
+        const freshLiferayEnv = require('../src/utils/liferayEnv.cjs');
+
+        expect(() => {
+          freshLiferayEnv.resolveEffectiveLiferayConnection(
+            { liferayUrl: 'http://localhost:8080' },
+            { isLiferayRouteAvailable: () => false },
+            {}
+          );
+        }).toThrow(/Liferay authentication is not configured/);
 
         delete process.env.LIFERAY_API_USERNAME;
         delete process.env.LIFERAY_API_PASSWORD;

@@ -123,8 +123,6 @@ const KNOWN_UNVERIFIED_INLINE = {
     'the synced specs expose page-specifications (plural) under headless-admin-site, nested beneath /sites/{siteERC}',
   '/o/headless-delivery/v1.0/page-elements/12345':
     'headless-delivery declares no page-element paths',
-  '/o/headless-delivery/v1.0/sites/12345/asset-lists':
-    'headless-delivery declares no asset-list paths',
   '/o/headless-admin-site/v1.0/site-pages/12345/widget-page-preferences':
     'headless-admin-site declares no widget-page-preferences paths; its site-pages are nested under /sites/{siteERC}',
 };

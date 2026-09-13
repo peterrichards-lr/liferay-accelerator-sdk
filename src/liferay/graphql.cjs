@@ -1,4 +1,8 @@
 const axios = require('axios');
+const {
+  isBasicAuthRequested,
+  resolveBasicCredentials,
+} = require('../utils/liferayEnv.cjs');
 
 class LiferayGraphQLService {
   constructor(ctx) {
@@ -10,20 +14,14 @@ class LiferayGraphQLService {
 
   async _getClient(config) {
     const { oauth } = this.ctx;
-    const { ENV } = require('../utils/constants.cjs');
     let authHeader;
 
-    // HARDENING: Fallback to Basic Auth if OAuth is not configured or specifically requested
-    const useBasic =
-      config.authMethod === 'basic' ||
-      (!config.clientId &&
-        ENV.LIFERAY_API_USERNAME &&
-        ENV.LIFERAY_API_PASSWORD);
-
-    if (useBasic) {
-      const user = config.username || ENV.LIFERAY_API_USERNAME;
-      const pass = config.password || ENV.LIFERAY_API_PASSWORD;
-      const token = Buffer.from(`${user}:${pass}`).toString('base64');
+    // Basic is reachable only by asking for it, here as in HttpCoreService -
+    // the two used to carry separate copies of the same inference, and both
+    // downgraded on ambient environment credentials (#236).
+    if (isBasicAuthRequested(config)) {
+      const { username, password } = resolveBasicCredentials(config);
+      const token = Buffer.from(`${username}:${password}`).toString('base64');
       authHeader = `Basic ${token}`;
     } else {
       const accessToken = await oauth.getAccessToken(

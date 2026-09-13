@@ -496,8 +496,30 @@ class LiferayService {
     if (names.length === 0) return null;
     return names.map((name) => `${fieldName} ne '${name}'`).join(' and ');
   }
+  /**
+   * The exclusion list for an entity, or none.
+   *
+   * `ctx.config` is a consumer-supplied service that the SDK neither provides
+   * nor defaults - the only implementation lives in another application - so
+   * every reader that filters by exclusions threw
+   * `Cannot read properties of undefined (reading 'getExcludeLists')` for a
+   * caller that built a LiferayService the way the README shows (#239).
+   *
+   * An absent service means no exclusions, which is what the rest of this
+   * method already tolerates: its whole contribution is an optional list that
+   * is very often empty. Callers for whom exclusions are mandatory should
+   * assert their config service at wiring time, where the failure can name
+   * what is missing.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string} entityName The entity being read.
+   * @returns {Promise<Array<object>>} The exclusions, empty when none apply.
+   */
   async _getExclusions(config, entityName) {
     const { config: configService } = this.ctx;
+
+    if (typeof configService?.getExcludeLists !== 'function') return [];
+
     const excludeLists = await configService.getExcludeLists(config);
     const keyMap = {
       account: 'excludedAccounts',

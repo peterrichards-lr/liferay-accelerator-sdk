@@ -35,6 +35,7 @@ class ExtractionFacade {
     this.client = liferay?.client;
     this.rest = liferay?.rest;
     this.logger = liferay?.ctx?.logger || ctx?.logger;
+    this.siteExternalReferenceCodes = new Map();
   }
 
   /**
@@ -73,6 +74,77 @@ class ExtractionFacade {
       logger: this.logger,
       ...options,
     });
+  }
+
+  /**
+   * Fetch one page of sites.
+   *
+   * Exists so a caller holding a numeric site id - which is what a CLI is
+   * given - can turn it into the external reference code that every
+   * `headless-admin-site` path is keyed on (#240).
+   */
+  async getSitesPage(config, queryParams = {}) {
+    return await this._readPage('getSitesPage', queryParams, () =>
+      this.client.headlessAdminSite.v1_0.getSitesPage(config, null, {
+        params: queryParams,
+      })
+    );
+  }
+
+  /**
+   * The external reference code for a site, given either form of reference.
+   *
+   * `headless-admin-site` keys every site-scoped path on
+   * `{siteExternalReferenceCode}`, while `headless-delivery` keys its own on
+   * `{siteId}`. Three readers here took an id and substituted it into the
+   * first kind of slot, which is structurally well-formed and wrong: style
+   * books and display page templates answered 400, and getSite answered 404,
+   * on every call ever made (#240).
+   *
+   * A numeric reference is resolved by walking `/v1.0/sites` and matching
+   * `id`; `/v1.0/sites` declares no `filter` parameter, only
+   * `active`/`page`/`pageSize`/`search`, so there is no server-side lookup to
+   * ask for. The result is cached per instance and id, because a site's
+   * external reference code does not change under a running extraction, and
+   * three readers on the same site would otherwise walk the site list three
+   * times.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string|number} site The site's external reference code, or its id.
+   * @returns {Promise<string>} The external reference code.
+   * @throws {Error} When no reference was given, or no site carries that id.
+   */
+  async resolveSiteExternalReferenceCode(config, site) {
+    if (site === undefined || site === null || site === '') {
+      throw new Error(
+        'A site is required: pass the site external reference code, or the numeric site id to resolve one from'
+      );
+    }
+
+    const reference = String(site);
+    if (!/^\d+$/.test(reference)) return reference;
+
+    const cacheKey = `${config?.liferayUrl || ''}::${reference}`;
+    const cached = this.siteExternalReferenceCodes.get(cacheKey);
+    if (cached) return cached;
+
+    const { items } = await this.collectAll(
+      (params) => this.getSitesPage(config, params),
+      { op: 'getSitesPage' }
+    );
+
+    const match = items.find(
+      (candidate) => String(candidate?.id) === reference
+    );
+
+    if (!match?.externalReferenceCode) {
+      throw new Error(
+        `No site with id ${reference} carries an external reference code, and headless-admin-site addresses sites by external reference code`
+      );
+    }
+
+    this.siteExternalReferenceCodes.set(cacheKey, match.externalReferenceCode);
+    return match.externalReferenceCode;
   }
 
   /**
@@ -223,12 +295,22 @@ class ExtractionFacade {
 
   /**
    * Fetch one page of style books for the specified site.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string|number} siteExternalReferenceCode The site's external
+   *   reference code, or its numeric id, which is resolved to one (#240).
+   * @param {object} [queryParams] Passed through to Liferay.
    */
-  async getStyleBooksPage(config, siteId, queryParams = {}) {
+  async getStyleBooksPage(config, siteExternalReferenceCode, queryParams = {}) {
+    const erc = await this.resolveSiteExternalReferenceCode(
+      config,
+      siteExternalReferenceCode
+    );
+
     return await this._readPage('getSiteStyleBooksPage', queryParams, () =>
       this.client.headlessAdminSite.v1_0.getSiteStyleBooksPage(
         config,
-        siteId,
+        erc,
         null,
         { params: queryParams }
       )
@@ -239,8 +321,12 @@ class ExtractionFacade {
    * @deprecated Returns a single page; use `getStyleBooksPage`, or `collectAll`
    * to read every page (#200).
    */
-  async getStyleBooks(config, siteId, queryParams = {}) {
-    return await this.getStyleBooksPage(config, siteId, queryParams);
+  async getStyleBooks(config, siteExternalReferenceCode, queryParams = {}) {
+    return await this.getStyleBooksPage(
+      config,
+      siteExternalReferenceCode,
+      queryParams
+    );
   }
 
   /**
@@ -338,23 +424,32 @@ class ExtractionFacade {
   // --- Phase 2: Content Organization ---
 
   /**
-   * Fetch one page of asset lists for the specified site.
+   * Not available: Liferay serves no asset-list collection.
+   *
+   * This requested a site's asset-lists collection under headless-delivery, a
+   * path no synced OpenAPI document declares. The path gate carried it as
+   * unverified because the two possible causes - the SDK inventing a path, or
+   * `api-schemas` predating the endpoint - could not be told apart without a
+   * live instance. One has now answered: HTTP 404 (#240).
+   *
+   * It throws rather than requesting the path anyway, so a caller learns that
+   * this collection cannot be read at all instead of reading a 404 as an
+   * extraction failure it might retry or route around. Liferay's nearest
+   * equivalent is a content set addressed by key or uuid
+   * (`/v1.0/sites/{siteId}/content-sets/by-key/{key}/content-set-elements`),
+   * which answers with the elements of one named set rather than the sets a
+   * site has.
+   *
+   * @throws {Error} Always.
    */
-  async getAssetListsPage(config, siteId, queryParams = {}) {
-    return await this._readPage('get-asset-lists', queryParams, () =>
-      this.rest._get(
-        config,
-        `/o/headless-delivery/v1.0/sites/${siteId}/asset-lists`,
-        'get-asset-lists',
-        'Get Asset Lists',
-        { params: queryParams }
-      )
+  async getAssetListsPage() {
+    throw new Error(
+      'Asset lists cannot be extracted: headless-delivery declares no asset-list collection, and /o/headless-delivery/v1.0/sites/{siteId}/asset-lists answers 404 on a live instance (#240). Read a named content set by key or uuid instead.'
     );
   }
 
   /**
-   * @deprecated Returns a single page; use `getAssetListsPage`, or `collectAll`
-   * to read every page (#200).
+   * @deprecated Not available; see `getAssetListsPage` (#240).
    */
   async getAssetLists(config, siteId, queryParams = {}) {
     return await this.getAssetListsPage(config, siteId, queryParams);
@@ -362,15 +457,29 @@ class ExtractionFacade {
 
   /**
    * Fetch one page of display page templates for the specified site.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string|number} siteExternalReferenceCode The site's external
+   *   reference code, or its numeric id, which is resolved to one (#240).
+   * @param {object} [queryParams] Passed through to Liferay.
    */
-  async getDisplayPageTemplatesPage(config, siteId, queryParams = {}) {
+  async getDisplayPageTemplatesPage(
+    config,
+    siteExternalReferenceCode,
+    queryParams = {}
+  ) {
+    const erc = await this.resolveSiteExternalReferenceCode(
+      config,
+      siteExternalReferenceCode
+    );
+
     return await this._readPage(
       'getSiteDisplayPageTemplatesPage',
       queryParams,
       () =>
         this.client.headlessAdminSite.v1_0.getSiteDisplayPageTemplatesPage(
           config,
-          siteId,
+          erc,
           null,
           { params: queryParams }
         )
@@ -381,8 +490,16 @@ class ExtractionFacade {
    * @deprecated Returns a single page; use `getDisplayPageTemplatesPage`, or
    * `collectAll` to read every page (#200).
    */
-  async getDisplayPageTemplates(config, siteId, queryParams = {}) {
-    return await this.getDisplayPageTemplatesPage(config, siteId, queryParams);
+  async getDisplayPageTemplates(
+    config,
+    siteExternalReferenceCode,
+    queryParams = {}
+  ) {
+    return await this.getDisplayPageTemplatesPage(
+      config,
+      siteExternalReferenceCode,
+      queryParams
+    );
   }
 
   // --- Phase 3: IAM ---
@@ -522,14 +639,21 @@ class ExtractionFacade {
 
   /**
    * Fetch site settings/logo/theme config.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {string|number} siteExternalReferenceCode The site's external
+   *   reference code, or its numeric id, which is resolved to one (#240).
+   * @param {object} [queryParams] Passed through to Liferay.
    */
-  async getSiteSettings(config, siteId, queryParams = {}) {
-    return await this.client.headlessAdminSite.v1_0.getSite(
+  async getSiteSettings(config, siteExternalReferenceCode, queryParams = {}) {
+    const erc = await this.resolveSiteExternalReferenceCode(
       config,
-      siteId,
-      null,
-      { params: queryParams }
+      siteExternalReferenceCode
     );
+
+    return await this.client.headlessAdminSite.v1_0.getSite(config, erc, null, {
+      params: queryParams,
+    });
   }
 
   // --- Phase 6: Advanced Layouts ---

@@ -359,7 +359,23 @@ class OAuthService {
       customError.statusCode = error?.response?.status || 500;
     }
     customError.errorReference = errorRef;
-    customError.code = error?.code;
+
+    // Every downstream decision is made from `response`, not from `statusCode`:
+    // HttpCoreService asks `!error.response && error.request` before concluding
+    // the server never answered, and `[401, 403].includes(error.response?.status)`
+    // before recognising an auth failure. Replacing the axios error without
+    // carrying its response left the first branch reachable and the second one
+    // not, so a rejected credential was reported as a transport fault - and
+    // retried, because ErrorHandler.isRetryableError reads the same field (#238).
+    if (error?.response) {
+      customError.response = error.response;
+    } else {
+      // axios sets ERR_BAD_REQUEST for any 4xx. Copied onto an error that has
+      // lost its response it is the only surviving signal, and it describes a
+      // transport that was in fact fine.
+      customError.code = error?.code;
+    }
+
     throw customError;
   }
 

@@ -120,12 +120,34 @@ class ErrorHandler {
     return errorSummary;
   }
 
+  /**
+   * Whether an error is worth another attempt.
+   *
+   * An absent `response` used to mean "retry", which treated absence of
+   * evidence as evidence of transience: a rejected credential arriving as an
+   * error that had lost its response was retried until the attempts ran out
+   * (#238). The status is therefore taken from whichever field carries it -
+   * `error.response.status` for an axios error, `status` or `statusCode` for
+   * one an SDK layer rebuilt - and only a status the server could answer
+   * differently next time is retried.
+   *
+   * With no numeric status anywhere, the request did not reach a server that
+   * had an opinion, so it is still retried. `statusCode: 0`, which
+   * `OAuthService._handleException` uses for ENOTFOUND/ECONNREFUSED/ETIMEDOUT,
+   * says the same thing.
+   *
+   * @param {object} error The error to classify.
+   * @returns {boolean} True when the operation should be retried.
+   */
   static isRetryableError(error) {
-    if (!error.response) return true;
+    const status =
+      error?.response?.status ?? error?.status ?? error?.statusCode;
 
-    const status = error.response.status;
+    if (typeof status === 'number' && status > 0) {
+      return status >= 500 || status === 429;
+    }
 
-    return status >= 500 || status === 429;
+    return true;
   }
 
   static shouldStopBatch(errors, maxErrors = 50) {

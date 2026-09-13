@@ -1447,4 +1447,62 @@ describe('LiferayService', () => {
       );
     });
   });
+  describe('exclusions without a config service (#239)', () => {
+    // `ctx.config` is supplied by the consumer, not by the SDK. A LiferayService
+    // built the way the README shows has none, and every reader that filters by
+    // exclusions threw `Cannot read properties of undefined` four frames deep
+    // inside a paginated read - reported upstream as an empty collection.
+    const buildServiceWithoutConfigService = () => {
+      const cache = new Map();
+      return new LiferayService({
+        cache: {
+          get: (key) => cache.get(key),
+          set: (key, value) => cache.set(key, value),
+          clear: () => cache.clear(),
+        },
+        logger: {
+          info: vi.fn(),
+          error: vi.fn(),
+          debug: vi.fn(),
+          warn: vi.fn(),
+        },
+        oauth: {
+          getAccessToken: vi.fn().mockResolvedValue('test-token'),
+          clearTokenCache: vi.fn(),
+          applyConfig: vi.fn(),
+        },
+      });
+    };
+
+    it('reads accounts unfiltered rather than throwing', async () => {
+      const service = buildServiceWithoutConfigService();
+
+      const result = await service.getAccounts(config);
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].externalReferenceCode).toBe('ACC-1');
+    });
+
+    it('reads account groups unfiltered rather than throwing', async () => {
+      const service = buildServiceWithoutConfigService();
+
+      const result = await service.getAccountGroups(config);
+
+      expect(result.items).toHaveLength(1);
+    });
+
+    it('still applies the exclusions when a config service is wired in', async () => {
+      const service = buildServiceWithoutConfigService();
+      service.ctx.config = {
+        getExcludeLists: vi.fn().mockResolvedValue({
+          excludedAccounts: [{ name: 'Test Account 1' }],
+        }),
+      };
+
+      const result = await service.getAccounts(config);
+
+      expect(service.ctx.config.getExcludeLists).toHaveBeenCalledWith(config);
+      expect(result.items).toHaveLength(0);
+    });
+  });
 });

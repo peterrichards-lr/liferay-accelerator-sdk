@@ -256,7 +256,102 @@ describe('liferay/rest/HttpCoreService', () => {
     });
   });
 
+  describe('a rejected credential (#238)', () => {
+    it('is reported with its status and attempted once, not retried as a transport failure', async () => {
+      const rejected = new Error('OAuth authentication failed');
+      rejected.statusCode = 401;
+      rejected.response = {
+        status: 401,
+        statusText: 'Unauthorized',
+        data: { error: 'invalid_client' },
+      };
+      ctx.oauth.getAccessToken.mockRejectedValue(rejected);
+
+      const thrown = await service
+        ._get(
+          {
+            liferayUrl: 'http://liferay:8080',
+            clientId: 'c',
+            clientSecret: 's',
+          },
+          '/o/headless-admin-user/v1.0/my-user-account',
+          'test-op'
+        )
+        .catch((err) => err);
+
+      expect(thrown.name).toBe('LiferayRequestError');
+      expect(thrown.status).toBe(401);
+      expect(thrown.response.status).toBe(401);
+      expect(thrown).not.toHaveProperty('networkCode');
+      expect(ctx.oauth.getAccessToken).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('testConnection and the auth mechanism (#236)', () => {
+    const authEnv = {
+      LIFERAY_AUTH_METHOD: ENV.LIFERAY_AUTH_METHOD,
+      LIFERAY_API_USERNAME: ENV.LIFERAY_API_USERNAME,
+      LIFERAY_API_PASSWORD: ENV.LIFERAY_API_PASSWORD,
+    };
+
+    beforeEach(() => {
+      ctx.oauth.isLiferayRouteAvailable = vi.fn().mockReturnValue(false);
+      ctx.oauth.validateOAuthConfig = vi.fn();
+    });
+
+    afterEach(() => {
+      Object.assign(ENV, authEnv);
+    });
+
+    it('validates the OAuth config when basic was not requested', async () => {
+      await service.testConnection({
+        liferayUrl: 'http://liferay:8080',
+        clientId: 'client-1',
+        clientSecret: 'secret-1',
+      });
+
+      expect(ctx.oauth.validateOAuthConfig).toHaveBeenCalled();
+    });
+
+    it('skips the OAuth validation when basic was requested', async () => {
+      const result = await service.testConnection({
+        liferayUrl: 'http://liferay:8080',
+        authMethod: 'basic',
+        username: 'admin',
+        password: 'secret',
+      });
+
+      expect(ctx.oauth.validateOAuthConfig).not.toHaveBeenCalled();
+      expect(result.status).toBe('connected');
+    });
+
+    it('reports missing credentials as an auth config error, not a connection failure', async () => {
+      ENV.LIFERAY_API_USERNAME = 'env-user';
+      ENV.LIFERAY_API_PASSWORD = 'env-password';
+
+      const thrown = await service
+        .testConnection({ liferayUrl: 'http://liferay:8080' })
+        .catch((err) => err);
+
+      expect(thrown.response.data).toMatchObject({
+        success: false,
+        errorType: 'auth_config',
+        field: 'clientSecret',
+      });
+    });
+  });
+
   describe('createAxiosInstance', () => {
+    const authEnv = {
+      LIFERAY_AUTH_METHOD: ENV.LIFERAY_AUTH_METHOD,
+      LIFERAY_API_USERNAME: ENV.LIFERAY_API_USERNAME,
+      LIFERAY_API_PASSWORD: ENV.LIFERAY_API_PASSWORD,
+    };
+
+    afterEach(() => {
+      Object.assign(ENV, authEnv);
+    });
+
     it('uses Basic Auth when authMethod is basic', async () => {
       const instance = await service.createAxiosInstance({
         authMethod: 'basic',
@@ -287,6 +382,86 @@ describe('liferay/rest/HttpCoreService', () => {
       expect(instance.defaults.headers.Authorization).toBe(
         'Bearer test-access-token'
       );
+    });
+
+    it('uses Basic Auth when the environment declares the method', async () => {
+      ENV.LIFERAY_AUTH_METHOD = 'basic';
+      ENV.LIFERAY_API_USERNAME = 'env-user';
+      ENV.LIFERAY_API_PASSWORD = 'env-password';
+
+      const instance = await service.createAxiosInstance({
+        liferayUrl: 'http://liferay:8080',
+      });
+
+      const expectedToken = Buffer.from('env-user:env-password').toString(
+        'base64'
+      );
+      expect(instance.defaults.headers.Authorization).toBe(
+        `Basic ${expectedToken}`
+      );
+      expect(ctx.oauth.getAccessToken).not.toHaveBeenCalled();
+    });
+
+    it('asks OAuth for a token when only ambient basic credentials are set (#236)', async () => {
+      ENV.LIFERAY_API_USERNAME = 'env-user';
+      ENV.LIFERAY_API_PASSWORD = 'env-password';
+
+      const instance = await service.createAxiosInstance({
+        liferayUrl: 'http://liferay:8080',
+      });
+
+      expect(ctx.oauth.getAccessToken).toHaveBeenCalledWith(
+        'http://liferay:8080',
+        undefined,
+        undefined
+      );
+      expect(instance.defaults.headers.Authorization).toBe(
+        'Bearer test-access-token'
+      );
+    });
+
+    it('surfaces the OAuth failure rather than downgrading (#236)', async () => {
+      ENV.LIFERAY_API_USERNAME = 'env-user';
+      ENV.LIFERAY_API_PASSWORD = 'env-password';
+      ctx.oauth.getAccessToken.mockRejectedValue(
+        new Error('OAuth configuration not found')
+      );
+
+      await expect(
+        service.createAxiosInstance({ liferayUrl: 'http://liferay:8080' })
+      ).rejects.toThrow('OAuth configuration not found');
+    });
+
+    it('refuses half a basic credential, naming the half that is missing', async () => {
+      await expect(
+        service.createAxiosInstance({
+          authMethod: 'basic',
+          username: 'admin',
+          liferayUrl: 'http://liferay:8080',
+        })
+      ).rejects.toThrow(/password is missing/);
+
+      await expect(
+        service.createAxiosInstance({
+          authMethod: 'basic',
+          password: 'secret',
+          liferayUrl: 'http://liferay:8080',
+        })
+      ).rejects.toThrow(/username is missing/);
+    });
+
+    it('does not write the username to the log', async () => {
+      await service.createAxiosInstance({
+        authMethod: 'basic',
+        username: 'admin',
+        password: 'secret',
+        liferayUrl: 'http://liferay:8080',
+      });
+
+      const [, details] = ctx.logger.debug.mock.calls.find(
+        ([message]) => message === 'Using Basic Auth for Liferay connection'
+      );
+      expect(details).toEqual({ liferayUrl: 'http://liferay:8080' });
     });
   });
 
