@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw';
 import { server } from './setup.mjs';
 
 const { LiferayService } = require('../src/liferay/index.cjs');
+const { emptyExcludeLists } = require('../src/utils/exclusionKeys.cjs');
 const { DEFAULT_MAX_ITEMS } = require('../src/utils/paging.cjs');
 
 const WAREHOUSES_URL = '*/o/headless-commerce-admin-inventory/v1.0/warehouses';
@@ -60,7 +61,10 @@ function createLiferayService() {
     },
     logger,
     config: {
-      getExcludeLists: vi.fn().mockResolvedValue({}),
+      // A configuration that declares its keys and excludes nothing, which is
+      // what the SDK now asks for - an absent key is reported, an empty list is
+      // not (#254).
+      getExcludeLists: vi.fn().mockResolvedValue(emptyExcludeLists()),
     },
   };
   ctx.oauth = {

@@ -1552,16 +1552,53 @@ describe('LiferayService', () => {
       );
     });
 
-    it('stays silent when a mapped entity simply has no list configured', async () => {
+    it('says once when the configuration supplies no key at all (#254)', async () => {
       const service = buildServiceWithoutConfigService();
       service.ctx.config = {
-        getExcludeLists: vi.fn().mockResolvedValue({}),
+        getExcludeLists: vi.fn().mockResolvedValue({ excludedAccounts: [] }),
+      };
+
+      const first = await service._getExclusions(config, 'account-group');
+      const second = await service._getExclusions(config, 'account-group');
+
+      expect(first).toEqual([]);
+      expect(second).toEqual([]);
+
+      const warnings = service.ctx.logger.warn.mock.calls.filter(([m]) =>
+        m.includes('excludedAccountGroups')
+      );
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0][1]).toMatchObject({
+        entityName: 'account-group',
+        configKey: 'excludedAccountGroups',
+      });
+    });
+
+    it('stays silent for a key configured as an empty list (#254)', async () => {
+      const service = buildServiceWithoutConfigService();
+      service.ctx.config = {
+        getExcludeLists: vi
+          .fn()
+          .mockResolvedValue({ excludedAccountGroups: [] }),
       };
 
       const exclusions = await service._getExclusions(config, 'account-group');
 
       expect(exclusions).toEqual([]);
       expect(service.ctx.logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('warns per key, not per entity sharing one (#254)', async () => {
+      const service = buildServiceWithoutConfigService();
+      service.ctx.config = { getExcludeLists: vi.fn().mockResolvedValue({}) };
+
+      await service._getExclusions(config, 'priceList');
+      await service._getExclusions(config, 'promotion');
+
+      const warnings = service.ctx.logger.warn.mock.calls.filter(([m]) =>
+        m.includes('excludedPriceLists')
+      );
+      expect(warnings).toHaveLength(1);
     });
 
     it('still applies the exclusions when a config service is wired in', async () => {

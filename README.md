@@ -511,15 +511,44 @@ accounts a screen at a time had to read every account in the instance first.
 
 `getAccounts`, `getAccountGroups`, `getProducts`, `getWarehouses`, `getOrders`
 and the other discovery readers filter their results through an exclusion list
-read from `ctx.config.getExcludeLists`, keyed per entity:
-`excludedAccounts`, `excludedAccountGroups`, `excludedProducts`,
-`excludedWarehouses`, `excludedPriceLists` (which also covers promotions),
-`excludedOrders`, `excludedSpecifications`, `excludedOptions` and
-`excludedOptionCategories`. A key your config service does not supply simply
-excludes nothing; an **entity the SDK has no key for** now logs a warning, which
-is how `excludedAccountGroups` came to be missing for as long as it was (#245) -
-account groups were passed under a name the map did not carry, so nothing was
-ever excluded from them, including from `deleteAccountGroupsBatch`. That service is supplied by the
+read from `ctx.config.getExcludeLists`, keyed per entity.
+
+**Generate your configuration from the declaration, do not restate it.** The SDK
+decides which key it reads for which entity, and exports that decision (#254):
+
+```js
+const {
+  EXCLUSION_KEYS,
+  emptyExcludeLists,
+  exclusionKeyFor,
+} = require('@liferay/accelerator-sdk');
+
+EXCLUSION_KEYS; // the nine distinct keys, in declaration order
+emptyExcludeLists(); // every key present and empty - the shape to default to
+exclusionKeyFor('account-group'); // 'excludedAccountGroups'
+```
+
+Ten entities map to nine keys, because promotions share the price list key -
+Liferay models a promotion as a price list, and the exclude list follows the
+data rather than the label. A consumer that writes its own copy of this list, in
+a settings panel or a defaults object, is restating a decision made here and
+will eventually restate it wrongly: that is how price lists drifted between
+three copies, and how `account-group` came to be missing from the map entirely
+so that nothing was ever excluded from account groups - including from
+`deleteAccountGroupsBatch` (#245).
+
+Two silences are broken, and they are not the same thing (#254):
+
+| Situation                                       | What happens                                                         |
+| :---------------------------------------------- | :------------------------------------------------------------------- |
+| an entity name the SDK has no key for           | **warns** - a defect in the SDK, nothing can ever be excluded        |
+| a key your configuration does not supply at all | **warns once per key** - the SDK is reading a property nobody writes |
+| a key configured as an empty list               | silent - you said there is nothing to exclude, and meant it          |
+
+The middle row is the one worth having. An absent property and a configured
+empty list both arrive as `[]`, which is why `excludedAccountGroups` being
+supplied by nobody went unnoticed for months. Say it deliberately with
+`emptyExcludeLists()` and the warning goes quiet. That service is supplied by the
 consumer; the SDK neither provides nor defaults one. A `LiferayService` built
 the way this README shows has no `ctx.config`, and until #239 every one of those
 readers threw `Cannot read properties of undefined (reading 'getExcludeLists')`
