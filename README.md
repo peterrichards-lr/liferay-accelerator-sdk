@@ -260,7 +260,10 @@ path templates declared by the OpenAPI documents in `api-schemas/`.
 
 Paths written inline in the source rather than taken from the profile are
 harvested too, with `${...}` interpolations replaced by a sentinel segment - they
-would otherwise bypass this gate entirely. Where no synced spec describes an
+would otherwise bypass this gate entirely. Comments are blanked before
+harvesting (#246): a path named in a doc comment is documentation and cannot
+issue a request, and until that changed, explaining why a path must never be
+used failed the build for using it. Where no synced spec describes an
 inline path, it must be listed in `KNOWN_UNVERIFIED_INLINE` with a reason; a new
 unmatched inline path fails the build, and a listed one that starts matching must
 be removed.
@@ -369,7 +372,7 @@ kinds of reader sit on top of that, and the difference is in the name (#200).
 
 **Collecting readers** return the whole set and page until `totalCount` is
 reached. `liferay.getCatalogs()`, `liferay.rest.getCatalogs()`,
-`getAccounts`/`getAccountGroups` and everything built on
+`liferay.getAccounts()`/`getAccountGroups()` and everything built on
 `rest._collectPagedItems` are in this group. `getCatalogs` used to cap silently -
 at 20 through `rest`, at 100 through the commerce service - which is how a
 downstream total-delete path came to run over a truncated catalog list.
@@ -427,11 +430,39 @@ instance answers with 404. There is no equivalent collection to redirect it to -
 Liferay addresses a content set by key or uuid, not as a list per site - so it
 throws saying that, rather than issuing a request that cannot succeed.
 
+### Accounts can be read either way
+
+Accounts and account groups are the one entity with both kinds of reader, so
+choose by what you need (#248):
+
+| Reader                                               | Returns                                 | Exclusions      |
+| :--------------------------------------------------- | :-------------------------------------- | :-------------- |
+| `liferay.getAccounts(config)`                        | every account, up to the ceilings below | applied         |
+| `liferay.extraction.getAccountsPage(config, params)` | one page, with Liferay's `totalCount`   | **not applied** |
+
+The page readers are deliberately unfiltered. Applying an exclusion list to a
+page after Liferay has counted it would leave `items` disagreeing with the
+envelope's `totalCount`, and page boundaries meaning nothing - drop two rows
+from page one and the row that should have led page two is never seen by
+anybody. A caller that wants exclusions wants the whole set, and the collecting
+reader is the one that can honestly apply them.
+
+Until #248 there were no page readers here at all, so a CLI listing twenty
+accounts a screen at a time had to read every account in the instance first.
+
 ### Exclusions are optional
 
 `getAccounts`, `getAccountGroups`, `getProducts`, `getWarehouses`, `getOrders`
 and the other discovery readers filter their results through an exclusion list
-read from `ctx.config.getExcludeLists`. That service is supplied by the
+read from `ctx.config.getExcludeLists`, keyed per entity:
+`excludedAccounts`, `excludedAccountGroups`, `excludedProducts`,
+`excludedWarehouses`, `excludedPriceLists` (which also covers promotions),
+`excludedOrders`, `excludedSpecifications`, `excludedOptions` and
+`excludedOptionCategories`. A key your config service does not supply simply
+excludes nothing; an **entity the SDK has no key for** now logs a warning, which
+is how `excludedAccountGroups` came to be missing for as long as it was (#245) -
+account groups were passed under a name the map did not carry, so nothing was
+ever excluded from them, including from `deleteAccountGroupsBatch`. That service is supplied by the
 consumer; the SDK neither provides nor defaults one. A `LiferayService` built
 the way this README shows has no `ctx.config`, and until #239 every one of those
 readers threw `Cannot read properties of undefined (reading 'getExcludeLists')`

@@ -26,6 +26,7 @@
  */
 
 const { collectAllPages, warnIfTruncated } = require('../utils/paging.cjs');
+const { PATH } = require('../utils/liferayPaths.cjs');
 
 class ExtractionFacade {
   constructor(ctx) {
@@ -426,7 +427,7 @@ class ExtractionFacade {
   /**
    * Not available: Liferay serves no asset-list collection.
    *
-   * This requested a site's asset-lists collection under headless-delivery, a
+   * This requested `/o/headless-delivery/v1.0/sites/{siteId}/asset-lists`, a
    * path no synced OpenAPI document declares. The path gate carried it as
    * unverified because the two possible causes - the SDK inventing a path, or
    * `api-schemas` predating the endpoint - could not be told apart without a
@@ -503,6 +504,50 @@ class ExtractionFacade {
   }
 
   // --- Phase 3: IAM ---
+
+  /**
+   * Fetch one page of accounts.
+   *
+   * `liferay.getAccounts` collects every page and applies the configured
+   * exclusion lists; this returns one page and applies none. Both are
+   * legitimate, and the difference is deliberate (#248): filtering a page after
+   * Liferay has counted it would leave `items` disagreeing with the envelope's
+   * `totalCount`, and page boundaries meaning nothing. A caller that wants
+   * exclusions wants the whole set, and should use the collecting reader.
+   *
+   * @param {object} config Liferay connection config.
+   * @param {object} [queryParams] Passed through to Liferay, `page` and
+   *   `pageSize` included.
+   * @returns {Promise<object>} One page envelope: `items` and `totalCount`.
+   */
+  async getAccountsPage(config, queryParams = {}) {
+    return await this._readPage('get-accounts', queryParams, () =>
+      this.rest._get(config, PATH.ACCOUNTS, 'get-accounts', 'Get Accounts', {
+        params: queryParams,
+      })
+    );
+  }
+
+  /**
+   * Fetch one page of account groups.
+   *
+   * Unfiltered, for the same reason as `getAccountsPage` (#248).
+   *
+   * @param {object} config Liferay connection config.
+   * @param {object} [queryParams] Passed through to Liferay.
+   * @returns {Promise<object>} One page envelope: `items` and `totalCount`.
+   */
+  async getAccountGroupsPage(config, queryParams = {}) {
+    return await this._readPage('get-account-groups', queryParams, () =>
+      this.rest._get(
+        config,
+        PATH.ACCOUNT_GROUPS,
+        'get-account-groups',
+        'Get Account Groups',
+        { params: queryParams }
+      )
+    );
+  }
 
   /**
    * Fetch one page of user accounts.

@@ -583,4 +583,65 @@ describe('ExtractionFacade', () => {
       expect(mockClient.headlessAdminSite.v1_0.getSite).not.toHaveBeenCalled();
     });
   });
+  describe('accounts can be paged (#248)', () => {
+    const { PATH } = require('../src/utils/liferayPaths.cjs');
+
+    it('reads one page of accounts, unfiltered, through the profile path', async () => {
+      const result = await facade.getAccountsPage(config, { pageSize: 2 });
+
+      expect(mockRest._get).toHaveBeenCalledWith(
+        config,
+        PATH.ACCOUNTS,
+        'get-accounts',
+        'Get Accounts',
+        { params: { pageSize: 2 } }
+      );
+      expect(result.items).toHaveLength(1);
+    });
+
+    it('reads one page of account groups', async () => {
+      await facade.getAccountGroupsPage(config, { page: 2, pageSize: 50 });
+
+      expect(mockRest._get).toHaveBeenCalledWith(
+        config,
+        PATH.ACCOUNT_GROUPS,
+        'get-account-groups',
+        'Get Account Groups',
+        { params: { page: 2, pageSize: 50 } }
+      );
+    });
+
+    it('warns when a page is short of what Liferay counted', async () => {
+      const logger = { warn: vi.fn(), info: vi.fn(), error: vi.fn() };
+      const logged = new ExtractionFacade({
+        ...mockLiferayService,
+        ctx: { logger },
+      });
+      mockRest._get.mockResolvedValueOnce({
+        items: [{ id: 1 }],
+        totalCount: 9,
+      });
+
+      await logged.getAccountsPage(config);
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('get-accounts'),
+        expect.objectContaining({ returned: 1, totalCount: 9 })
+      );
+    });
+
+    it('can be driven across pages by collectAll', async () => {
+      mockRest._get
+        .mockResolvedValueOnce({ items: [{ id: 1 }, { id: 2 }], totalCount: 3 })
+        .mockResolvedValueOnce({ items: [{ id: 3 }], totalCount: 3 });
+
+      const { items, totalCount } = await facade.collectAll(
+        (params) => facade.getAccountsPage(config, params),
+        { pageSize: 2 }
+      );
+
+      expect(items.map((i) => i.id)).toEqual([1, 2, 3]);
+      expect(totalCount).toBe(3);
+    });
+  });
 });
