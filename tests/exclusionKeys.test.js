@@ -5,10 +5,17 @@ const require = createRequire(import.meta.url);
 const {
   EXCLUSION_KEY_BY_ENTITY,
   EXCLUSION_KEYS,
+  EXCLUSION_ITEM_FIELDS,
   emptyExcludeLists,
+  excludeListsJsonSchema,
   exclusionKeyFor,
 } = require('../src/utils/exclusionKeys.cjs');
 const sdk = require('../src/index.js');
+const { LiferayService } = require('../src/liferay/index.cjs');
+
+/** The matcher, called without a service - it reads no instance state. */
+const matches = (item, entry) =>
+  LiferayService.prototype._shouldExclude.call({}, item, [entry]);
 
 /**
  * The declaration is the authority a consumer generates its configuration from
@@ -81,5 +88,97 @@ describe('exclusion key declaration', () => {
     ]) {
       expect(exclusionKeyFor(entity)).toBeTruthy();
     }
+  });
+
+  describe('the item shape, and the matcher it describes', () => {
+    it('does not vary by key - one matcher serves every list', () => {
+      // Every reader routes through _shouldExclude, so a consumer generating a
+      // schema needs one item shape, not nine.
+      expect(Object.keys(EXCLUSION_ITEM_FIELDS).sort()).toEqual([
+        'entityId',
+        'erc',
+        'name',
+      ]);
+    });
+
+    it('matches each declared field the way the declaration says it does', () => {
+      expect(matches({ id: 42 }, { entityId: '42' })).toBe(true);
+      expect(matches({ productId: 42 }, { entityId: 42 })).toBe(true);
+      expect(matches({ externalReferenceCode: 'A-1' }, { erc: 'A-1' })).toBe(
+        true
+      );
+      expect(matches({ name: 'Widget' }, { name: 'Widget' })).toBe(true);
+      expect(matches({ title: 'Widget' }, { name: 'Widget' })).toBe(true);
+      expect(
+        matches(
+          { name: { en_US: 'Widget', fr_FR: 'Machin' } },
+          { name: 'Machin' }
+        )
+      ).toBe(true);
+    });
+
+    it('declares nothing it cannot match, and matches nothing it does not declare', () => {
+      // The fields the matcher reads off an entry, taken from the declaration -
+      // if _shouldExclude grows a fourth, this test does not notice, but the
+      // reverse (a declared field that matches nothing) is caught below.
+      for (const field of Object.keys(EXCLUSION_ITEM_FIELDS)) {
+        const spec = EXCLUSION_ITEM_FIELDS[field];
+        const probe = spec.matchedAgainst[0].replace(/\[locale\]$/, '');
+        expect(
+          matches({ [probe]: 'probe-value' }, { [field]: 'probe-value' })
+        ).toBe(true);
+      }
+    });
+
+    it('does not match on key, which is how options and specifications are named', () => {
+      // Documented in the declaration because it fails silently: an operator
+      // naming an option by its key excludes nothing and is told nothing.
+      expect(matches({ key: 'SIZE' }, { name: 'SIZE' })).toBe(false);
+      expect(matches({ key: 'SIZE' }, { entityId: 'SIZE' })).toBe(false);
+      expect(matches({ key: 'SIZE' }, { erc: 'SIZE' })).toBe(false);
+    });
+
+    it('leaves an item alone when no field matches', () => {
+      expect(matches({ id: 1, name: 'Keep' }, { name: 'Drop' })).toBe(false);
+    });
+  });
+
+  describe('the derived JSON Schema', () => {
+    it('has a property per distinct key and no required keys by default', () => {
+      const schema = excludeListsJsonSchema();
+
+      expect(Object.keys(schema.properties).sort()).toEqual(
+        [...EXCLUSION_KEYS].sort()
+      );
+      // Deriving `required` from the keys would reject every configuration
+      // saved before a key existed - that is a migration hazard, not
+      // enforcement.
+      expect(schema.required).toEqual([]);
+    });
+
+    it('honours required when a caller asks for it explicitly', () => {
+      const schema = excludeListsJsonSchema({
+        required: ['excludedAccounts'],
+      });
+
+      expect(schema.required).toEqual(['excludedAccounts']);
+      expect(excludeListsJsonSchema().required).toEqual([]);
+    });
+
+    it('requires at least one identifier on an entry', () => {
+      const item = excludeListsJsonSchema().properties.excludedAccounts.items;
+
+      expect(item.anyOf).toEqual(
+        Object.keys(EXCLUSION_ITEM_FIELDS).map((f) => ({ required: [f] }))
+      );
+    });
+
+    it('accepts the shape emptyExcludeLists produces', () => {
+      const schema = excludeListsJsonSchema();
+
+      for (const key of Object.keys(emptyExcludeLists())) {
+        expect(schema.properties[key]).toBeDefined();
+      }
+    });
   });
 });
