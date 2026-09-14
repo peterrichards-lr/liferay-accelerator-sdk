@@ -533,8 +533,8 @@ excludeListsJsonSchema(); // a JSON Schema for the whole object
 
 ### What an exclusion entry may contain
 
-`{ entityId?, erc?, name? }`, at least one of them, and **it does not vary by
-key**. Every reader routes through one matcher, `_shouldExclude`, so one item
+`{ entityId?, erc?, key?, name? }`, at least one of them, and **it does not vary
+by key**. Every reader routes through one matcher, `_shouldExclude`, so one item
 shape covers all nine lists. Entries are OR-ed, and so are the fields within an
 entry.
 
@@ -542,17 +542,20 @@ entry.
 | :--------- | :------------------------------------------------------------------- |
 | `entityId` | `id`, `productId` - coerced to string, so `42` and `'42'` both match |
 | `erc`      | `externalReferenceCode`                                              |
+| `key`      | `key` - how Liferay identifies options and specifications            |
 | `name`     | `name`, `title`, and any value of a localised `name` object          |
 
 That `name` is compared against `title` too is why an order or a specification
 with no `name` is still excludable.
 
-Two limits, and both fail silently:
+`key` reaches `key` and nothing else, deliberately (#258). An entry written
+before it existed carries no `key`, so nothing already configured changes -
+making `name` match `key` instead would alter filtering for every configuration
+in place, and could drop an item that merely shares a string with another item's
+key. Excluding by key means adding the field.
 
-- **`key` is not matchable.** Liferay identifies options and specifications by
-  `key`, and nothing compares it. An entry naming one of those by its key
-  excludes nothing and says nothing.
-- `entityId` reaches `id` and `productId` only - not `sku`, not `uuid`.
+One limit remains: `entityId` reaches `id` and `productId` only - not `sku`, not
+`uuid`.
 
 `excludeListsJsonSchema()` derives a validator for the whole object from the
 same declaration. Its `required` is **empty by default and should usually stay
@@ -739,4 +742,4 @@ build it never affects callback processing.
 
 ---
 
-_Last Updated: 2026-09-13_ | _Last Reviewed: 2026-09-13_
+_Last Updated: 2026-09-14_ | _Last Reviewed: 2026-09-14_

@@ -87,14 +87,9 @@ function exclusionKeyFor(entityName) {
  * Exported because it is the part a consumer cannot derive from the key names,
  * and the part most likely to be guessed at (#254).
  *
- * Two limits worth knowing, because both fail silently:
- *
- *   - **`key` is not matchable.** Liferay identifies options and
- *     specifications by `key`, and nothing here compares it. An entry naming
- *     one of those by its key excludes nothing, and says nothing.
- *   - `entityId` is compared as a string against `id` and `productId`, so a
- *     numeric id and its string form both match, but a `sku` or a `uuid` does
- *     not.
+ * One limit worth knowing, because it fails silently: `entityId` is compared as
+ * a string against `id` and `productId`, so a numeric id and its string form
+ * both match, but a `sku` or a `uuid` does not.
  */
 const EXCLUSION_ITEM_FIELDS = Object.freeze({
   entityId: Object.freeze({
@@ -103,6 +98,12 @@ const EXCLUSION_ITEM_FIELDS = Object.freeze({
   }),
   erc: Object.freeze({
     matchedAgainst: Object.freeze(['externalReferenceCode']),
+    comparison: 'strict',
+  }),
+  // Added in #258. Liferay identifies options and specifications by `key`, and
+  // until then an entry naming one that way excluded nothing and said nothing.
+  key: Object.freeze({
+    matchedAgainst: Object.freeze(['key']),
     comparison: 'strict',
   }),
   name: Object.freeze({

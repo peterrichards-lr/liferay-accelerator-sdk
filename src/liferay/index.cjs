@@ -582,13 +582,21 @@ class LiferayService {
         (String(item.id) === String(ex.entityId) ||
           String(item.productId) === String(ex.entityId));
       const ercMatch = ex.erc && item.externalReferenceCode === ex.erc;
+      // Liferay identifies options and specifications by `key`, and until #258
+      // nothing compared it: an entry naming one the way the UI shows it
+      // excluded nothing and reported nothing. Additive on purpose - an
+      // existing entry carries no `key`, so nothing already configured
+      // changes. Making `ex.name` reach `item.key` instead would alter
+      // filtering for every configuration in place, and could drop an item
+      // that merely shares a string with another item's key.
+      const keyMatch = ex.key && item.key === ex.key;
       const nameMatch =
         ex.name &&
         (item.name === ex.name ||
           item.title === ex.name ||
           (typeof item.name === 'object' &&
             Object.values(item.name).includes(ex.name)));
-      return idMatch || ercMatch || nameMatch;
+      return idMatch || ercMatch || keyMatch || nameMatch;
     });
   }
 
