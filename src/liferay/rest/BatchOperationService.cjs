@@ -1,5 +1,8 @@
 const { ERC_PREFIX, ENV } = require('../../utils/constants.cjs');
-const { signCallbackUrl } = require('../../utils/callbackSignature.cjs');
+const {
+  redactCallbackSignature,
+  signCallbackUrl,
+} = require('../../utils/callbackSignature.cjs');
 const { createERC, delay } = require('../../utils/misc.cjs');
 const { sanitizedERC } = require('../../utils/normalize.cjs');
 const { findContract } = require('../../utils/contractMappings.cjs');
@@ -217,7 +220,9 @@ class BatchOperationService {
       logger.debug(`Sending batch ${entityName} creation request`, {
         operation: op,
         count: processedItems.length,
-        callbackUrl: url,
+        // Masked: the callback URL rides in here and now carries a
+        // signature, and this line is written on every batch (#812).
+        callbackUrl: redactCallbackSignature(url),
         batchExternalReferenceCode: currentERC,
         correlationId: config?.correlationId || session?.correlationId,
       });

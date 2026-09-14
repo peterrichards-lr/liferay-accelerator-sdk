@@ -4,6 +4,9 @@ const {
   resolveBasicCredentials,
 } = require('../../utils/liferayEnv.cjs');
 const axios = require('axios');
+const {
+  redactCallbackSignature,
+} = require('../../utils/callbackSignature.cjs');
 const fs = require('fs');
 const { logger } = require('../../utils/logger.cjs');
 const { PATH } = require('../../utils/liferayPaths.cjs');
@@ -511,7 +514,12 @@ class HttpCoreService {
     const qs = paramsSerializer(params);
     const finalUrl = qs ? `${url}${url.includes('?') ? '&' : '?'}${qs}` : url;
 
-    logger.trace('http:get', { url: finalUrl, params });
+    // Masked for the same reason as the batch submission line: a callback
+    // URL passed through here carries a signature (#812).
+    logger.trace('http:get', {
+      params,
+      url: redactCallbackSignature(finalUrl),
+    });
 
     return this._request(config, {
       method: 'GET',
