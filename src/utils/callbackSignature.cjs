@@ -132,10 +132,79 @@ function verifyCallbackSignature({ batchERC, expiresAt, signature } = {}) {
   return ok ? { ok: true, reason: null } : { ok: false, reason: 'mismatch' };
 }
 
+/**
+ * A URL with its callback signature masked, for logging.
+ *
+ * The batch submission URL carries the callback URL percent-encoded as the
+ * value of `callbackURL`, and that inner URL now carries a signature. Both the
+ * submission path and the raw request URL are logged, so without this the
+ * signature is written to the log on every batch - a credential at rest, in a
+ * file people paste into issues.
+ *
+ * This lives here rather than in the consumer because the consumer cannot
+ * reach it: the log call is made from inside this package, before any consumer
+ * sanitiser sees the value. Redaction has to happen where the logging happens.
+ *
+ * Everything else is left intact. The batch reference is what makes the line
+ * worth logging, and masking the whole URL would trade a credential leak for a
+ * blind log.
+ */
+function redactCallbackSignature(value) {
+  if (typeof value !== 'string' || !value.includes(SIGNATURE_PARAM)) {
+    return value;
+  }
+
+  try {
+    const absolute = /^https?:\/\//i.test(value);
+    const u = new URL(value, 'http://redacted.invalid');
+
+    for (const key of Array.from(u.searchParams.keys())) {
+      const inner = u.searchParams.get(key) || '';
+
+      if (key.toLowerCase() === SIGNATURE_PARAM) {
+        u.searchParams.set(key, 'REDACTED');
+      } else if (/^https?:\/\//i.test(inner)) {
+        // The nested callback URL, which is where the signature actually
+        // rides. Its parameters are not query parameters of the outer URL, so
+        // a single pass never sees them.
+        u.searchParams.set(key, redactCallbackSignature(inner));
+      }
+    }
+
+    return sweep(absolute ? u.toString() : `${u.pathname}${u.search}${u.hash}`);
+  } catch {
+    return sweep(value);
+  }
+}
+
+/**
+ * A final pass over whatever the structured attempt produced.
+ *
+ * Parsing is not enough on its own. `new URL('::not a url:: token=x', base)`
+ * succeeds - it is a relative path, not a failure - so the catch never runs,
+ * and a signature sitting outside a query parameter survives untouched. The
+ * encoded form is swept too, for a nested URL that was not reached as one.
+ *
+ * Belt and braces on purpose: this is the last thing between a credential and
+ * a log file, and being thorough here costs a regex.
+ */
+function sweep(value) {
+  return value
+    .replace(
+      new RegExp(`${SIGNATURE_PARAM}=[^&\\s]+`, 'gi'),
+      `${SIGNATURE_PARAM}=REDACTED`
+    )
+    .replace(
+      new RegExp(`${SIGNATURE_PARAM}%3D[^&%\\s]+`, 'gi'),
+      `${SIGNATURE_PARAM}%3DREDACTED`
+    );
+}
+
 module.exports = {
   DEFAULT_TTL_MS,
   EXPIRY_PARAM,
   SIGNATURE_PARAM,
+  redactCallbackSignature,
   signCallbackUrl,
   usingEphemeralSecret,
   verifyCallbackSignature,

@@ -131,3 +131,74 @@ describe('signing the batch callback URL (#812)', () => {
     expect(params(url).get(SIGNATURE_PARAM)).toMatch(/^[0-9a-f]{64}$/);
   });
 });
+
+/**
+ * The signature is a credential, and the URL carrying it is logged twice per
+ * batch submission - once as the submission path, once as the raw request URL.
+ * Redaction has to happen here rather than in a consumer, because the log call
+ * is made from inside this package (#812).
+ */
+describe('keeping the signature out of the log (#812)', () => {
+  const {
+    redactCallbackSignature,
+  } = require('../src/utils/callbackSignature.cjs');
+
+  const signed = () =>
+    signCallbackUrl(`${BASE}?batchERC=BATCH-1`, { batchERC: 'BATCH-1' });
+
+  const nested = (inner) =>
+    `/o/headless-commerce-admin-catalog/v1.0/products/batch?callbackURL=${encodeURIComponent(inner)}`;
+
+  it('masks the signature nested inside a submission path', () => {
+    const inner = signed();
+    const token = params(inner).get(SIGNATURE_PARAM);
+
+    expect(redactCallbackSignature(nested(inner))).not.toContain(token);
+  });
+
+  it('masks it in a bare callback URL too', () => {
+    const inner = signed();
+
+    expect(redactCallbackSignature(inner)).not.toContain(
+      params(inner).get(SIGNATURE_PARAM)
+    );
+  });
+
+  it('keeps the batch reference, so the line is still worth logging', () => {
+    expect(redactCallbackSignature(nested(signed()))).toContain('BATCH-1');
+  });
+
+  it('masks it even in a string it cannot parse as a URL', () => {
+    // The fallback path. A malformed value must not carry the token through
+    // just because URL parsing threw.
+    const token = params(signed()).get(SIGNATURE_PARAM);
+
+    expect(
+      redactCallbackSignature(`::not a url:: ${SIGNATURE_PARAM}=${token}&x=1`)
+    ).not.toContain(token);
+  });
+
+  it('leaves a URL with no signature alone', () => {
+    const plain = `${BASE}?batchERC=BATCH-1`;
+
+    expect(redactCallbackSignature(plain)).toBe(plain);
+    expect(redactCallbackSignature('/o/headless/products/batch')).toBe(
+      '/o/headless/products/batch'
+    );
+  });
+
+  it('does not alter the URL actually sent', () => {
+    // The point worth guarding: redaction is for the log only. A signed URL
+    // that had been redacted before sending would fail its own verification.
+    const inner = signed();
+    const q = params(inner);
+
+    expect(
+      verifyCallbackSignature({
+        batchERC: 'BATCH-1',
+        expiresAt: q.get(EXPIRY_PARAM),
+        signature: q.get(SIGNATURE_PARAM),
+      })
+    ).toEqual({ ok: true, reason: null });
+  });
+});
