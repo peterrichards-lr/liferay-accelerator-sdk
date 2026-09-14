@@ -1,4 +1,5 @@
 const { logger } = require('../../utils/logger.cjs');
+const { signCallbackUrl } = require('../../utils/callbackSignature.cjs');
 const { ERC_PREFIX, ENV } = require('../../utils/constants.cjs');
 const { createERC } = require('../../utils/misc.cjs');
 
@@ -53,7 +54,10 @@ class BatchDeleteService {
       if (batchERC) {
         u.searchParams.set('batchERC', String(batchERC));
       }
-      return u.toString();
+      // Signed so the receiving end can tell a callback we issued from one
+      // anybody sent. Unsigned, the endpoint is reachable only because Liferay
+      // sits on loopback, and it mutates run state (#812).
+      return signCallbackUrl(u.toString(), { batchERC });
     } catch {
       return baseUrl;
     }

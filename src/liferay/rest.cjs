@@ -2,6 +2,7 @@ const {
   resolveEffectiveLiferayConnection,
 } = require('../utils/liferayEnv.cjs');
 const fs = require('fs');
+const { signCallbackUrl } = require('../utils/callbackSignature.cjs');
 const { tmpdir } = require('os');
 const path = require('path');
 const StreamZip = require('node-stream-zip');
@@ -187,7 +188,10 @@ class LiferayRestService {
       if (batchERC) {
         u.searchParams.set('batchERC', String(batchERC));
       }
-      return u.toString();
+      // Signed so the receiving end can tell a callback we issued from one
+      // anybody sent. Unsigned, the endpoint is reachable only because Liferay
+      // sits on loopback, and it mutates run state (#812).
+      return signCallbackUrl(u.toString(), { batchERC });
     } catch {
       return baseUrl;
     }
