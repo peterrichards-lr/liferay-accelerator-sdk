@@ -536,6 +536,47 @@ describe('liferay/rest/HttpCoreService', () => {
     });
   });
 
+  describe('_client and the auth mechanism it hands to createAxiosInstance (#262)', () => {
+    // `createAxiosInstance`'s tests above call it directly, so they exercise
+    // `isBasicAuthRequested` correctly no matter what `_client` does to the
+    // config on the way there. These drive the real `_client`, the one place
+    // `resolveEffectiveLiferayConnection`'s return value used to reach
+    // `createAxiosInstance` unmerged with the caller's config - stripping
+    // `authMethod` and silently taking the OAuth branch for a caller that
+    // asked for Basic.
+    it('reaches Basic auth for a config declaring authMethod, with no auth env set', async () => {
+      const client = await service._client({
+        liferayUrl: 'http://liferay:8080',
+        authMethod: 'basic',
+        username: 'admin',
+        password: 'secret',
+      });
+
+      const expectedToken = Buffer.from('admin:secret').toString('base64');
+      expect(client.defaults.headers.Authorization).toBe(
+        `Basic ${expectedToken}`
+      );
+      expect(ctx.oauth.getAccessToken).not.toHaveBeenCalled();
+    });
+
+    it('still reaches OAuth for a config with client credentials and no authMethod', async () => {
+      const client = await service._client({
+        liferayUrl: 'http://liferay:8080',
+        clientId: 'client-1',
+        clientSecret: 'secret-1',
+      });
+
+      expect(ctx.oauth.getAccessToken).toHaveBeenCalledWith(
+        'http://liferay:8080',
+        'client-1',
+        'secret-1'
+      );
+      expect(client.defaults.headers.Authorization).toBe(
+        'Bearer test-access-token'
+      );
+    });
+  });
+
   describe('getConfig', () => {
     it('returns the direct-match result when found by configKey', async () => {
       const directMatch = { items: [{ configKey: 'FOO' }] };

@@ -181,7 +181,23 @@ function resolveEffectiveLiferayConnection(
     throw e;
   }
 
-  return { liferayUrl, clientId, clientSecret, isColocated };
+  // authMethod travels straight through, unexamined by anything above -
+  // this function only resolves the OAuth half of a connection. It is
+  // included in the return anyway because `_client` (HttpCoreService.cjs)
+  // used to hand this return value straight to `createAxiosInstance`,
+  // which reads authMethod off exactly that object to pick Basic vs OAuth.
+  // Dropping it here meant a caller that asked for Basic auth still got
+  // routed to `oauth.getAccessToken`, an object `ctx.oauth` need not even
+  // hold for a Basic-only caller (#262). Returning it here means a caller
+  // that forgets to spread the input config back over this return value -
+  // as `_client` did - still gets the right mechanism.
+  return {
+    liferayUrl,
+    clientId,
+    clientSecret,
+    isColocated,
+    authMethod: config.authMethod,
+  };
 }
 
 module.exports = {
