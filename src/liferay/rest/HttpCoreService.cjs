@@ -428,11 +428,17 @@ class HttpCoreService {
 
   async _client(config) {
     const { persistence } = this.ctx;
-    const effective = resolveEffectiveLiferayConnection(
-      { ...this.ctx, ...config },
-      this.ctx.oauth,
-      persistence
-    );
+    const merged = { ...this.ctx, ...config };
+    // Spread merged back over the resolved connection, as `testConnection`
+    // already does below. `resolveEffectiveLiferayConnection` only resolves
+    // the OAuth half (liferayUrl/clientId/clientSecret/isColocated) - handing
+    // its return value alone to `createAxiosInstance` used to strip
+    // `authMethod`, `username` and `password`, so a caller that asked for
+    // Basic auth silently took the OAuth branch instead (#262).
+    const effective = {
+      ...merged,
+      ...resolveEffectiveLiferayConnection(merged, this.ctx.oauth, persistence),
+    };
     return this.createAxiosInstance(effective);
   }
 
