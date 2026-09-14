@@ -97,6 +97,7 @@ describe('exclusion key declaration', () => {
       expect(Object.keys(EXCLUSION_ITEM_FIELDS).sort()).toEqual([
         'entityId',
         'erc',
+        'key',
         'name',
       ]);
     });
@@ -130,12 +131,23 @@ describe('exclusion key declaration', () => {
       }
     });
 
-    it('does not match on key, which is how options and specifications are named', () => {
-      // Documented in the declaration because it fails silently: an operator
-      // naming an option by its key excludes nothing and is told nothing.
+    it('matches on key, which is how options and specifications are named (#258)', () => {
+      expect(matches({ key: 'SIZE' }, { key: 'SIZE' })).toBe(true);
+      expect(matches({ key: 'COLOUR' }, { key: 'SIZE' })).toBe(false);
+    });
+
+    it('reaches key only through key, so nothing configured changes (#258)', () => {
+      // The additive promise, asserted rather than described: an entry written
+      // before #258 carries no `key`, and the fields it does carry must not
+      // start reaching one. Making `name` match `key` would alter filtering for
+      // every configuration in place.
       expect(matches({ key: 'SIZE' }, { name: 'SIZE' })).toBe(false);
       expect(matches({ key: 'SIZE' }, { entityId: 'SIZE' })).toBe(false);
       expect(matches({ key: 'SIZE' }, { erc: 'SIZE' })).toBe(false);
+    });
+
+    it('does not exclude an item with no key when an entry names one', () => {
+      expect(matches({ name: 'Size' }, { key: 'SIZE' })).toBe(false);
     });
 
     it('leaves an item alone when no field matches', () => {
@@ -163,6 +175,13 @@ describe('exclusion key declaration', () => {
 
       expect(schema.required).toEqual(['excludedAccounts']);
       expect(excludeListsJsonSchema().required).toEqual([]);
+    });
+
+    it('accepts an entry identified only by key (#258)', () => {
+      const item = excludeListsJsonSchema().properties.excludedOptions.items;
+
+      expect(item.properties.key).toEqual({ type: 'string' });
+      expect(item.anyOf).toContainEqual({ required: ['key'] });
     });
 
     it('requires at least one identifier on an entry', () => {
