@@ -169,6 +169,10 @@ const ENV = {
 
   // Internal microservice configuration
   MICROSERVICE_URL: str('MICROSERVICE_URL', 'http://localhost:3001'),
+  // Signs the batch callback URL so an inbound callback can be believed. When
+  // unset, a secret is generated per process - see utils/callbackSignature.cjs
+  // for why that is a deliberate fallback rather than a gap, and what it costs.
+  CALLBACK_SIGNING_SECRET: str('CALLBACK_SIGNING_SECRET', ''),
   SERVER_PORT: num('SERVER_PORT', 3001),
   SERVER_HOST: str('SERVER_HOST', '0.0.0.0'),
   LOGGER_LEVEL: str('logger.level', 'info'),
