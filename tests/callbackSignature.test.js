@@ -202,3 +202,42 @@ describe('keeping the signature out of the log (#812)', () => {
     ).toEqual({ ok: true, reason: null });
   });
 });
+
+/**
+ * The verifying half of #812 lives in the consuming microservice, in the same
+ * process that signs. If these are not on the package surface, that consumer
+ * has to deep-import `src/utils/callbackSignature.cjs` to do its half - past
+ * this package's public API, into a path that is free to move. See #272.
+ */
+describe('the callback helpers are reachable from the package surface (#272)', () => {
+  const sdk = require('../src/index.js');
+
+  it('exports the verifier a consumer needs', () => {
+    expect(typeof sdk.utils.verifyCallbackSignature).toBe('function');
+  });
+
+  it('exports the parameter names, so a consumer need not restate them', () => {
+    // A consumer reading `token` and `exp` off a query string must agree with
+    // what was written. Hardcoding those strings on both sides is the drift
+    // this avoids.
+    expect(sdk.utils.SIGNATURE_PARAM).toBe(SIGNATURE_PARAM);
+    expect(sdk.utils.EXPIRY_PARAM).toBe(EXPIRY_PARAM);
+  });
+
+  it('round-trips through the package surface alone', () => {
+    // Signed and verified using only what the package exports - no reaching
+    // into src/.
+    const url = sdk.utils.signCallbackUrl(`${BASE}?batchERC=BATCH-1`, {
+      batchERC: 'BATCH-1',
+    });
+    const q = new URL(url).searchParams;
+
+    expect(
+      sdk.utils.verifyCallbackSignature({
+        batchERC: 'BATCH-1',
+        expiresAt: q.get(sdk.utils.EXPIRY_PARAM),
+        signature: q.get(sdk.utils.SIGNATURE_PARAM),
+      })
+    ).toEqual({ ok: true, reason: null });
+  });
+});
