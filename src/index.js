@@ -26,6 +26,11 @@ const constants = require('./utils/constants.cjs');
 const commerceConstants = require('./utils/commerceConstants.cjs');
 const misc = require('./utils/misc.cjs');
 const exclusionKeys = require('./utils/exclusionKeys.cjs');
+// Signing and verifying the batch callback URL. Exported because the
+// consuming service verifies what this package signs - the two halves live in
+// one process, so a consumer that cannot reach the verifier has to deep-import
+// past this package's surface to do its half (#272).
+const callbackSignature = require('./utils/callbackSignature.cjs');
 const expressErrorHandler = require('./utils/expressErrorHandler.cjs');
 const serviceErrorHandler = require('./utils/serviceErrorHandler.cjs');
 
@@ -57,6 +62,7 @@ module.exports = {
     ...commerceConstants,
     ...misc,
     ...exclusionKeys,
+    ...callbackSignature,
     ...expressErrorHandler,
     ...serviceErrorHandler,
     constants,
