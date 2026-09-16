@@ -42,8 +42,12 @@ class PersistenceService {
 
       this.worker.on('message', (msg) => {
         if (msg.id === 'init') {
-          if (msg.success) this.resolveInit();
-          else this.rejectInit(new Error(msg.error));
+          if (msg.success) {
+            this._initSuccess = true;
+            this.resolveInit();
+          } else {
+            this.rejectInit(new Error(msg.error));
+          }
           return;
         }
         const { id, result, error } = msg;
@@ -886,6 +890,26 @@ class PersistenceService {
       // Reject any requests still in flight before/while terminating so
       // callers don't hang forever waiting on a worker that's going away.
       this._rejectAllPending('Persistence worker is closing');
+      if (!this._initSettled) {
+        try {
+          await Promise.race([
+            this.initPromise,
+            new Promise((resolve) => setTimeout(resolve, 500)),
+          ]);
+        } catch (_err) {
+          // Worker failed during init
+        }
+      }
+      if (this._initSuccess) {
+        try {
+          await Promise.race([
+            this._postMessage('close'),
+            new Promise((resolve) => setTimeout(resolve, 500)),
+          ]);
+        } catch (_err) {
+          // If posting or closing fails, proceed to terminate
+        }
+      }
       await this.worker.terminate();
     }
   }

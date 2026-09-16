@@ -62,6 +62,7 @@ parentPort.on('message', ({ id, action, sql, params, queries }) => {
       db.exec(sql);
       parentPort.postMessage({ id });
     } else if (action === 'close') {
+      statementCache.clear();
       db.close();
       parentPort.postMessage({ id });
     } else {
