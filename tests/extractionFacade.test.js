@@ -34,7 +34,7 @@ describe('ExtractionFacade', () => {
           getSiteKnowledgeBaseArticlesPage: vi
             .fn()
             .mockResolvedValue({ items: [{ id: 16, name: 'KBArticle' }] }),
-          getSiteSitePageFriendlyUrlExperiencesPage: vi
+          getSiteSitePagesExperiencesPage: vi
             .fn()
             .mockResolvedValue({ items: [{ id: 17, name: 'Experience' }] }),
         },
@@ -439,7 +439,7 @@ describe('ExtractionFacade', () => {
       { fields: 'id' }
     );
     expect(
-      mockClient.headlessDelivery.v1_0.getSiteSitePageFriendlyUrlExperiencesPage
+      mockClient.headlessDelivery.v1_0.getSiteSitePagesExperiencesPage
     ).toHaveBeenCalledWith(config, 'site-123', 'home', null, {
       params: { fields: 'id' },
     });
@@ -765,6 +765,31 @@ describe('ExtractionFacade', () => {
 
       expect(items.map((i) => i.id)).toEqual([1, 2, 3]);
       expect(totalCount).toBe(3);
+    });
+  });
+
+  describe('delegation contract', () => {
+    it('all client calls in ExtractionFacade target real methods on GeneratedLiferayClient', () => {
+      const fs = require('fs');
+      const path = require('path');
+      const GeneratedLiferayClient = require('../src/liferay/GeneratedLiferayClient.cjs');
+      const client = new GeneratedLiferayClient({});
+      const source = fs.readFileSync(
+        path.resolve(__dirname, '../src/services/extractionFacade.cjs'),
+        'utf8'
+      );
+      const calls = [
+        ...source.matchAll(
+          /this\.client\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)/g
+        ),
+      ];
+      expect(calls.length).toBeGreaterThan(0);
+      for (const [, service, version, method] of calls) {
+        expect(
+          typeof client[service]?.[version]?.[method],
+          `Expected client.${service}.${version}.${method} to be a function`
+        ).toBe('function');
+      }
     });
   });
 });

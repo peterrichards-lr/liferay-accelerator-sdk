@@ -1026,10 +1026,10 @@ class ExtractionFacade {
     queryParams = {}
   ) {
     return await this._readPage(
-      'getSiteSitePageFriendlyUrlExperiencesPage',
+      'getSiteSitePagesExperiencesPage',
       queryParams,
       () =>
-        this.client.headlessDelivery.v1_0.getSiteSitePageFriendlyUrlExperiencesPage(
+        this.client.headlessDelivery.v1_0.getSiteSitePagesExperiencesPage(
           config,
           siteId,
           friendlyUrlPath,
