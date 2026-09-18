@@ -1,4 +1,4 @@
-const { asItems, asCount } = require('../../utils/liferayUtils.cjs');
+const { asCount, asItemsStrict } = require('../../utils/liferayUtils.cjs');
 const { delay, fromI18n } = require('../../utils/misc.cjs');
 const { PATH } = require('../../utils/liferayPaths.cjs');
 const {
@@ -468,7 +468,7 @@ class CommerceService {
                 pageSize,
               }
             );
-        let items = asItems(res);
+        let items = asItemsStrict(res, { op: 'warehouse:items' });
         allItems.push(...items);
         totalCount += res.totalCount || items.length;
       } catch (err) {
@@ -718,7 +718,7 @@ class CommerceService {
         },
       }
     );
-    let items = asItems(res);
+    let items = asItemsStrict(res, { op: 'get-channels-bulk' });
     // #200 stops at the catalog readers it has evidence for, so this one still
     // returns a single page. Say when that page is short of what Liferay
     // reported rather than passing 100 of 340 off as the whole set; the fix is
@@ -736,7 +736,7 @@ class CommerceService {
           '/o/headless-admin-site/v1.0/sites',
           'get-sites'
         );
-        const sites = asItems(sitesRes);
+        const sites = asItemsStrict(sitesRes, { op: 'get-sites' });
         if (sites && sites.length > 0) {
           const guestSite = sites.find(
             (s) =>

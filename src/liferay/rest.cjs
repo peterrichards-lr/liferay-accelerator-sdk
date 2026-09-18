@@ -31,7 +31,7 @@ const {
   ATTACHMENT_PROJECTION,
   SKU_COMMERCE_CONSTRAINTS,
 } = require('../utils/commerceConstants.cjs');
-const { asItems, asCount } = require('../utils/liferayUtils.cjs');
+const { asCount, asItemsStrict } = require('../utils/liferayUtils.cjs');
 const { DEFAULT_PAGE_SIZE } = require('../utils/paging.cjs');
 
 const HttpCoreService = require('./rest/HttpCoreService.cjs');
@@ -239,7 +239,10 @@ class LiferayRestService {
 
       yield res;
 
-      const items = asItems(res);
+      // The loop ends on a short page, so a page that could not be read would
+      // end it too - silently turning a partial collection into a whole one
+      // for every reader built on this generator (#277).
+      const items = asItemsStrict(res, { op: op || 'iterate-pages' });
       if (items.length < pageSize || items.length === 0) {
         hasMore = false;
       } else {
@@ -273,7 +276,10 @@ class LiferayRestService {
         },
       });
 
-      const items = asItems(res);
+      // "No page held a match" is only an answer if every page was read; an
+      // unreadable one would otherwise report the key as absent, which is how
+      // a caller comes to create a second copy of a row that already exists.
+      const items = asItemsStrict(res, { op });
       const match = items.find(
         (it) => String(it.key || '').toLowerCase() === String(key).toLowerCase()
       );
@@ -357,7 +363,7 @@ class LiferayRestService {
       ops.getPath(id),
       `get-permissions:${assetType}`
     );
-    return asItems(data);
+    return asItemsStrict(data, { op: `get-permissions:${assetType}` });
   }
 
   async _putPermissions(config, assetType, id, items) {
@@ -433,7 +439,7 @@ class LiferayRestService {
       PATH.COUNTRY_REGIONS(countryId),
       `get-regions:${countryId}`
     );
-    return asItems(data);
+    return asItemsStrict(data, { op: `get-regions:${countryId}` });
   }
 
   /**
@@ -477,7 +483,7 @@ class LiferayRestService {
       PATH.CHANNELS,
       'get-channels'
     );
-    return asItems(data);
+    return asItemsStrict(data, { op: 'get-channels' });
   }
 
   async createChannel(config, channelData) {
@@ -501,7 +507,7 @@ class LiferayRestService {
       'get-languages',
       'Failed to get site languages'
     );
-    return asItems(data);
+    return asItemsStrict(data, { op: 'get-languages' });
   }
 
   async getProductCount(config) {
@@ -509,7 +515,7 @@ class LiferayRestService {
       PATH.PRODUCTS +
       (config.catalogId ? `?filter=catalogId eq ${config.catalogId}` : '');
     const data = await this.httpCore._get(config, url, 'get-products');
-    return asCount(data);
+    return asCount(data, { op: 'get-products' });
   }
 
   /**
@@ -563,7 +569,7 @@ class LiferayRestService {
       PATH.ACCOUNTS,
       'get-accounts'
     );
-    return asCount(data);
+    return asCount(data, { op: 'get-accounts' });
   }
 
   async getImportTask(config, batchId) {
@@ -821,7 +827,7 @@ class LiferayRestService {
       PATH.CURRENCIES,
       'get-currencies'
     );
-    const items = asItems(data);
+    const items = asItemsStrict(data, { op: 'get-currencies' });
     const lang = config.languageId || 'en_US';
 
     return items.map((currency) => {
@@ -1038,7 +1044,9 @@ class LiferayRestService {
       { params: { pageSize: 1000, active: true } }
     );
 
-    countries = asItems(data);
+    // Cached for fifteen minutes, so an unreadable response stored as "this
+    // instance has no countries" outlives the failure that produced it (#277).
+    countries = asItemsStrict(data, { op: 'get-countries' });
 
     logger.debug('[getCountries] - API call completed', {
       correlationId,
@@ -1084,7 +1092,7 @@ class LiferayRestService {
       null,
       { params: { pageSize: 1000, active: true } }
     );
-    regions = asItems(data);
+    regions = asItemsStrict(data, { op: 'get-country-regions' });
 
     logger.debug('[getCountryRegions] - API call completed', {
       correlationId,
@@ -1770,7 +1778,7 @@ class LiferayRestService {
       PATH.PRODUCT_OPTIONS_WITH_VALUES(productId),
       'get-product-options'
     );
-    return asItems(data);
+    return asItemsStrict(data, { op: 'get-product-options' });
   }
 
   async deleteProductSpecification(config, productId, productSpecificationId) {
@@ -1789,7 +1797,7 @@ class LiferayRestService {
       PATH.PRODUCT_SPECIFICATIONS(productId),
       'get-product-specifications'
     );
-    return asItems(data);
+    return asItemsStrict(data, { op: 'get-product-specifications' });
   }
 
   /**
@@ -2659,7 +2667,7 @@ class LiferayRestService {
           },
         }
       );
-      const items = asItems(res);
+      const items = asItemsStrict(res, { op: 'optionCategories:list' });
       return items.find((it) => it.key === key) || null;
     } catch (error) {
       throw new Error(

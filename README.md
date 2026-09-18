@@ -618,6 +618,50 @@ if (truncated) {
 caller whose work is wrong unless it saw every row; `maxItems: null` opts out of
 the row ceiling entirely and leaves the read bounded only by `maxPages`.
 
+### An empty collection, and a response that could not be read
+
+These are different facts, and until #277 every reader in the SDK reported both
+as `[]`. `undefined`, an error envelope served with a 200, a page whose `items`
+is an object, a collection under a different field name - all of them arrived at
+a caller as "this collection is empty", with nothing left to inspect. The pagers
+made it worse rather than better: they stop on an empty page, so an unreadable
+page truncated a collection and the result was a _partial_ extraction reported
+as a complete one.
+
+Three helpers now separate the cases, all exported under `utils`:
+
+| Helper                      | A collection (empty or not) | A response that is not one                            |
+| :-------------------------- | :-------------------------- | :---------------------------------------------------- |
+| `parseCollection(data)`     | `{ parsed: true, items }`   | `{ parsed: false, reason }` - describes what arrived  |
+| `asItems(data, opts)`       | the items                   | `[]`, and a warning naming the fields it did not know |
+| `asItemsStrict(data, {op})` | the items                   | raises `UNPARSEABLE_COLLECTION`                       |
+
+`asItems` keeps its old contract on purpose - a consumer that tolerates a
+degraded read should keep tolerating it - but it is no longer silent about it.
+Every reader inside the SDK uses the strict form, so a malformed response now
+surfaces as an error from the reader rather than as an empty result:
+
+```js
+const { isUnparseableCollection } = require('@liferay/accelerator-sdk').utils;
+
+try {
+  const channels = await liferay.rest.getChannels(config);
+} catch (error) {
+  if (isUnparseableCollection(error)) {
+    // The instance answered with something that is not a collection.
+    // This is not "there are no channels".
+  }
+}
+```
+
+`isUnparseableCollection` walks the `cause` chain, because some readers wrap
+their failures in a message of their own.
+
+`asCount` follows the same rule: it returns the `totalCount` the server
+reported whenever there is one, and raises rather than answering `0` for a
+response it could not read. A count of zero is a claim about the collection,
+and a response nobody parsed supports no claim at all.
+
 ## Contract Validation
 
 Outbound payloads, batch items and inbound responses can be validated against
@@ -742,4 +786,4 @@ build it never affects callback processing.
 
 ---
 
-_Last Updated: 2026-09-14_ | _Last Reviewed: 2026-09-14_
+_Last Updated: 2026-09-18_ | _Last Reviewed: 2026-09-18_

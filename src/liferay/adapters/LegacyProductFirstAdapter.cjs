@@ -1,5 +1,5 @@
 const LiferayCatalogAdapter = require('./LiferayCatalogAdapter.cjs');
-const { asItems } = require('../../utils/liferayUtils.cjs');
+const { asItemsStrict } = require('../../utils/liferayUtils.cjs');
 const { delay } = require('../../utils/misc.cjs');
 
 class LegacyProductFirstAdapter extends LiferayCatalogAdapter {
@@ -115,7 +115,7 @@ class LegacyProductFirstAdapter extends LiferayCatalogAdapter {
       this.paths.PATH.PRODUCT_OPTIONS_WITH_VALUES(productId),
       'get-product-options'
     );
-    return asItems(data);
+    return asItemsStrict(data, { op: 'get-product-options' });
   }
 
   async deleteProductOption(config, productId, optionId) {
@@ -172,7 +172,7 @@ class LegacyProductFirstAdapter extends LiferayCatalogAdapter {
       this.paths.PATH.PRODUCT_SPECIFICATIONS(productId),
       'get-product-specs'
     );
-    return asItems(data);
+    return asItemsStrict(data, { op: 'get-product-specs' });
   }
 
   async deleteProductSpecification(config, productId, specId) {
