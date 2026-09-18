@@ -488,4 +488,236 @@ describe('PersistenceService', () => {
       expect(await persistence.getSession('kept-session')).not.toBeNull();
     });
   });
+
+  describe('re-entering a failed session', () => {
+    const seedSession = (sessionId, status = 'STARTED') =>
+      persistence.createSession({
+        sessionId,
+        flowType: 'products',
+        status,
+        context: { options: { dryRun: false } },
+        currentSteps: [],
+      });
+
+    const seedBatch = (sessionId, stepKey, status, erc) =>
+      persistence.createBatch({ erc, sessionId, stepKey, status });
+
+    describe('clearFailedBatchesForStep', () => {
+      it('removes the failed rows of the named step and returns how many', async () => {
+        await seedSession('s1');
+        await seedBatch('s1', 'create-products', 'COMPLETED', 'A');
+        await seedBatch('s1', 'link-product-options', 'FAILED', 'B');
+        await seedBatch('s1', 'link-product-options', 'SYNCHRONOUS', 'C');
+
+        expect(
+          await persistence.clearFailedBatchesForStep(
+            's1',
+            'link-product-options'
+          )
+        ).toBe(1);
+
+        const remaining = await persistence.getBatchesForSession('s1');
+        expect(remaining.map((row) => row.erc).sort()).toEqual(['A', 'C']);
+      });
+
+      it('counts every row it removed, not just that it removed some', async () => {
+        // A step fans out into a batch per chunk, so more than one of them can
+        // end FAILED. The count is what the resume route reports back.
+        await seedSession('s1');
+        await seedBatch('s1', 'create-products', 'FAILED', 'CHUNK-1');
+        await seedBatch('s1', 'create-products', 'FAILED', 'CHUNK-2');
+        await seedBatch('s1', 'create-products', 'COMPLETED', 'CHUNK-3');
+
+        expect(
+          await persistence.clearFailedBatchesForStep('s1', 'create-products')
+        ).toBe(2);
+
+        expect(
+          (await persistence.getBatchesForSession('s1')).map((row) => row.erc)
+        ).toEqual(['CHUNK-3']);
+      });
+
+      it('leaves another failed step of the same session alone', async () => {
+        // Scoped to one step, not to the session. Two branches of a parallel
+        // can both end FAILED while a caller has decided only one of them may
+        // be re-entered.
+        await seedSession('s1');
+        await seedBatch('s1', 'link-product-options', 'FAILED', 'LINK');
+        await seedBatch('s1', 'create-images', 'FAILED', 'IMAGES');
+
+        expect(
+          await persistence.clearFailedBatchesForStep(
+            's1',
+            'link-product-options'
+          )
+        ).toBe(1);
+
+        expect(
+          (await persistence.getBatchesForSession('s1')).map((row) => row.erc)
+        ).toEqual(['IMAGES']);
+      });
+
+      it('leaves the same step of another session alone', async () => {
+        await seedSession('s1');
+        await seedSession('s2');
+        await seedBatch('s2', 'link-product-options', 'FAILED', 'OTHER');
+
+        expect(
+          await persistence.clearFailedBatchesForStep(
+            's1',
+            'link-product-options'
+          )
+        ).toBe(0);
+
+        expect(await persistence.getBatchesForSession('s2')).toHaveLength(1);
+      });
+
+      it('reports nothing removed when the step holds no failed rows', async () => {
+        await seedSession('s1');
+        await seedBatch('s1', 'create-products', 'COMPLETED', 'A');
+
+        expect(
+          await persistence.clearFailedBatchesForStep('s1', 'create-products')
+        ).toBe(0);
+        expect(await persistence.getBatchesForSession('s1')).toHaveLength(1);
+      });
+
+      it('evicts both caches, so the step does not read FAILED straight back', async () => {
+        await seedSession('s1');
+        await seedBatch('s1', 'link-product-options', 'FAILED', 'B');
+
+        // Both reads populate a cache, and both are what executeNextStep
+        // consults when it derives a step's state.
+        await persistence.getBatchesForSession('s1');
+        await persistence.getBatch('B');
+
+        await persistence.clearFailedBatchesForStep(
+          's1',
+          'link-product-options'
+        );
+
+        expect(await persistence.getBatchesForSession('s1')).toEqual([]);
+        expect(await persistence.getBatch('B')).toBeNull();
+      });
+
+      it('reads and deletes in a single transaction', async () => {
+        await seedSession('s1');
+        await seedBatch('s1', 'link-product-options', 'FAILED', 'B');
+
+        const posted = [];
+        const original = persistence.worker.postMessage.bind(
+          persistence.worker
+        );
+        persistence.worker.postMessage = (msg) => {
+          posted.push(msg);
+          return original(msg);
+        };
+
+        await persistence.clearFailedBatchesForStep(
+          's1',
+          'link-product-options'
+        );
+        persistence.worker.postMessage = original;
+
+        // One atomic request, not a SELECT and then a DELETE. A row that turns
+        // FAILED between the two would be deleted without its `batch-<erc>`
+        // cache entry being evicted, and getBatch would keep serving it.
+        expect(posted).toHaveLength(1);
+        expect(posted[0].action).toBe('transaction');
+        expect(posted[0].queries.map((query) => query.action)).toEqual([
+          'all',
+          'run',
+        ]);
+      });
+    });
+
+    describe('tryReviveSession', () => {
+      it('revives a failed session and drops the error it was carrying', async () => {
+        await seedSession('s1');
+        await persistence.tryFailSession(
+          's1',
+          'channel unresolvable',
+          'ERR-1',
+          'at handler'
+        );
+
+        expect(await persistence.tryReviveSession('s1')).toBe(true);
+
+        const revived = await persistence.getSession('s1');
+        expect(revived.status).toBe('STARTED');
+        expect(revived.error_message).toBeNull();
+        expect(revived.errorReferenceCode).toBeNull();
+        expect(revived.error_stack).toBeNull();
+        expect(revived.currentSteps).toEqual([]);
+      });
+
+      it('clears the steps the failed session was still pointing at', async () => {
+        // `tryFailSession` empties current_steps_json on its way past, but it
+        // is not the only route into FAILED - `updateSession` and
+        // `updateSessionStatus` both set the status and leave the column. A
+        // session revived still naming a current step has the engine advancing
+        // against a step list from before the failure.
+        await persistence.createSession({
+          sessionId: 'stale',
+          flowType: 'products',
+          status: 'FAILED',
+          context: {},
+          currentSteps: ['link-product-options'],
+        });
+
+        expect(await persistence.tryReviveSession('stale')).toBe(true);
+        expect((await persistence.getSession('stale')).currentSteps).toEqual(
+          []
+        );
+      });
+
+      it('keeps the session context across the revive', async () => {
+        await seedSession('s1');
+        await persistence.tryFailSession('s1', 'boom');
+
+        await persistence.tryReviveSession('s1');
+
+        expect((await persistence.getSession('s1')).context).toEqual({
+          options: { dryRun: false },
+        });
+      });
+
+      it('revives nothing that is not failed', async () => {
+        // Narrower than its one-way counterparts' NOT IN on purpose: a
+        // COMPLETED session has nothing to resume and a running one is already
+        // being advanced, so reviving either would race the orchestrator.
+        await seedSession('running');
+        await seedSession('done', 'COMPLETED');
+        await seedSession('cancelled', 'CANCELLED');
+
+        expect(await persistence.tryReviveSession('running')).toBe(false);
+        expect(await persistence.tryReviveSession('done')).toBe(false);
+        expect(await persistence.tryReviveSession('cancelled')).toBe(false);
+
+        expect((await persistence.getSession('running')).status).toBe(
+          'STARTED'
+        );
+        expect((await persistence.getSession('done')).status).toBe('COMPLETED');
+        expect((await persistence.getSession('cancelled')).status).toBe(
+          'CANCELLED'
+        );
+      });
+
+      it('reports false for a session that does not exist', async () => {
+        expect(await persistence.tryReviveSession('nobody')).toBe(false);
+      });
+
+      it('evicts the cached session, so the revived status is the one read back', async () => {
+        await seedSession('s1');
+        await persistence.tryFailSession('s1', 'boom');
+
+        // Populates the `<sessionId>` cache entry with the FAILED row.
+        expect((await persistence.getSession('s1')).status).toBe('FAILED');
+
+        await persistence.tryReviveSession('s1');
+
+        expect((await persistence.getSession('s1')).status).toBe('STARTED');
+      });
+    });
+  });
 });
