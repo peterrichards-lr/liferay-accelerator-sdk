@@ -615,6 +615,45 @@ class PersistenceService {
   }
 
   /**
+   * Moves a FAILED session back to STARTED so the engine will advance it again.
+   *
+   * The edge the state machine was missing. `tryFinalizeSession`,
+   * `tryFailSession` and `tryCancelSession` all guard on
+   * `status NOT IN ('COMPLETED', 'FAILED')`, so every transition out of STARTED
+   * is one-way and a failed session can never be re-entered - which makes
+   * resuming one impossible for any consumer, not just the one that asked.
+   *
+   * Guarded on FAILED alone, and deliberately narrower than its counterparts'
+   * NOT IN: a COMPLETED session has nothing to resume and a running one is
+   * already being advanced, so reviving either would race the orchestrator. The
+   * error fields go with the status, or a revived session keeps reporting the
+   * failure it has just been asked to retry.
+   *
+   * Clearing the FAILED batch rows of whichever step is to be re-entered is the
+   * caller's other half - see `clearFailedBatchesForStep`. A session revived
+   * without it is advanced straight back into the same failed step, because
+   * `executeNextStep` reads that step's state from rows this does not touch.
+   */
+  async tryReviveSession(sessionId) {
+    const now = new Date().toISOString();
+    const result = await this._run(
+      `
+      UPDATE workflow_sessions
+      SET status = 'STARTED', error_message = NULL, error_reference_code = NULL, error_stack = NULL, current_steps_json = '[]', updated_at = ?
+      WHERE session_id = ? AND status = 'FAILED'
+      `,
+      now,
+      sessionId
+    );
+
+    if (result && result.changes > 0) {
+      this.cache.del(sessionId);
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * `statusReason` says *why* a step ended as it did. `error_message` is for a
    * thrown error, and neither a step that had nothing to do nor one that could
    * not be attempted has thrown - both still owe the operator a reason (#172).
@@ -682,6 +721,51 @@ class PersistenceService {
     );
     this.cache.put(cacheKey, rows, 30000);
     return rows;
+  }
+
+  /**
+   * Removes the FAILED batch rows of one step, returning that step to PENDING.
+   *
+   * The inverse of `executeNextStep`'s derivation: a step holding a FAILED row
+   * reads FAILED for as long as that row exists, and a step with no rows at all
+   * reads PENDING. Until now `clearAll` was the only thing that removed a batch
+   * row, and it removes every session there is.
+   *
+   * Scoped to a single step on purpose. Every other step's rows are what a
+   * progress summary is totalled from, so clearing wider would erase the record
+   * of work that actually completed. Two branches of a parallel can also both
+   * end FAILED while only one of them may be re-entered.
+   *
+   * One transaction rather than a SELECT followed by a DELETE: the ERCs that
+   * come back are the ones the DELETE removed, so the cache eviction below
+   * cannot miss a row that turned FAILED between the two statements and leave
+   * `getBatch` serving a row that is no longer there.
+   *
+   * Returns how many rows were removed.
+   */
+  async clearFailedBatchesForStep(sessionId, stepKey) {
+    const [doomed] = await this._transaction([
+      {
+        action: 'all',
+        params: [sessionId, stepKey],
+        sql: "SELECT erc FROM workflow_batches WHERE session_id = ? AND step_key = ? AND status = 'FAILED'",
+      },
+      {
+        action: 'run',
+        params: [sessionId, stepKey],
+        sql: "DELETE FROM workflow_batches WHERE session_id = ? AND step_key = ? AND status = 'FAILED'",
+      },
+    ]);
+
+    if (doomed.length === 0) return 0;
+
+    // Both caches, because `getBatch` keys on the ERC and
+    // `getBatchesForSession` on the session, and a stale read of either puts
+    // the step straight back into FAILED.
+    this.cache.del(`batches-${sessionId}`);
+    doomed.forEach((row) => this.cache.del(`batch-${row.erc}`));
+
+    return doomed.length;
   }
 
   /**
