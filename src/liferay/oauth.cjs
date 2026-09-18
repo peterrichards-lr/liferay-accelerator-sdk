@@ -2,6 +2,7 @@ const { lxcConfig } = require('@rotty3000/config-node');
 const axios = require('axios');
 const { createERC, normalizeNumber, delay } = require('../utils/misc.cjs');
 const { ENV, ERC_PREFIX } = require('../utils/constants.cjs');
+const pkceLogin = require('./pkceLogin.cjs');
 
 class OAuthService {
   constructor(ctx) {
@@ -548,6 +549,40 @@ class OAuthService {
       customError.errorReference = errorRef;
       throw customError;
     }
+  }
+
+  /**
+   * Signs an *operator* in through the system browser and returns their token.
+   *
+   * Every other method on this class authenticates the application. This one
+   * authenticates the person running the command, which is the identity a
+   * route reserved for administrator accounts actually wants (#276). It is a
+   * sibling of the client-credentials path, not a replacement: nothing else
+   * here changes, and a consumer that never calls it is unaffected.
+   *
+   * `liferayUrl` defaults to the instance this service was configured for, so
+   * a consumer that already built the SDK's services need only name the
+   * application. There is no client secret to pass - see `pkceLogin`.
+   *
+   * The token is returned and **not cached**. The token cache is keyed by
+   * client id and serves the client-credentials path; putting an operator's
+   * token in it would mean a later caller asking for the *service's* identity
+   * was handed a person's instead, which is the confusion this whole flow
+   * exists to end.
+   *
+   * @param {object} [options] Passed through to `pkceLogin.login`, which
+   *   documents `port`, `scopes`, `log`, `open` and `createServer`.
+   * @param {string} [options.liferayUrl] Defaults to the configured instance.
+   * @param {string} options.clientId The public OAuth2 application.
+   * @returns {Promise<string>} The operator's access token.
+   */
+  async getAccessTokenWithPkce(options = {}) {
+    const { liferayUrl, ...rest } = options;
+
+    return pkceLogin.login({
+      ...rest,
+      liferayUrl: liferayUrl || this.getDefaultLiferayUrl(),
+    });
   }
 
   generateAuthUrl(liferayUrl, clientId, redirectUri, state = null) {

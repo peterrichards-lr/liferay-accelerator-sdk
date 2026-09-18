@@ -2,6 +2,8 @@ const {
   resolveEffectiveLiferayConnection,
   isBasicAuthRequested,
   resolveBasicCredentials,
+  isTokenAuthRequested,
+  resolveTokenCredential,
 } = require('../../utils/liferayEnv.cjs');
 const axios = require('axios');
 const {
@@ -622,7 +624,15 @@ class HttpCoreService {
     const { oauth } = this.ctx;
     let authHeader;
 
-    if (isBasicAuthRequested(config)) {
+    // Asked for before Basic, so a config naming this mechanism wins over a
+    // process-wide LIFERAY_AUTH_METHOD=basic: the config is the more specific
+    // declaration, and an operator who just signed in did so deliberately.
+    if (isTokenAuthRequested(config)) {
+      authHeader = `Bearer ${resolveTokenCredential(config)}`;
+      this.ctx.logger.debug('Using a supplied access token for Liferay', {
+        liferayUrl: config.liferayUrl,
+      });
+    } else if (isBasicAuthRequested(config)) {
       const { username, password } = resolveBasicCredentials(config);
       const token = Buffer.from(`${username}:${password}`).toString('base64');
       authHeader = `Basic ${token}`;
@@ -663,9 +673,12 @@ class HttpCoreService {
         throw new Error(`Invalid URL format: ${effective.liferayUrl}`);
       }
 
-      // HARDENING: Only validate OAuth if we aren't using Basic Auth
+      // HARDENING: Only validate OAuth if we aren't using Basic Auth or a
+      // supplied access token - neither has a client id or secret to validate,
+      // and demanding one would refuse a connection that authenticates fine.
       if (
         !isBasicAuthRequested(effective) &&
+        !isTokenAuthRequested(effective) &&
         !oauth.isLiferayRouteAvailable()
       ) {
         oauth.validateOAuthConfig(effective);

@@ -7,6 +7,11 @@ const { LiferayService } = require('./liferay/index.cjs');
 const LiferayRestService = require('./liferay/rest.cjs');
 const LiferayGraphQLService = require('./liferay/graphql.cjs');
 const OAuthService = require('./liferay/oauth.cjs');
+// Authorization code with PKCE, for signing an operator in from a terminal.
+// Exported as a module rather than only as an OAuthService method because a
+// CLI needs it before any SDK context exists - the token it returns is what
+// builds the connection config the services are then constructed from (#276).
+const pkceLogin = require('./liferay/pkceLogin.cjs');
 const ContractValidator = require('./services/contractValidator.cjs');
 const GeneratedLiferayClient = require('./liferay/GeneratedLiferayClient.cjs');
 const ExtractionFacade = require('./services/extractionFacade.cjs');
@@ -39,6 +44,7 @@ module.exports = {
   LiferayRestService,
   LiferayGraphQLService,
   OAuthService,
+  pkceLogin,
   ContractValidator,
   GeneratedLiferayClient,
   ExtractionFacade,
