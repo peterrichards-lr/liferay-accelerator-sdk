@@ -34,7 +34,7 @@
     "memory-cache": "^0.2.0",
     "node-stream-zip": "^1.16.0",
     "ws": "^8.21.3",
-    "zod": "^4.5.4"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
