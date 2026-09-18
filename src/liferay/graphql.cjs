@@ -2,6 +2,8 @@ const axios = require('axios');
 const {
   isBasicAuthRequested,
   resolveBasicCredentials,
+  isTokenAuthRequested,
+  resolveTokenCredential,
 } = require('../utils/liferayEnv.cjs');
 
 class LiferayGraphQLService {
@@ -16,10 +18,13 @@ class LiferayGraphQLService {
     const { oauth } = this.ctx;
     let authHeader;
 
-    // Basic is reachable only by asking for it, here as in HttpCoreService -
-    // the two used to carry separate copies of the same inference, and both
-    // downgraded on ambient environment credentials (#236).
-    if (isBasicAuthRequested(config)) {
+    // Each mechanism is reachable only by asking for it, here in the same
+    // order as in HttpCoreService - the two used to carry separate copies of
+    // the same inference, and both downgraded on ambient environment
+    // credentials (#236). A supplied operator token is the third (#276).
+    if (isTokenAuthRequested(config)) {
+      authHeader = `Bearer ${resolveTokenCredential(config)}`;
+    } else if (isBasicAuthRequested(config)) {
       const { username, password } = resolveBasicCredentials(config);
       const token = Buffer.from(`${username}:${password}`).toString('base64');
       authHeader = `Basic ${token}`;

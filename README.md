@@ -101,6 +101,70 @@ added to its environment. Without it, a caller with no OAuth credentials now
 fails with `Liferay authentication is not configured` instead of connecting as
 whoever those variables name.
 
+### Signing in as an operator, not as the application
+
+Client credentials authenticate the _deployed service_, and the Basic carve-out
+authenticates whatever account a process was configured with. Neither is the
+person at the keyboard, so a command acting on routes reserved for administrator
+accounts had no identity to present, and no allowlist entry could make one.
+
+`pkceLogin` is the third mechanism: authorization code with PKCE, through the
+system browser, redirected to a loopback listener - the flow RFC 8252 specifies
+for native applications, and the one `gh`, `aws` and `gcloud` use.
+
+```js
+const { pkceLogin } = require('@liferay/accelerator-sdk');
+
+const accessToken = await pkceLogin.login({
+  liferayUrl: 'https://liferay.example.com',
+  clientId: 'the-public-cli-application',
+});
+
+// The token is a connection mechanism like any other.
+const items = await liferay.getProducts({
+  liferayUrl: 'https://liferay.example.com',
+  authMethod: 'token',
+  accessToken,
+});
+```
+
+A consumer that already built the SDK's services can call
+`oauth.getAccessTokenWithPkce({ clientId })` instead, which defaults
+`liferayUrl` to the configured instance.
+
+| Declaration           | Where                            |
+| :-------------------- | :------------------------------- |
+| `authMethod: 'token'` | on the config passed to the call |
+
+Like Basic, the mechanism is reachable only by asking for it - a config that
+merely carries an `accessToken` still takes the OAuth branch, so nothing that
+works today changes. Unlike Basic there is deliberately **no environment
+declaration and no `LIFERAY_ACCESS_TOKEN`**: an operator token is short-lived
+and obtained in-process by a browser round trip, and a variable for it would
+exist only to be written down.
+
+Four properties are specified rather than chosen:
+
+- **`S256`, never `plain`** (RFC 7636 §4.2). The challenge travels through the
+  browser and the authorization server's logs, and a `plain` challenge _is_ the
+  verifier.
+- **`127.0.0.1`, never `localhost`** (RFC 8252 §8.3). `localhost` resolves
+  through DNS and the hosts file and can be pointed elsewhere; the IP literal
+  cannot. The listener binds that interface alone.
+- **The system browser, never an embedded view** (RFC 8252 §8.12). An embedded
+  view can observe what the operator types.
+- **No client secret.** A secret shipped inside a distributed CLI is not a
+  secret; PKCE is what replaces it.
+
+The token is returned and **never stored** - not to disk, and not into the
+OAuth token cache, which is keyed by client id and serves the client-credentials
+path. Re-authenticating costs one browser round trip on commands this rare.
+
+Two constraints follow from that. The redirect port (`38017` by default) is
+registered with the OAuth2 application, so a busy port fails loudly rather than
+silently moving. And refresh tokens are out of scope: a token at rest is the
+thing this design avoids.
+
 ## Testing
 
 ```bash

@@ -84,6 +84,55 @@ function resolveBasicCredentials(config = {}) {
   return { username, password };
 }
 
+/**
+ * Whether the caller asked to present an access token it already holds.
+ *
+ * The third mechanism, alongside client credentials and the Basic carve-out,
+ * and the one an operator signed in through `pkceLogin` arrives on (#276).
+ * Like Basic since #236, it is reachable only by asking for it - a config that
+ * merely happens to carry an `accessToken` still takes the OAuth branch, so
+ * this cannot silently redirect an existing caller.
+ *
+ * Unlike Basic there is deliberately no environment declaration. An operator
+ * token is short-lived and obtained in-process by a browser round trip; a
+ * `LIFERAY_ACCESS_TOKEN` would only exist to be written down somewhere, which
+ * is the thing the flow that mints it avoids.
+ *
+ * @param {object} [config] The connection config.
+ * @returns {boolean} True when token authentication was requested.
+ */
+function isTokenAuthRequested(config = {}) {
+  return config?.authMethod === 'token';
+}
+
+/**
+ * The bearer token to send once token authentication has been asked for.
+ *
+ * @param {object} [config] The connection config.
+ * @returns {string} The access token.
+ * @throws {Error} When none was supplied. Sending `Bearer undefined` would come
+ *   back as a 401 indistinguishable from a rejected credential.
+ */
+function resolveTokenCredential(config = {}) {
+  const accessToken = config?.accessToken;
+
+  if (!accessToken) {
+    const e = new Error(
+      'Token authentication was requested, but no accessToken was supplied. ' +
+        'Set accessToken on the config - an operator token comes from ' +
+        'pkceLogin.login() and is not read from the environment.'
+    );
+    e.name = 'LiferayRequestError';
+    e.operation = 'liferay-auth-resolution';
+    e.statusCode = 400;
+    e.errorType = 'auth_config';
+    e.field = 'accessToken';
+    throw e;
+  }
+
+  return accessToken;
+}
+
 function resolveEffectiveLiferayConnection(
   config = {},
   oauthService,
@@ -165,8 +214,14 @@ function resolveEffectiveLiferayConnection(
     isBasicAuthRequested(config) &&
     Boolean(config.username || ENV.LIFERAY_API_USERNAME) &&
     Boolean(config.password || ENV.LIFERAY_API_PASSWORD);
+  // A caller presenting an operator token has no client credential pair and no
+  // Basic pair, and would otherwise be refused here before reaching the
+  // transport that knows what to do with it (#276). Widening only: every
+  // config that resolved before still resolves, and only a config that
+  // explicitly declared this mechanism can take the new branch.
+  const hasToken = isTokenAuthRequested(config) && Boolean(config.accessToken);
 
-  if (!isColocated && !hasOAuth && !hasBasic) {
+  if (!isColocated && !hasOAuth && !hasBasic && !hasToken) {
     const e = new Error('Liferay authentication is not configured');
     e.name = 'LiferayRequestError';
     e.operation = 'liferay-auth-resolution';
@@ -191,12 +246,17 @@ function resolveEffectiveLiferayConnection(
   // hold for a Basic-only caller (#262). Returning it here means a caller
   // that forgets to spread the input config back over this return value -
   // as `_client` did - still gets the right mechanism.
+  // `accessToken` rides back for the same reason as `authMethod`: a caller that
+  // forgets to spread its input config over this return value - as `_client`
+  // did before #262 - would otherwise hand the transport a mechanism with no
+  // credential to go with it.
   return {
     liferayUrl,
     clientId,
     clientSecret,
     isColocated,
     authMethod: config.authMethod,
+    accessToken: config.accessToken,
   };
 }
 
@@ -206,4 +266,6 @@ module.exports = {
   resolveEffectiveLiferayConnection,
   isBasicAuthRequested,
   resolveBasicCredentials,
+  isTokenAuthRequested,
+  resolveTokenCredential,
 };
