@@ -21,7 +21,7 @@
  * ceiling (#200), and a row ceiling (#203).
  */
 
-const { asItems, asCount } = require('./liferayUtils.cjs');
+const { asCount, asItemsStrict } = require('./liferayUtils.cjs');
 const { logger: defaultLogger } = require('./logger.cjs');
 
 const DEFAULT_PAGE_SIZE = 100;
@@ -89,12 +89,20 @@ function warnTruncated({ op, returned, totalCount, detail, logger, meta }) {
 /**
  * Describe a page response against the total the server reported.
  *
+ * Raises rather than describing a response it could not read: `returned 0 of
+ * 0, not truncated` is the description of a complete read of an empty
+ * collection, and handing that back for an unparseable response is the defect
+ * #277 is about.
+ *
  * @param {any} response A Liferay collection response, or a bare array.
+ * @param {object} [options]
+ * @param {string} [options.op] Operation name, for correlating with request logs.
  * @returns {{returned: number, totalCount: number, truncated: boolean}}
+ * @throws {Error} `UNPARSEABLE_COLLECTION` when the response is not a collection.
  */
-function describePage(response) {
-  const returned = asItems(response).length;
-  const totalCount = asCount(response);
+function describePage(response, { op } = {}) {
+  const returned = asItemsStrict(response, { op }).length;
+  const totalCount = asCount(response, { op });
   return {
     returned,
     totalCount,
@@ -116,7 +124,7 @@ function describePage(response) {
  * @returns {{returned: number, totalCount: number, truncated: boolean}}
  */
 function warnIfTruncated(response, { op, logger, meta } = {}) {
-  const description = describePage(response);
+  const description = describePage(response, { op });
 
   if (description.truncated) {
     warnTruncated({
@@ -165,9 +173,12 @@ async function collectAllPages(
 
   while (page <= maxPages) {
     const response = await fetchPage({ page, pageSize });
-    const pageItems = asItems(response);
+    // A page nothing could read must not end the loop: an unreadable page is
+    // indistinguishable from the last one, and the rows already collected
+    // would be returned as the whole collection (#277).
+    const pageItems = asItemsStrict(response, { op });
     items.push(...pageItems);
-    totalCount = asCount(response);
+    totalCount = asCount(response, { op });
 
     if (pageItems.length === 0 || items.length >= totalCount) {
       return { items, totalCount: Math.max(totalCount, items.length) };

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 const misc = require('../src/utils/misc.cjs');
 const liferayUtils = require('../src/utils/liferayUtils.cjs');
 const liferayEnv = require('../src/utils/liferayEnv.cjs');
@@ -201,6 +201,149 @@ describe('utils/misc', () => {
         expect(liferayUtils.asItems(null)).toEqual([]);
         expect(liferayUtils.asItems({})).toEqual([]);
       });
+
+      it('reports the response it could not read rather than swallowing it', () => {
+        const logger = { warn: vi.fn() };
+
+        liferayUtils.asItems(
+          { status: 404, title: 'Not Found' },
+          { op: 'get-channels', logger }
+        );
+
+        expect(logger.warn).toHaveBeenCalledTimes(1);
+        const [message, meta] = logger.warn.mock.calls[0];
+        expect(message).toContain('get-channels');
+        expect(meta).toMatchObject({
+          op: 'get-channels',
+          unparseableCollection: true,
+        });
+        expect(meta.received).toContain('status');
+      });
+
+      it('says nothing about a collection that is genuinely empty', () => {
+        const logger = { warn: vi.fn() };
+
+        liferayUtils.asItems({ items: [], totalCount: 0 }, { logger });
+        liferayUtils.asItems([], { logger });
+
+        expect(logger.warn).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('parseCollection', () => {
+      it('reads an array and an envelope as the collection they are', () => {
+        expect(liferayUtils.parseCollection([1, 2])).toMatchObject({
+          parsed: true,
+          items: [1, 2],
+          totalCount: null,
+        });
+        expect(
+          liferayUtils.parseCollection({ items: [1], totalCount: 9 })
+        ).toMatchObject({ parsed: true, items: [1], totalCount: 9 });
+      });
+
+      it('reads an empty page as a fact, not a failure', () => {
+        expect(
+          liferayUtils.parseCollection({ items: [], totalCount: 0 })
+        ).toMatchObject({ parsed: true, items: [], totalCount: 0 });
+      });
+
+      it('refuses to call an unreadable response an empty collection', () => {
+        for (const data of [
+          undefined,
+          null,
+          'not a collection',
+          {},
+          { items: { totalCount: 3 } },
+          { status: 500, title: 'Internal Server Error' },
+          { results: [{ id: 1 }] },
+        ]) {
+          expect(liferayUtils.parseCollection(data).parsed).toBe(false);
+        }
+      });
+
+      it('names the fields of an envelope nothing recognised', () => {
+        expect(
+          liferayUtils.parseCollection({ results: [], count: 0 }).reason
+        ).toBe('an object with no "items" (fields: results, count)');
+        expect(liferayUtils.parseCollection({ items: {} }).reason).toBe(
+          'an object whose "items" is an object'
+        );
+        expect(liferayUtils.parseCollection(undefined).reason).toBe(
+          'undefined'
+        );
+      });
+
+      it('keeps a reported totalCount even when the envelope is unreadable', () => {
+        expect(liferayUtils.parseCollection({ totalCount: 12 })).toMatchObject({
+          parsed: false,
+          totalCount: 12,
+        });
+      });
+    });
+
+    describe('asItemsStrict', () => {
+      it('returns the items of a collection, empty ones included', () => {
+        const arr = [1, 2, 3];
+        expect(liferayUtils.asItemsStrict(arr)).toBe(arr);
+        expect(liferayUtils.asItemsStrict({ items: [4] })).toEqual([4]);
+        expect(
+          liferayUtils.asItemsStrict({ items: [], totalCount: 0 })
+        ).toEqual([]);
+      });
+
+      it('accepts the soft-empty envelope a tolerated HTTP status produces', () => {
+        expect(
+          liferayUtils.asItemsStrict({
+            items: [],
+            page: 1,
+            pageSize: 0,
+            lastPage: 1,
+            totalCount: 0,
+            status: 404,
+            softEmpty: true,
+            op: 'accounts:list',
+          })
+        ).toEqual([]);
+      });
+
+      it('raises on a response it could not read, carrying the op and the code', () => {
+        expect(() =>
+          liferayUtils.asItemsStrict(undefined, { op: 'get-catalogs' })
+        ).toThrow(/get-catalogs/);
+
+        try {
+          liferayUtils.asItemsStrict(
+            { items: { totalCount: 3 } },
+            {
+              op: 'get-catalogs',
+            }
+          );
+          throw new Error('asItemsStrict resolved an unreadable response');
+        } catch (error) {
+          expect(error.code).toBe(liferayUtils.UNPARSEABLE_COLLECTION);
+          expect(error.op).toBe('get-catalogs');
+          expect(error.received).toContain('items');
+          expect(liferayUtils.isUnparseableCollection(error)).toBe(true);
+        }
+      });
+
+      it('is found through the cause of an error that wrapped it', () => {
+        let wrapped;
+        try {
+          liferayUtils.asItemsStrict(null, { op: 'optionCategories:list' });
+        } catch (error) {
+          wrapped = new Error('Failed to get option category by key', {
+            cause: error,
+          });
+        }
+
+        expect(liferayUtils.isUnparseableCollection(wrapped)).toBe(true);
+        expect(liferayUtils.isUnparseableCollection(new Error('other'))).toBe(
+          false
+        );
+        expect(liferayUtils.isUnparseableCollection(undefined)).toBe(false);
+      });
     });
 
     describe('asCount', () => {
@@ -215,6 +358,34 @@ describe('utils/misc', () => {
       it('should fallback to items array length', () => {
         expect(liferayUtils.asCount([1, 2, 3, 4])).toBe(4);
         expect(liferayUtils.asCount({ items: [1, 2] })).toBe(2);
+      });
+
+      it('counts an empty collection as none', () => {
+        expect(liferayUtils.asCount([])).toBe(0);
+        expect(liferayUtils.asCount({ items: [], totalCount: 0 })).toBe(0);
+      });
+
+      it('refuses to count a response it could not read', () => {
+        for (const data of [
+          undefined,
+          null,
+          {},
+          'not a collection',
+          { status: 503, title: 'Service Unavailable' },
+          { items: 'nope' },
+        ]) {
+          expect(() => liferayUtils.asCount(data)).toThrow(
+            /Unparseable collection response/
+          );
+        }
+
+        try {
+          liferayUtils.asCount({}, { op: 'get-products' });
+          throw new Error('asCount answered for an unreadable response');
+        } catch (error) {
+          expect(error.code).toBe(liferayUtils.UNPARSEABLE_COLLECTION);
+          expect(error.op).toBe('get-products');
+        }
       });
     });
   });

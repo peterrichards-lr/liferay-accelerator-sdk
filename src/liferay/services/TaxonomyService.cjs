@@ -1,4 +1,4 @@
-const { asItems, asCount } = require('../../utils/liferayUtils.cjs');
+const { asItemsStrict } = require('../../utils/liferayUtils.cjs');
 const { delay, fromI18n } = require('../../utils/misc.cjs');
 const { PATH } = require('../../utils/liferayPaths.cjs');
 class TaxonomyService {
@@ -15,7 +15,7 @@ class TaxonomyService {
       config,
       siteKey
     );
-    const items = asItems(res);
+    const items = asItemsStrict(res, { op: 'get-taxonomy-vocabularies' });
     return items.map((item) => ({
       ...item,
       name: fromI18n(item.name),
@@ -24,11 +24,14 @@ class TaxonomyService {
   }
 
   async getTaxonomyCategories(config, vocabularyId) {
+    // A vocabulary whose categories could not be read is not a vocabulary with
+    // no terms, which is exactly the shape the consumer stored in its #124
+    // sweep (#277).
     const res = await this.liferay.graphql.getTaxonomyCategories(
       config,
       vocabularyId
     );
-    const items = asItems(res);
+    const items = asItemsStrict(res, { op: 'get-taxonomy-categories' });
     return items.map((item) => ({
       ...item,
       name: fromI18n(item.name),
@@ -50,7 +53,7 @@ class TaxonomyService {
         return await this.liferay.rest.getLanguages(config, siteKey);
       }
       const res = await this.liferay.graphql.getLanguages(config, siteKey);
-      const items = asItems(res);
+      const items = asItemsStrict(res, { op: 'get-languages' });
       if (!items || items.length === 0) {
         logger.warn(
           `GraphQL returned 0 languages for site ${siteKey}, falling back to REST`
@@ -85,7 +88,7 @@ class TaxonomyService {
       return countries;
     }
     const res = await this.liferay.graphql.getCountries(config);
-    countries = asItems(res);
+    countries = asItemsStrict(res, { op: 'get-countries' });
     if (countries && countries.length > 0) {
       cache.set(cacheKey, countries, 900000);
     } else {
@@ -106,7 +109,9 @@ class TaxonomyService {
       return regions;
     }
     const res = await this.liferay.graphql.getCountryRegions(config, countryId);
-    regions = asItems(res);
+    // Cached unconditionally below, so an unreadable response would be stored
+    // as "this country has no regions" for the next fifteen minutes (#277).
+    regions = asItemsStrict(res, { op: 'get-country-regions' });
     cache.set(cacheKey, regions, 900000);
     return regions;
   }

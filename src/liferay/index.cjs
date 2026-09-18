@@ -3,7 +3,7 @@ const LiferayGraphQLService = require('./graphql.cjs');
 const GeneratedLiferayClient = require('./GeneratedLiferayClient.cjs');
 const CatalogAdapterFactory = require('./adapters/CatalogAdapterFactory.cjs');
 const ExtractionFacade = require('../services/extractionFacade.cjs');
-const { asItems, asCount } = require('../utils/liferayUtils.cjs');
+const { asCount, asItemsStrict } = require('../utils/liferayUtils.cjs');
 const {
   DEFAULT_MAX_ITEMS,
   DEFAULT_MAX_PAGES,
@@ -102,11 +102,11 @@ class LiferayService {
         pageSize: rowsPerPage,
       }
     )) {
-      const items = asItems(pageRes);
+      const items = asItemsStrict(pageRes, { op });
       allItems.push(...items);
       // A soft-failed page answers with totalCount 0; keep the highest total
       // any page reported rather than letting the last one erase it.
-      reportedTotal = Math.max(reportedTotal, asCount(pageRes));
+      reportedTotal = Math.max(reportedTotal, asCount(pageRes, { op }));
       pagesRead += 1;
 
       if (allItems.length >= ceiling) {
@@ -431,7 +431,9 @@ class LiferayService {
             }
           );
         }
-        const items = asItems(res);
+        // An unreadable page here ends the delete loop, which reports the
+        // filter as fully deleted while rows it never saw remain (#277).
+        const items = asItemsStrict(res, { op: `${entityName}:list` });
         if (items.length === 0) {
           break;
         }
