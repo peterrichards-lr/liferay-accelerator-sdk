@@ -46,21 +46,9 @@ class OAuthService {
       );
     }
 
-    const lxcDXPMainDomain = lxcConfig.dxpMainDomain();
-    const lxcDXPServerProtocol = lxcConfig.dxpProtocol();
-    const uri = serverOauthApp?.tokenUri?.();
-
-    this.liferayUrl =
-      lxcDXPMainDomain && lxcDXPServerProtocol
-        ? `${lxcDXPServerProtocol}://${lxcDXPMainDomain}`
-        : ENV.LIFERAY_API_URL;
-
-    this.tokenEndpoint =
-      this.liferayUrl && this.liferayUrl.trim()
-        ? uri
-          ? `${this.liferayUrl}${uri}`
-          : `${this.liferayUrl}/o/oauth2/token`
-        : null;
+    // Resolved on first read, not here. See the accessors below.
+    this._liferayUrl = undefined;
+    this._tokenEndpoint = undefined;
 
     this.pendingTokenPromises = new Map();
     this.serverOauthApp = serverOauthApp;
@@ -249,6 +237,67 @@ class OAuthService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Where Liferay is, resolved on read rather than at construction.
+   *
+   * This was assigned once in the constructor from `lxcConfig.dxpMainDomain()`.
+   * In a colocated deployment that tree is written by Liferay when its main
+   * servlet is first hit, which is after this process starts - so the
+   * constructor asked before the answer could exist, cached whatever it got,
+   * and every later request used it. A consumer measured 3624 connection
+   * refusals to a port inside its own container while the correct host sat in
+   * the environment, because the value had been captured before the system it
+   * describes was ready.
+   *
+   * Only a successful resolution is cached. An empty answer is not stored, so
+   * the next read tries again - which is the whole point, and the opposite of
+   * what the previous shape did.
+   *
+   * The setter is kept because callers and tests assign it to pin an instance.
+   */
+  get liferayUrl() {
+    if (this._liferayUrl !== undefined) return this._liferayUrl;
+
+    const domain = lxcConfig.dxpMainDomain();
+    const protocol = lxcConfig.dxpProtocol();
+    const resolved =
+      domain && protocol ? `${protocol}://${domain}` : ENV.LIFERAY_API_URL;
+
+    if (resolved) this._liferayUrl = resolved;
+
+    return resolved;
+  }
+
+  set liferayUrl(value) {
+    this._liferayUrl = value;
+  }
+
+  /**
+   * Derived from `liferayUrl`, and therefore equally unsafe to fix at
+   * construction. An LXC-registered application may declare its own tokenUri;
+   * absent that, the default path applies.
+   */
+  get tokenEndpoint() {
+    if (this._tokenEndpoint !== undefined) return this._tokenEndpoint;
+
+    const url = this.liferayUrl;
+
+    // Not cached: with no URL there is nothing to derive, and a later read
+    // may find one.
+    if (!url || !url.trim()) return null;
+
+    const uri = this.serverOauthApp?.tokenUri?.();
+    const resolved = uri ? `${url}${uri}` : `${url}/o/oauth2/token`;
+
+    this._tokenEndpoint = resolved;
+
+    return resolved;
+  }
+
+  set tokenEndpoint(value) {
+    this._tokenEndpoint = value;
   }
 
   _isConfiguredInstance(liferayUrl) {

@@ -480,6 +480,61 @@ describe('OAuthService', () => {
       expect(service.getDefaultLiferayUrl()).toBe('http://localhost');
     });
 
+    // The defect this shape exists to prevent. Liferay writes the DXP config
+    // tree when its main servlet is first hit, which is after a colocated
+    // extension has started - so a value captured in the constructor is
+    // captured before the answer can exist. A consumer measured 3624
+    // connection refusals to a port inside its own container while the correct
+    // host sat unread in its environment.
+    it('resolves a DXP that only appears after construction', () => {
+      const previous = ENV.LIFERAY_API_URL;
+      ENV.LIFERAY_API_URL = '';
+      // Persistent, not `Once`: every read must see the unresolved state, and
+      // a `Once` is consumed by the first of them.
+      configNode.lxcConfig.dxpMainDomain.mockReturnValue(null);
+      configNode.lxcConfig.dxpProtocol.mockReturnValue(null);
+
+      try {
+        const service = new OAuthService(mockContext);
+
+        // Nothing to resolve yet, and - the point - nothing cached.
+        expect(service.liferayUrl).toBeFalsy();
+        expect(service.tokenEndpoint).toBeNull();
+
+        // Liferay's main servlet is hit and the tree appears.
+        configNode.lxcConfig.dxpMainDomain.mockReturnValue('localhost');
+        configNode.lxcConfig.dxpProtocol.mockReturnValue('http');
+
+        expect(service.liferayUrl).toBe('http://localhost');
+        expect(service.tokenEndpoint).toBe('http://localhost/o/oauth2/token');
+      } finally {
+        ENV.LIFERAY_API_URL = previous;
+        configNode.lxcConfig.dxpMainDomain.mockReturnValue('localhost');
+        configNode.lxcConfig.dxpProtocol.mockReturnValue('http');
+      }
+    });
+
+    it('does not re-resolve once it has a real answer', () => {
+      const service = new OAuthService(mockContext);
+
+      expect(service.liferayUrl).toBe('http://localhost');
+
+      // A later change must not move an instance that already resolved -
+      // callers hold this across requests.
+      //
+      // Restored explicitly rather than left as a `Once`: the point of the
+      // assertion is that the mock is NEVER called again, so a queued `Once`
+      // is never consumed and leaks into the next test. That cost a failure in
+      // an unrelated case the first time this was written.
+      configNode.lxcConfig.dxpMainDomain.mockReturnValue('elsewhere.test');
+
+      try {
+        expect(service.liferayUrl).toBe('http://localhost');
+      } finally {
+        configNode.lxcConfig.dxpMainDomain.mockReturnValue('localhost');
+      }
+    });
+
     it('falls back to LIFERAY_API_URL when config-node names no DXP', () => {
       const previous = ENV.LIFERAY_API_URL;
       configNode.lxcConfig.dxpMainDomain.mockReturnValueOnce(null);
