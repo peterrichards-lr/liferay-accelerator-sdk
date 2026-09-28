@@ -1,4 +1,8 @@
-const { lxcConfig } = require('@rotty3000/config-node');
+const {
+  lxcConfig,
+  lookupConfig,
+  clearCache,
+} = require('@rotty3000/config-node');
 const axios = require('axios');
 const { createERC, normalizeNumber, delay } = require('../utils/misc.cjs');
 const { ENV, ERC_PREFIX } = require('../utils/constants.cjs');
@@ -17,27 +21,30 @@ class OAuthService {
     // Two shapes are accepted: an ERC to resolve via config-node, for a
     // consumer already using it; or a pre-resolved application, for one that
     // does its own lookup or does not use config-node at all.
-    let serverOauthApp = ctx?.serverOauthApp ?? null;
-    const erc = ctx?.oauthApplicationExternalReferenceCode;
+    // An explicitly supplied application is authoritative and is never
+    // re-resolved: that caller has no ERC and no config tree to consult, so
+    // "resolve it again later" would mean resolving it to nothing.
+    this._explicitOauthApp = ctx?.serverOauthApp ?? null;
+    this._oauthApplicationErc = ctx?.oauthApplicationExternalReferenceCode;
+    this._resolvedOauthApp = null;
+    this._lastOauthAppAttemptAt = 0;
 
-    if (!serverOauthApp && erc) {
-      try {
-        serverOauthApp = lxcConfig.oauthApplication(erc);
+    // How long to wait between re-resolution attempts. Every re-resolution
+    // flushes config-node's caches (see `_resolveOauthApplication`), and the
+    // application is read on the path of every token request, so an
+    // unthrottled retry would flush the process's whole configuration cache
+    // and re-stat the config tree once per outbound call.
+    this._oauthAppRetryMs = normalizeNumber(ctx?.oauthApplicationRetryMs, {
+      min: 0,
+      defaultValue: 30000,
+    });
 
-        if (!serverOauthApp && ctx?.logger?.debug) {
-          ctx.logger.debug(
-            `No LXC OAuth application registered for '${erc}'; falling back to environment credentials.`,
-            { operation: 'oauth-application-lookup' }
-          );
-        }
-      } catch (e) {
-        if (ctx?.logger?.warn) {
-          ctx.logger.warn(
-            `Could not resolve OAuth application config from LXC environment: ${e.message}`
-          );
-        }
-      }
-    } else if (!serverOauthApp && ctx?.logger?.debug) {
+    if (!this._explicitOauthApp && this._oauthApplicationErc) {
+      // Attempted here as well as on read, so that a deployment whose
+      // credentials are already present behaves exactly as it did before, and
+      // logs what it always logged, at the moment it always logged it.
+      this._resolvedOauthApp = this._resolveOauthApplication();
+    } else if (!this._explicitOauthApp && ctx?.logger?.debug) {
       // Silence here is what hid the defect in #159: discovery never ran, and
       // every caller quietly used the environment fallback instead.
       ctx.logger.debug(
@@ -51,7 +58,6 @@ class OAuthService {
     this._tokenEndpoint = undefined;
 
     this.pendingTokenPromises = new Map();
-    this.serverOauthApp = serverOauthApp;
 
     this.settings = {
       httpTimeoutMs: normalizeNumber(ENV.OAUTH_HTTP_TIMEOUT_MS, {
@@ -240,6 +246,153 @@ class OAuthService {
   }
 
   /**
+   * The OAuth application whose credentials this client presents, resolved on
+   * read rather than fixed at construction.
+   *
+   * An LXC extension's credentials are written when Liferay registers its
+   * OAuth application, which is downstream of the portal becoming healthy. A
+   * container that starts, waits and schedules correctly can still construct
+   * this client before its own credentials exist; fixing the orchestration
+   * narrows that window but cannot close it. Resolving once meant every later
+   * call fell through to `ENV.LIFERAY_OAUTH_*` for the life of the process.
+   *
+   * Only a usable resolution is cached - one that actually yields a clientId.
+   * An application object that exists but has no clientId is not a resolution,
+   * it is a half-written config tree, and caching it would freeze the miss
+   * exactly as the old shape did.
+   */
+  get serverOauthApp() {
+    if (this._explicitOauthApp) return this._explicitOauthApp;
+    if (this._resolvedOauthApp) return this._resolvedOauthApp;
+
+    // Nothing to resolve from. `null` rather than `undefined` because callers
+    // and tests treat "no application" as a value, not as an absent property.
+    if (!this._oauthApplicationErc) return null;
+
+    if (Date.now() - this._lastOauthAppAttemptAt < this._oauthAppRetryMs) {
+      return null;
+    }
+
+    this._resolvedOauthApp = this._resolveOauthApplication({
+      clearMissCache: true,
+    });
+
+    return this._resolvedOauthApp;
+  }
+
+  /**
+   * Kept so a caller or test can pin an application onto an existing instance.
+   * What is pinned is treated as explicit, and so is never re-resolved.
+   */
+  set serverOauthApp(value) {
+    this._explicitOauthApp = value ?? null;
+  }
+
+  /**
+   * One attempt at reading the application out of the LXC config tree.
+   *
+   * @param {object} [options]
+   * @param {boolean} [options.clearMissCache] Whether to flush config-node's
+   *   caches first. It caches a miss on purpose - `holder.cache.set(key,
+   *   value)` runs whether or not a value was found, with the comment "map
+   *   undefined value so we don't process it over and over again". A lazy
+   *   getter alone is therefore *not* enough: without this flush every retry
+   *   reads the same cached `undefined` and the credentials are never seen, no
+   *   matter how many times we ask. Verified against @rotty3000/config-node
+   *   0.4.x.
+   * @returns {object|null} A usable application, or null.
+   */
+  _resolveOauthApplication({ clearMissCache = false } = {}) {
+    const erc = this._oauthApplicationErc;
+    const logger = this.ctx?.logger;
+
+    this._lastOauthAppAttemptAt = Date.now();
+
+    if (clearMissCache) {
+      try {
+        clearCache();
+      } catch {
+        // A cache we could not flush is a stale read, not a fatal error; the
+        // lookup below still runs and may still succeed.
+      }
+    }
+
+    let application = null;
+    try {
+      application = lxcConfig.oauthApplication(erc) || null;
+    } catch (e) {
+      // This throws rather than returning undefined when the ERC list is
+      // unreadable: it does `ercs.includes(erc)` on an `ercs` that is
+      // undefined, so an absent list surfaces as a TypeError. That is the
+      // ordinary "not registered yet" state, not an exceptional one.
+      // `application` is still the null it was declared as: the assignment
+      // above never completed.
+      logger?.warn?.(
+        `Could not resolve OAuth application config from LXC environment: ${e.message}`
+      );
+    }
+
+    if (application && application.clientId?.()) return application;
+
+    const recovered = this._buildHeadlessServerApplication(erc);
+    if (recovered) return recovered;
+
+    if (!application && logger?.debug) {
+      logger.debug(
+        `No LXC OAuth application registered for '${erc}'; falling back to environment credentials.`,
+        { operation: 'oauth-application-lookup' }
+      );
+    }
+
+    return null;
+  }
+
+  /**
+   * An application read straight from the config tree keys, bypassing
+   * `lxcConfig.oauthApplication`.
+   *
+   * Needed because that function memoises the application it builds, in a
+   * module-private map that `clearCache()` does not reach, with
+   * `applicationType` decided once from whether the headless-server client id
+   * was readable *at build time*. If the ERC list lands before the credentials
+   * - the ordering this whole defect is about - the application is memoised as
+   * USER_AGENT, its `clientId()` reads the user-agent key forever, and no
+   * amount of cache flushing recovers it. Verified against
+   * @rotty3000/config-node 0.4.x.
+   *
+   * Only ever consulted when the primary path produced no clientId, so it
+   * cannot change the result for a deployment that resolves correctly.
+   *
+   * @param {string} erc The external reference code.
+   * @returns {object|null} A headless-server application, or null.
+   */
+  _buildHeadlessServerApplication(erc) {
+    if (!erc) return null;
+
+    let clientId;
+    try {
+      clientId = lookupConfig(`${erc}.oauth2.headless.server.client.id`);
+    } catch {
+      return null;
+    }
+
+    if (!clientId) return null;
+
+    return {
+      applicationType: 0, // OAuthApplicationProfile.HEADLESS_SERVER
+      audience: () => lookupConfig(`${erc}.oauth2.headless.server.audience`),
+      authorizationUri: () => lookupConfig(`${erc}.oauth2.authorization.uri`),
+      clientId: () => lookupConfig(`${erc}.oauth2.headless.server.client.id`),
+      clientSecret: () =>
+        lookupConfig(`${erc}.oauth2.headless.server.client.secret`),
+      introspectionUri: () => lookupConfig(`${erc}.oauth2.introspection.uri`),
+      jwksUri: () => lookupConfig(`${erc}.oauth2.jwks.uri`),
+      scopes: () => lookupConfig(`${erc}.oauth2.headless.server.scopes`),
+      tokenUri: () => lookupConfig(`${erc}.oauth2.token.uri`),
+    };
+  }
+
+  /**
    * Where Liferay is, resolved on read rather than at construction.
    *
    * This was assigned once in the constructor from `lxcConfig.dxpMainDomain()`.
@@ -288,10 +441,19 @@ class OAuthService {
     // may find one.
     if (!url || !url.trim()) return null;
 
-    const uri = this.serverOauthApp?.tokenUri?.();
+    const application = this.serverOauthApp;
+    const uri = application?.tokenUri?.();
     const resolved = uri ? `${url}${uri}` : `${url}/o/oauth2/token`;
 
-    this._tokenEndpoint = resolved;
+    // Not cached while the application is still unresolved. An LXC-registered
+    // application may declare its own token path, so freezing the default here
+    // would outlive the credentials arriving and send every token request to
+    // the wrong path - the same "answered before the answer could exist"
+    // mistake this class has made twice already. Nothing to wait for when no
+    // ERC was supplied, so that case caches as before.
+    if (application || !this._oauthApplicationErc) {
+      this._tokenEndpoint = resolved;
+    }
 
     return resolved;
   }

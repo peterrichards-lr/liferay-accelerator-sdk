@@ -12,6 +12,9 @@ const {
 const { PATH } = require('../utils/liferayPaths.cjs');
 const { delay, fromI18n } = require('../utils/misc.cjs');
 const { exclusionKeyFor } = require('../utils/exclusionKeys.cjs');
+const { lookupConfig } = require('@rotty3000/config-node');
+const { isValidAbsoluteUrl } = require('../utils/liferayEnv.cjs');
+const { ENV } = require('../utils/constants.cjs');
 class LiferayService {
   constructor(ctx) {
     this.ctx = ctx;
@@ -608,23 +611,82 @@ class LiferayService {
    * Resilience: Retries connection test until Liferay is reachable or timeout hit.
    * Used at startup to prevent "Ghost failures" during the boot sequence.
    */
-  async waitForLiferay(maxAttempts = 12, delayMs = 5000) {
+  /**
+   * The target for the startup probe, in the order the probe trusts.
+   *
+   * The probe has no caller to take a URL from - it runs at boot, before any
+   * request exists - so until #289 it could only use what
+   * `resolveEffectiveLiferayConnection` derived, which on a colocated
+   * deployment is `com.liferay.lxc.dxp.main.domain`. That value is correct and
+   * unusable: Liferay records its own listener address, `localhost`, which is
+   * not reachable from a different container on the same host. Sixty probes,
+   * five minutes, none of which could have succeeded.
+   *
+   * @param {string} [explicitUrl] A URL the caller stated. Wins outright.
+   * @returns {string|null} The URL to probe, or null to let the existing
+   *   resolution stand.
+   */
+  _resolveProbeTarget(explicitUrl) {
+    // 1. A caller that states a URL gets exactly that URL.
+    if (isValidAbsoluteUrl(explicitUrl)) return explicitUrl;
+
+    // 2. An operator override. Deliberately above the config tree: someone who
+    //    sets this has said where Liferay is, and the tree is what they are
+    //    overriding.
+    if (isValidAbsoluteUrl(ENV.LIFERAY_API_URL)) return ENV.LIFERAY_API_URL;
+
+    // 3. The domain the platform injects into the container's environment.
+    //    Free on any LXC deployment, and on a colocated one it is exactly what
+    //    must be used instead of the tree's loopback value. Note this is a
+    //    different key from `com.liferay.lxc.dxp.main.domain`: config-node
+    //    mangles that one to COM_LIFERAY_LXC_DXP_MAIN_DOMAIN, so the tree's
+    //    `localhost` and this variable's routable domain coexist.
+    const lxcDomain = process.env.LIFERAY_LXC_DXP_MAIN_DOMAIN;
+    if (lxcDomain) {
+      const protocol = lookupConfig('com.liferay.lxc.dxp.server.protocol');
+      const built = `${protocol || 'https'}://${lxcDomain}`;
+      if (isValidAbsoluteUrl(built)) return built;
+    }
+
+    // 4. Nothing to say; today's resolution stands, unchanged.
+    return null;
+  }
+
+  async waitForLiferay(maxAttemptsOrOptions = 12, delayMs = 5000) {
     const { logger } = this.ctx;
     const {
       resolveEffectiveLiferayConnection,
     } = require('../utils/liferayEnv.cjs');
 
-    // Use default environment credentials for the probe
+    // Positional for every existing caller; an options object for one that
+    // knows the target, which is the thing #289 made possible.
+    const options =
+      typeof maxAttemptsOrOptions === 'object' && maxAttemptsOrOptions !== null
+        ? maxAttemptsOrOptions
+        : {};
+    const maxAttempts =
+      options.maxAttempts ??
+      (typeof maxAttemptsOrOptions === 'number' ? maxAttemptsOrOptions : 12);
+    const effectiveDelayMs = options.delayMs ?? delayMs;
+
+    const target = this._resolveProbeTarget(options.liferayUrl);
+
+    // Fed in as a caller-supplied URL rather than used on its own, so the
+    // credentials and colocation flags this resolution provides still come
+    // back. `resolveEffectiveLiferayConnection` takes `config.liferayUrl`
+    // ahead of everything it would otherwise derive.
+    const seed = target ? { liferayUrl: target } : {};
+
     let config;
     try {
       config = resolveEffectiveLiferayConnection(
-        {},
+        seed,
         this.ctx.oauth,
         this.ctx.persistence
       );
     } catch (_err) {
-      const { lookupConfig } = require('@rotty3000/config-node');
       const rawUrl =
+        target ||
         lookupConfig('com.liferay.lxc.dxp.main.domain') ||
         lookupConfig('com.liferay.lxc.dxp.server.host') ||
         process.env.LIFERAY_URL ||
@@ -644,7 +706,7 @@ class LiferayService {
       {
         operation: 'startup-probe-start',
         maxAttempts,
-        delayMs,
+        delayMs: effectiveDelayMs,
       }
     );
     for (let i = 1; i <= maxAttempts; i++) {
@@ -659,13 +721,13 @@ class LiferayService {
         }
       } catch (err) {
         logger.debug(
-          `Startup probe ${i}/${maxAttempts} failed: ${err.message}. Retrying in ${delayMs}ms...`,
+          `Startup probe ${i}/${maxAttempts} failed: ${err.message}. Retrying in ${effectiveDelayMs}ms...`,
           {
             operation: 'startup-probe-retry',
           }
         );
       }
-      await delay(delayMs);
+      await delay(effectiveDelayMs);
     }
     logger.warn(
       `Liferay connectivity probe timed out after ${maxAttempts} attempts. Proceeding with caution.`,
