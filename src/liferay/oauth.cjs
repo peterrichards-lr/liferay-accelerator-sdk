@@ -289,6 +289,43 @@ class OAuthService {
   }
 
   /**
+   * Discards a resolved application so the next read goes back to the tree.
+   *
+   * Resolving on read fixed reading too EARLY. It does nothing about the
+   * credentials being replaced AFTER a successful resolution, because a cached
+   * success is never revisited - and Liferay rewrites the config tree when it
+   * deploys a client extension, which is minutes after a container starts.
+   *
+   * Measured twice, on different days, in an LXC deployment: the container
+   * resolved and obtained a token at minute 0, Liferay rewrote the tree at
+   * about minute 6, and at minute 9 - when the access token expired and a new
+   * one was needed - the cached client id was rejected with
+   * `401 invalid_client` and the process never recovered. The client id in use
+   * matched no application in the published tree.
+   *
+   * Returns whether anything was discarded, so a caller can tell a stale
+   * resolution from credentials that are simply wrong and not retry blindly.
+   *
+   * An EXPLICIT application is never discarded. A caller that pinned one
+   * stated it, has no ERC and no tree to consult, and re-resolving would
+   * resolve it to nothing.
+   *
+   * @returns {boolean}
+   */
+  invalidateResolvedOauthApp() {
+    if (this._explicitOauthApp) return false;
+    if (!this._resolvedOauthApp) return false;
+
+    this._resolvedOauthApp = null;
+    // Not throttled. The retry window exists so that a MISS does not re-stat
+    // the tree on every outbound call; a 401 against a resolution that once
+    // worked is a specific signal that the tree has changed, and waiting
+    // 30 seconds to act on it would leave the process failing in the meantime.
+    this._lastOauthAppAttemptAt = 0;
+    return true;
+  }
+
+  /**
    * One attempt at reading the application out of the LXC config tree.
    *
    * @param {object} [options]
@@ -622,8 +659,63 @@ class OAuthService {
         clientSecret
       );
     } catch (error) {
+      // A rejected credential that we RESOLVED may simply be out of date:
+      // Liferay rewrites the config tree when it deploys a client extension,
+      // and a resolution cached before that still names the old application.
+      // Discard it, re-read, and try once more.
+      //
+      // Exactly once. If the freshly read credentials are rejected too, the
+      // problem is the credentials rather than their age, and retrying a
+      // second time would turn a clear 401 into a loop against the token
+      // endpoint.
+      //
+      // Only here. `getAccessTokenWithCredentials` is given its credentials by
+      // the caller, who stated them; re-resolving those would substitute
+      // something the caller did not ask for.
+      if (this._isAuthRejection(error) && this.invalidateResolvedOauthApp()) {
+        const freshClientId =
+          this.serverOauthApp?.clientId?.() || ENV.LIFERAY_OAUTH_CLIENT_ID;
+        const freshClientSecret =
+          this.serverOauthApp?.clientSecret?.() ||
+          ENV.LIFERAY_OAUTH_CLIENT_SECRET;
+
+        logger?.warn?.(
+          'OAuth credentials were rejected; re-read them from the config tree',
+          {
+            operation: 'oauth-credentials-refresh',
+            status: error?.response?.status ?? error?.statusCode,
+            changed: freshClientId !== clientId,
+          }
+        );
+
+        if (freshClientId && freshClientSecret) {
+          try {
+            return await this._createOrGetAccessToken(
+              this.liferayUrl,
+              freshClientId,
+              freshClientSecret
+            );
+          } catch (retryError) {
+            this._handleException(retryError, this.liferayUrl, freshClientId);
+          }
+        }
+      }
+
       this._handleException(error, this.liferayUrl, clientId);
     }
+  }
+
+  /**
+   * Whether the server rejected who we claimed to be, as opposed to failing.
+   *
+   * 401 and 403 are the two the token endpoint uses for a client it will not
+   * accept, and they are the two `_createAccessTokenWithRetry` treats as
+   * non-retriable - correctly, since repeating a rejected credential cannot
+   * change the answer. Re-reading it can.
+   */
+  _isAuthRejection(error) {
+    const status = error?.response?.status ?? error?.statusCode;
+    return status === 401 || status === 403;
   }
 
   async getAccessTokenWithCredentials(liferayUrl, clientId, clientSecret) {
