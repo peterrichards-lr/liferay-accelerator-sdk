@@ -744,6 +744,79 @@ class OAuthService {
         clientSecret
       );
     } catch (error) {
+      // Recovery here as well as in `getAccessTokenFromRoute`, because a
+      // colocated consumer never reaches that method and so could never
+      // recover at all.
+      //
+      // `resolveEffectiveLiferayConnection` fills clientId and clientSecret
+      // from the resolved application before the transport calls
+      // `getAccessToken`, so `hasClientId` is true at the dispatch and every
+      // LXC deployment lands HERE. The fix in 2f39af8 went into the branch
+      // those deployments never take.
+      //
+      // That commit declined to re-resolve in this method, on the grounds that
+      // its credentials were stated by the caller and substituting them would
+      // give the caller something it did not ask for. That reasoning is right
+      // wherever it holds, and it does not hold for the case above: the SDK
+      // resolved those credentials itself and handed them to its own
+      // transport. They are route-resolved credentials arriving through the
+      // caller-supplied door.
+      //
+      // The two are told apart by `credentialsWereResolvedByUs`: credentials
+      // we resolved are necessarily equal to the resolved application's, and a
+      // caller who stated their own will not match. So a caller is never
+      // substituted, which is the property the original objection was
+      // protecting. Credentials that came from the ENV fallback do not match
+      // either (nothing resolved), and correctly get no retry - there is no
+      // tree to re-read.
+      //
+      // Observed, not hypothetical: AICA#1215 / run 37475461909 caught the
+      // tree being rewritten mid-run, the client id changing length from 38 to
+      // 37 bytes, and 451 consecutive invalid_client failures against the one
+      // stale value. See #297.
+      const resolvedClientId = this._explicitOauthApp
+        ? null
+        : this._resolvedOauthApp?.clientId?.();
+
+      const credentialsWereResolvedByUs =
+        Boolean(resolvedClientId) && resolvedClientId === clientId;
+
+      if (
+        this._isAuthRejection(error) &&
+        credentialsWereResolvedByUs &&
+        this.invalidateResolvedOauthApp()
+      ) {
+        const freshClientId =
+          this.serverOauthApp?.clientId?.() || ENV.LIFERAY_OAUTH_CLIENT_ID;
+        const freshClientSecret =
+          this.serverOauthApp?.clientSecret?.() ||
+          ENV.LIFERAY_OAUTH_CLIENT_SECRET;
+
+        logger?.warn?.(
+          'OAuth credentials were rejected; re-read them from the config tree',
+          {
+            operation: 'oauth-credentials-refresh',
+            status: error?.response?.status ?? error?.statusCode,
+            changed: freshClientId !== clientId,
+          }
+        );
+
+        if (freshClientId && freshClientSecret) {
+          try {
+            // The caller's liferayUrl, never `this.liferayUrl`. Discarding it
+            // is #227's failure, documented directly below this method, and a
+            // retry is not a licence to reintroduce it.
+            return await this._createOrGetAccessToken(
+              liferayUrl,
+              freshClientId,
+              freshClientSecret
+            );
+          } catch (retryError) {
+            this._handleException(retryError, liferayUrl, freshClientId);
+          }
+        }
+      }
+
       this._handleException(error, liferayUrl, clientId);
     }
   }

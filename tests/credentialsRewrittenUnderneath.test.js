@@ -174,3 +174,114 @@ describe('credentials rewritten underneath a running process', () => {
     expect(service.serverOauthApp.clientId()).toBe('pinned-id');
   });
 });
+
+describe('the same rewrite, reached through getAccessTokenWithCredentials', () => {
+  // The branch every colocated consumer actually takes.
+  // `resolveEffectiveLiferayConnection` fills clientId/clientSecret from the
+  // resolved application before the transport calls getAccessToken, so
+  // `hasClientId` is true at the dispatch and getAccessTokenFromRoute - where
+  // the recovery above lives - is never reached. AICA#1215 / run 37475461909
+  // caught this: 451 consecutive invalid_client failures against one stale
+  // client id, with the correct one sitting unread in the tree. See #297.
+
+  it('re-reads the tree when the credentials it was HANDED are ones we resolved', async () => {
+    const erc = nextErc();
+    const seen = [];
+
+    const service = resolvedService(erc, {
+      onToken: (clientId) => {
+        seen.push(clientId);
+        if (clientId === 'first-client-id') throw rejection(401);
+        return {
+          data: { access_token: 'token-after-rewrite', expires_in: 60 },
+        };
+      },
+    });
+
+    // Minute 0: the transport resolves and passes them in, as it does.
+    const resolved = service.getDefaultClientId();
+    expect(resolved).toBe('first-client-id');
+
+    write(`${erc}.oauth2.headless.server.client.id`, 'second-client-id');
+    write(`${erc}.oauth2.headless.server.client.secret`, 'second-secret');
+
+    const token = await service.getAccessTokenWithCredentials(
+      'https://dxp.example.test',
+      resolved,
+      'first-secret'
+    );
+
+    expect(token).toBe('token-after-rewrite');
+    expect(seen).toEqual(['first-client-id', 'second-client-id']);
+  });
+
+  it('does NOT substitute credentials a caller stated itself', async () => {
+    // The property the whole design rests on, so it gets a test rather than a
+    // comment. 2f39af8 declined to re-resolve here precisely to protect it.
+    // A caller's id cannot equal the resolved one, which is what makes the
+    // recovery above safe to add.
+    const erc = nextErc();
+    const seen = [];
+
+    const service = resolvedService(erc, {
+      onToken: (clientId) => {
+        seen.push(clientId);
+        throw rejection(401);
+      },
+    });
+
+    expect(service.getDefaultClientId()).toBe('first-client-id');
+
+    write(`${erc}.oauth2.headless.server.client.id`, 'second-client-id');
+    write(`${erc}.oauth2.headless.server.client.secret`, 'second-secret');
+
+    await expect(
+      service.getAccessTokenWithCredentials(
+        'https://dxp.example.test',
+        'a-caller-stated-id',
+        'a-caller-stated-secret'
+      )
+    ).rejects.toThrow();
+
+    // One attempt, with what the caller gave. Nothing re-read, nothing swapped.
+    expect(seen).toEqual(['a-caller-stated-id']);
+  });
+
+  it("retries against the CALLER's url, not this.liferayUrl", async () => {
+    // #227 arrived by discarding the caller's URL and using this.liferayUrl,
+    // handing back a valid token for the wrong instance. A retry is not a
+    // licence to reintroduce it.
+    const erc = nextErc();
+    const urls = [];
+
+    const service = resolvedService(erc, {
+      onToken: (clientId) => {
+        if (clientId === 'first-client-id') throw rejection(401);
+        return { data: { access_token: 'ok', expires_in: 60 } };
+      },
+    });
+    service.liferayUrl = 'https://WRONG-instance.example.test';
+
+    service._createAccessTokenWithRetry = vi.fn(async (tokenUrl, clientId) => {
+      urls.push(tokenUrl);
+      if (clientId === 'first-client-id') throw rejection(401);
+      return { data: { access_token: 'ok', expires_in: 60 } };
+    });
+
+    const resolved = service.getDefaultClientId();
+    write(`${erc}.oauth2.headless.server.client.id`, 'second-client-id');
+    write(`${erc}.oauth2.headless.server.client.secret`, 'second-secret');
+
+    await service.getAccessTokenWithCredentials(
+      'https://caller-said-this.example.test',
+      resolved,
+      'first-secret'
+    );
+
+    expect(urls).toHaveLength(2);
+    for (const u of urls) {
+      expect(u).toContain('caller-said-this.example.test');
+      expect(u).not.toContain('WRONG-instance');
+    }
+  });
+});
