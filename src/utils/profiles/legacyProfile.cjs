@@ -382,6 +382,13 @@ const PATH = {
   TAXONOMY_CATEGORIES: (vocabularyId) =>
     `${API_ROOT.TAXONOMY}/taxonomy-vocabularies/${vocabularyId}/taxonomy-categories`,
 
+  // A child category is created under its PARENT, not under the vocabulary.
+  // Liferay carries the vocabulary down from the parent, so this path takes no
+  // vocabulary id - passing one would be the caller asserting something the
+  // server already knows and could contradict.
+  TAXONOMY_CATEGORY_CHILDREN: (parentCategoryId) =>
+    `${API_ROOT.TAXONOMY}/taxonomy-categories/${parentCategoryId}/taxonomy-categories`,
+
   /**
    * Upserts a site from a site-initializer bundle, keyed by external reference
    * code (peterrichards-lr/liferay-demo-accelerator#65).
