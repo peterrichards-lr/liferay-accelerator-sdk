@@ -108,3 +108,101 @@ describe('taxonomy categories, nested and flat', () => {
     expect(args[3]).toBeNull();
   });
 });
+
+describe('reading categories back with their structure', () => {
+  /** Capture the query the SDK sends, without a network. */
+  async function capturedQuery() {
+    const GraphQLService = require('../src/liferay/graphql.cjs');
+    const svc = Object.create(GraphQLService.prototype);
+    let sent = '';
+
+    svc.ctx = { logger: { warn: vi.fn() } };
+    svc._safeGraphQLInt = (v) => Number(v);
+    svc._getClient = async () => ({
+      post: async (_url, body) => {
+        sent = body.query;
+        return {
+          data: {
+            data: {
+              headlessAdminTaxonomy_v1_0: {
+                taxonomyVocabularyTaxonomyCategories: {
+                  items: [],
+                  totalCount: 0,
+                },
+              },
+            },
+          },
+        };
+      },
+    });
+
+    await svc.getTaxonomyCategories({}, 42);
+
+    return sent;
+  }
+
+  it('asks for the parent, so a flat page can be rebuilt into a tree', async () => {
+    const q = await capturedQuery();
+
+    expect(q).toMatch(/parentTaxonomyCategory\s*{[^}]*\bid\b/);
+    expect(q).toMatch(/parentTaxonomyCategory\s*{[^}]*externalReferenceCode/);
+  });
+
+  it('asks for the path Liferay already computes', async () => {
+    // Cheaper and more trustworthy than deriving it from parent links.
+    expect(await capturedQuery()).toMatch(/^\s*path\s*$/m);
+  });
+
+  it('KEEPS flatten: true', async () => {
+    // Dropping it returns only top-level categories, so reading a tree would
+    // cost one request per level per branch. Flat page plus parent links is
+    // one request for the whole vocabulary.
+    expect(await capturedQuery()).toContain('flatten: true');
+  });
+
+  it('selects only fields the shipped OpenAPI schema defines', async () => {
+    // An unknown field fails the ENTIRE query, for every existing caller, so
+    // the QUERY is checked against the schema.
+    //
+    // The first version of this test asserted the schema contained the fields
+    // this test named — which says nothing about what the query asks for. A
+    // perturbation adding `notARealField` to the query left it green. It is
+    // the selection that has to be derived from the source, not the
+    // expectation.
+    const schema = require('../api-schemas/headless-admin-taxonomy-v1.0-openapi.json');
+    const category = schema.components.schemas.TaxonomyCategory.properties;
+    const parent = schema.components.schemas.ParentTaxonomyCategory.properties;
+
+    const query = await capturedQuery();
+    const items = query.slice(query.indexOf('items {'));
+
+    // Fields selected on the category, down to the nested parent block.
+    const categoryFields = items
+      .slice(0, items.indexOf('parentTaxonomyCategory'))
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(l));
+
+    const parentBlock = items.slice(items.indexOf('parentTaxonomyCategory'));
+    const parentFields = parentBlock
+      .slice(parentBlock.indexOf('{') + 1, parentBlock.indexOf('}'))
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(l));
+
+    expect(categoryFields.length).toBeGreaterThan(3);
+    expect(parentFields.length).toBeGreaterThan(1);
+
+    for (const f of categoryFields) {
+      expect(category, `TaxonomyCategory has no field '${f}'`).toHaveProperty(
+        f
+      );
+    }
+    for (const f of parentFields) {
+      expect(
+        parent,
+        `ParentTaxonomyCategory has no field '${f}'`
+      ).toHaveProperty(f);
+    }
+  });
+});
