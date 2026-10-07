@@ -328,16 +328,13 @@ class LiferayGraphQLService {
    * recoverable from that flat list, which is what a caller building or
    * reusing a hierarchy actually needs.
    *
-   * `path` comes from Liferay and is the category's full path. Selected
-   * because the alternative is reconstructing it from parent links, and a
-   * value the server already computes is worth more than one we derive.
-   *
-   * All four fields are in the shipped OpenAPI schema
-   * (`api-schemas/headless-admin-taxonomy-v1.0-openapi.json`,
-   * `TaxonomyCategory.parentTaxonomyCategory` -> `ParentTaxonomyCategory`
-   * with id, externalReferenceCode and name; `TaxonomyCategory.path`), so
-   * this is not a guess at what GraphQL will accept - an unknown field would
-   * fail the whole query for every existing caller.
+   * `path` is NOT selected, though Liferay's REST schema defines it on
+   * TaxonomyCategory. The GraphQL schema does not - `Cannot query field
+   * "path" on type "TaxonomyCategory"` - and the two are different schemas.
+   * Ancestors come from the parent links instead. Reasoning from the OpenAPI
+   * document about what GraphQL will accept is what put it here; validate
+   * against liferay_schema.graphql, which tests/graphqlSchemaValidation
+   * does for every query in this file.
    *
    * See liferay-ai-commerce-accelerator#1204.
    */
@@ -353,7 +350,6 @@ class LiferayGraphQLService {
               externalReferenceCode
               name
               description
-              path
               parentTaxonomyCategory {
                 id
                 externalReferenceCode
