@@ -116,11 +116,17 @@ class TaxonomyService {
     return regions;
   }
 
-  createTaxonomyCategory(config, vocabularyId, categoryPayload) {
+  createTaxonomyCategory(
+    config,
+    vocabularyId,
+    categoryPayload,
+    parentTaxonomyCategoryId = null
+  ) {
     return this.liferay.rest.createTaxonomyCategory(
       config,
       vocabularyId,
-      categoryPayload
+      categoryPayload,
+      parentTaxonomyCategoryId
     );
   }
 }

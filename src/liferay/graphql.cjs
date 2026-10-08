@@ -318,6 +318,26 @@ class LiferayGraphQLService {
     }
   }
 
+  /**
+   * Every category in a vocabulary, at every level, with its parent.
+   *
+   * `flatten: true` is KEPT, not dropped. Without it the query returns only
+   * the vocabulary's top-level categories, and reading a tree would cost one
+   * request per level per branch. With it, every descendant arrives in one
+   * page - and selecting `parentTaxonomyCategory` makes the structure
+   * recoverable from that flat list, which is what a caller building or
+   * reusing a hierarchy actually needs.
+   *
+   * `path` is NOT selected, though Liferay's REST schema defines it on
+   * TaxonomyCategory. The GraphQL schema does not - `Cannot query field
+   * "path" on type "TaxonomyCategory"` - and the two are different schemas.
+   * Ancestors come from the parent links instead. Reasoning from the OpenAPI
+   * document about what GraphQL will accept is what put it here; validate
+   * against liferay_schema.graphql, which tests/graphqlSchemaValidation
+   * does for every query in this file.
+   *
+   * See liferay-ai-commerce-accelerator#1204.
+   */
   async getTaxonomyCategories(config, vocabularyId) {
     const client = await this._getClient(config);
     const safeVocabularyId = this._safeGraphQLInt(vocabularyId, 'vocabularyId');
@@ -330,6 +350,11 @@ class LiferayGraphQLService {
               externalReferenceCode
               name
               description
+              parentTaxonomyCategory {
+                id
+                externalReferenceCode
+                name
+              }
             }
             totalCount
           }

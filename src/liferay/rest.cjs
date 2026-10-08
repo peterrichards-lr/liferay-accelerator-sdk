@@ -2629,7 +2629,33 @@ class LiferayRestService {
     );
   }
 
-  async createTaxonomyCategory(config, vocabularyId, categoryPayload) {
+  /**
+   * Creates a taxonomy category, optionally beneath another one.
+   *
+   * With no parent this posts to the vocabulary, as it always has. With one it
+   * posts to `/taxonomy-categories/{parentId}/taxonomy-categories`, which is
+   * the only way Liferay accepts a child: the vocabulary-scoped endpoint
+   * creates top-level categories and silently ignores a parent in the body.
+   *
+   * Additive on purpose - every existing caller passes three arguments and is
+   * unaffected. See liferay-ai-commerce-accelerator#1204.
+   */
+  async createTaxonomyCategory(
+    config,
+    vocabularyId,
+    categoryPayload,
+    parentTaxonomyCategoryId = null
+  ) {
+    if (parentTaxonomyCategoryId) {
+      return await this.httpCore._post(
+        config,
+        PATH.TAXONOMY_CATEGORY_CHILDREN(parentTaxonomyCategoryId),
+        categoryPayload,
+        'create-taxonomy-category-child',
+        'Failed to create child taxonomy category'
+      );
+    }
+
     return await this.httpCore._post(
       config,
       PATH.TAXONOMY_CATEGORIES(vocabularyId),
