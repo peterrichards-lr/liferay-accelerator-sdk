@@ -133,6 +133,43 @@ const ENV = {
   LIFERAY_COMPANY_ID: num('LIFERAY_COMPANY_ID', 20101),
   LIFERAY_OAUTH_CLIENT_ID: str('LIFERAY_OAUTH_CLIENT_ID', ''),
   LIFERAY_OAUTH_CLIENT_SECRET: str('LIFERAY_OAUTH_CLIENT_SECRET', ''),
+
+  // OAuthService reads every one of these as `ENV.OAUTH_*` and they were
+  // never defined here - the names existed only in ABS_MIN above, so each
+  // lookup was `undefined` and `normalizeNumber` always took its literal
+  // fallback. Five documented environment overrides that silently did
+  // nothing, in a service whose timeouts and retry budget are exactly what an
+  // operator reaches for when a slow instance starts timing out.
+  //
+  // The defaults are the ones OAuthService already applies, so nothing moves
+  // for anyone who sets nothing. ABS_MIN supplies the floor, as it does for
+  // the queue settings above: a 0ms HTTP timeout or a negative skew is a
+  // misconfiguration that should be clamped rather than obeyed.
+  //
+  // Found from liferay-ai-commerce-accelerator#1243, where the OAuth
+  // Configuration panel turned out to write five values nothing read. This is
+  // the SDK half of it.
+  OAUTH_HTTP_TIMEOUT_MS: num(
+    'OAUTH_HTTP_TIMEOUT_MS',
+    15000,
+    ABS_MIN.OAUTH_HTTP_TIMEOUT_MS
+  ),
+  OAUTH_MAX_RETRIES: num('OAUTH_MAX_RETRIES', 2, ABS_MIN.OAUTH_MAX_RETRIES),
+  OAUTH_RETRY_BACKOFF_MS: num(
+    'OAUTH_RETRY_BACKOFF_MS',
+    500,
+    ABS_MIN.OAUTH_RETRY_BACKOFF_MS
+  ),
+  OAUTH_TOKEN_SKEW_SEC: num(
+    'OAUTH_TOKEN_SKEW_SEC',
+    60,
+    ABS_MIN.OAUTH_TOKEN_SKEW_SEC
+  ),
+  OAUTH_TOKEN_CACHE_TTL: num(
+    'OAUTH_TOKEN_CACHE_TTL',
+    3600000,
+    ABS_MIN.OAUTH_TOKEN_CACHE_TTL
+  ),
   LIFERAY_AUTH_METHOD: str('LIFERAY_AUTH_METHOD', ''),
 
   // Application base of the search-reindex OSGi module. It is deployed by the
