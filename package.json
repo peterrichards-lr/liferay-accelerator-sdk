@@ -38,14 +38,14 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
-    "@vitest/coverage-v8": "5.0.2",
-    "eslint": "10.11.0",
-    "globals": "17.12.0",
+    "@vitest/coverage-v8": "5.0.3",
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
     "graphql": "^17.0.2",
-    "msw": "^3.0.0",
+    "msw": "^3.0.2",
     "prettier": "3.9.9",
-    "vite": "8.3.1",
-    "vitest": "5.0.2"
+    "vite": "8.3.2",
+    "vitest": "5.0.3"
   },
   "resolutions": {
     "@hono/node-server": "^2.0.5",
