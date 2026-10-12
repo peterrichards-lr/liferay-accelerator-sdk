@@ -111,16 +111,20 @@ class OAuthService {
         defaultValue: this.settings.tokenCacheTtlMs,
       }),
     };
-    this.settings = {
-      httpTimeoutMs: Math.max(this.settings.httpTimeoutMs, next.httpTimeoutMs),
-      maxRetries: Math.max(this.settings.maxRetries, next.maxRetries),
-      backoffBaseMs: Math.max(this.settings.backoffBaseMs, next.backoffBaseMs),
-      tokenSkewSec: Math.max(this.settings.tokenSkewSec, next.tokenSkewSec),
-      tokenCacheTtlMs: Math.max(
-        this.settings.tokenCacheTtlMs,
-        next.tokenCacheTtlMs
-      ),
-    };
+    // What was asked for, not the larger of it and what is already set.
+    //
+    // Each field was combined with the current value using `Math.max`, so
+    // `applyConfig` could only ever raise one. A shorter `httpTimeoutMs`, a
+    // `maxRetries` of 0, a smaller `tokenCacheTtlMs` - the direction an
+    // operator reaches for when something is wrong - was accepted, logged as
+    // applied, and discarded, permanently for the life of the process.
+    //
+    // The lower bound is the `min` on each `normalizeNumber` above, named per
+    // field in ABS_MIN since v0.12.6 and shared with the ENV.OAUTH_*
+    // overrides. That is the mechanism that stops a configuration making this
+    // client arbitrarily fragile, and it says 3000ms is acceptable where the
+    // clamp said only >= 15000 was. See #305.
+    this.settings = next;
     logger?.debug?.('OAuthService config applied', {
       operation: 'oauth-config-apply',
       settings: this.settings,
