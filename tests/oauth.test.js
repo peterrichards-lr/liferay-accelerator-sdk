@@ -56,8 +56,81 @@ describe('OAuthService', () => {
         tokenCacheTtlMs: 120000,
       });
       expect(service.settings.maxRetries).toBe(5);
-      expect(service.settings.tokenSkewSec).toBe(60); // Math.max with default 60
-      expect(service.settings.tokenCacheTtlMs).toBe(3600000); // Math.max with default 3600000
+      // These two asked for less than the default and used to come back
+      // unchanged, asserted here as `Math.max with default 60`. That comment
+      // named the mechanism rather than a reason, and a green test is why the
+      // ratchet survived. See #305.
+      expect(service.settings.tokenSkewSec).toBe(30);
+      expect(service.settings.tokenCacheTtlMs).toBe(120000);
+    });
+
+    /**
+     * The direction that was impossible.
+     *
+     * `applyConfig` combined each field with the value already set using
+     * `Math.max`, so it could only ever raise one. Lowering is the ordinary
+     * case for all five - a shorter timeout to fail faster, no retries for a
+     * request known to be fatal, a smaller cache to force an earlier refresh -
+     * and it was accepted, logged as applied, and discarded. See #305.
+     */
+    describe('a lower value is a value (#305)', () => {
+      const LOWER = {
+        httpTimeoutMs: 9000,
+        maxRetries: 0,
+        backoffBaseMs: 200,
+        tokenSkewSec: 10,
+        tokenCacheTtlMs: 600000,
+      };
+
+      it.each(Object.entries(LOWER))('lowers %s to %i', (field, value) => {
+        const service = new OAuthService(mockContext);
+
+        // Below the default, or this asserts nothing: under the old clamp a
+        // value above the default passed either way.
+        expect(value).toBeLessThan(service.settings[field]);
+
+        service.applyConfig({ [field]: value });
+
+        expect(service.settings[field]).toBe(value);
+      });
+
+      it('lowers every field at once, which is how a panel saves', () => {
+        const service = new OAuthService(mockContext);
+        service.applyConfig(LOWER);
+        expect(service.settings).toEqual(LOWER);
+      });
+
+      it('still refuses a value below the field floor', () => {
+        // The floors are the lower bound, and now the only one. ABS_MIN,
+        // shared with the ENV.OAUTH_* overrides since v0.12.6.
+        const service = new OAuthService(mockContext);
+        service.applyConfig({
+          httpTimeoutMs: 1,
+          maxRetries: -5,
+          backoffBaseMs: 1,
+          tokenSkewSec: -1,
+          tokenCacheTtlMs: 1,
+        });
+
+        expect(service.settings).toEqual({
+          httpTimeoutMs: 3000,
+          maxRetries: 0,
+          backoffBaseMs: 100,
+          tokenSkewSec: 0,
+          tokenCacheTtlMs: 60000,
+        });
+      });
+
+      it('leaves a field alone when the config omits it', () => {
+        const service = new OAuthService(mockContext);
+        const before = { ...service.settings };
+
+        service.applyConfig({ maxRetries: 1 });
+
+        expect(service.settings.maxRetries).toBe(1);
+        expect(service.settings.httpTimeoutMs).toBe(before.httpTimeoutMs);
+        expect(service.settings.tokenCacheTtlMs).toBe(before.tokenCacheTtlMs);
+      });
     });
 
     it('should refresh configurations from remote config service', async () => {
