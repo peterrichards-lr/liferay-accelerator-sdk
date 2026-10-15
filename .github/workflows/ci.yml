@@ -23,6 +23,13 @@ jobs:
         if: github.event_name == 'pull_request'
         run: python3 scripts/check-footer-bump.py "origin/${{ github.base_ref }}" "HEAD"
 
+      # Unconditional, unlike the footer check above. That one needs a base to
+      # diff against; this one asks a question about the file as it stands, so
+      # a push to main should answer it too - the notice can be removed by a
+      # direct commit just as easily as by a pull request.
+      - name: Check the community-project notice is above the fold
+        run: python3 scripts/check-community-notice.py
+
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
