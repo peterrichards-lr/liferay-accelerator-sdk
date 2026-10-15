@@ -2,6 +2,8 @@
 
 Hardened Liferay DXP Integration SDK for Batch, Workflow, and API orchestration.
 
+> ℹ️ **Community project** — not an official Liferay product and not covered by Liferay Support. [About this project](#about-this-project)
+
 ## Features
 
 - **Dynamic Catalog Adapters**: Decouples API paths between legacy Commerce (Product-first) and standalone Liferay PIM (SKU-first tree) models.
@@ -846,8 +848,21 @@ The report is logged, broadcast with `emitBatchItemsFailed` and persisted with
 the workflow failure event. Correlation is purely diagnostic - a failure to
 build it never affects callback processing.
 
+---
+
+## About this project
+
+Liferay Accelerator SDK is a community project maintained by Peter Richards. It
+is not an official Liferay product and is not covered by Liferay Support. This
+documentation is written with the help of AI coding agents, with the maintainer
+accountable for what ships; each document shows when it was last updated and
+when it was last reviewed, and `scripts/check-footer-bump.py` fails any pull
+request that changes a document without moving those dates. Found something
+wrong or out of date?
+[Open an issue](https://github.com/peterrichards-lr/liferay-accelerator-sdk/issues/new).
+
 <!-- markdownlint-disable MD049 -->
 
 ---
 
-_Last Updated: 2026-09-18_ | _Last Reviewed: 2026-09-18_
+_Last Updated: 2026-10-15_ | _Last Reviewed: 2026-10-15_
