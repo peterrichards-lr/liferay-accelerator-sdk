@@ -8,6 +8,9 @@ const { createERC, normalizeNumber, delay } = require('../utils/misc.cjs');
 const { ENV, ERC_PREFIX } = require('../utils/constants.cjs');
 const pkceLogin = require('./pkceLogin.cjs');
 
+// How old a refused token must be before it is evicted. See evictAccessToken.
+const REFUSED_TOKEN_MIN_AGE_MS = 60 * 1000;
+
 class OAuthService {
   constructor(ctx) {
     this.ctx = ctx;
@@ -58,6 +61,11 @@ class OAuthService {
     this._tokenEndpoint = undefined;
 
     this.pendingTokenPromises = new Map();
+
+    // The last token cached under each key and when, so a token a resource
+    // refused can be found and evicted without asking more of `ctx.cache` than
+    // get and set. One entry per client, so it stays as small as the cache.
+    this._issuedTokens = new Map();
 
     this.settings = {
       httpTimeoutMs: normalizeNumber(ENV.OAUTH_HTTP_TIMEOUT_MS, {
@@ -179,6 +187,45 @@ class OAuthService {
       },
       finalTtl
     );
+    this._issuedTokens.set(cacheKey, { token, issuedAt: Date.now() });
+  }
+
+  /**
+   * Forget a cached token a resource refused (401/403), so the next request
+   * gets a new one. A token's scopes are fixed when it is issued: when the
+   * scope a request needs is granted later - Liferay resolving a scope alias
+   * only once its object exists - the old token is refused for the rest of
+   * its life, which is ten minutes by default. See #316.
+   *
+   * A token younger than the minimum age is kept. A refusal a new token
+   * cannot fix, such as the user simply lacking the permission, would
+   * otherwise send a token request for every refused call. This way it costs
+   * at most one per client per interval.
+   *
+   * @returns {boolean} whether a token was evicted.
+   */
+  evictAccessToken(token) {
+    if (!token) return false;
+
+    for (const [cacheKey, issued] of this._issuedTokens) {
+      if (issued.token !== token) continue;
+
+      if (Date.now() - issued.issuedAt < REFUSED_TOKEN_MIN_AGE_MS) {
+        return false;
+      }
+
+      // Overwritten as expired rather than deleted: `ctx.cache` is the
+      // consumer's, and get and set are all it is known to provide.
+      this.ctx.cache.set(cacheKey, { token, expiresAt: 0 }, 1);
+      this._issuedTokens.delete(cacheKey);
+      this.ctx.logger?.info?.(
+        'OAuthService: evicted a cached token a resource refused; the next request gets a new one',
+        { operation: 'oauth-token-evict' }
+      );
+      return true;
+    }
+
+    return false;
   }
 
   async _createAccessTokenOnce(tokenUrl, clientId, clientSecret) {
@@ -980,6 +1027,7 @@ class OAuthService {
   clearTokenCache() {
     const tokenCache = this.ctx.cache;
     tokenCache.clear();
+    this._issuedTokens.clear();
   }
 
   isLiferayRouteAvailable() {
