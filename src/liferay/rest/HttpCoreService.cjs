@@ -623,6 +623,7 @@ class HttpCoreService {
   async createAxiosInstance(config) {
     const { oauth } = this.ctx;
     let authHeader;
+    let accessToken;
 
     // Asked for before Basic, so a config naming this mechanism wins over a
     // process-wide LIFERAY_AUTH_METHOD=basic: the config is the more specific
@@ -640,7 +641,7 @@ class HttpCoreService {
         liferayUrl: config.liferayUrl,
       });
     } else {
-      const accessToken = await oauth.getAccessToken(
+      accessToken = await oauth.getAccessToken(
         config.liferayUrl,
         config.clientId,
         config.clientSecret
@@ -648,7 +649,7 @@ class HttpCoreService {
       authHeader = `Bearer ${accessToken}`;
     }
 
-    return axios.create({
+    const client = axios.create({
       baseURL: config.liferayUrl,
       headers: {
         Authorization: authHeader,
@@ -657,6 +658,20 @@ class HttpCoreService {
       },
       timeout: 30000,
     });
+
+    // Only a token this SDK cached can be stale in a way a new one fixes; a
+    // supplied token or Basic credentials are the caller's to replace. The
+    // error is passed on unchanged. See #316.
+    if (accessToken && typeof oauth.evictAccessToken === 'function') {
+      client.interceptors.response.use(undefined, (error) => {
+        if ([401, 403].includes(error?.response?.status)) {
+          oauth.evictAccessToken(accessToken);
+        }
+        return Promise.reject(error);
+      });
+    }
+
+    return client;
   }
 
   async testConnection(config) {
